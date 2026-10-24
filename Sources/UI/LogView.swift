@@ -38,10 +38,10 @@ struct LogView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 controls
-                Divider().overlay(Color.white.opacity(0.12))
+                Divider()
                 logBody
             }
-            .background(Color.black.opacity(0.94).ignoresSafeArea())
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationTitle("日志")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -74,7 +74,7 @@ struct LogView: View {
                 Spacer()
                 Text("共 \(lines.count) 条")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -97,10 +97,10 @@ struct LogView: View {
                 VStack(spacing: 10) {
                     Image(systemName: "text.alignleft")
                         .font(.largeTitle)
-                        .foregroundStyle(.white.opacity(0.25))
+                        .foregroundStyle(.secondary)
                     Text(emptyHint)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
                 }
@@ -145,7 +145,7 @@ struct LogView: View {
         if line.contains("←") { return .green }
         if line.contains("❌") || line.contains("错误") || line.contains("失败") { return .red }
         if line.contains("⚠️") { return .orange }
-        return .white.opacity(0.85)
+        return .primary
     }
 
     // MARK: - 复制

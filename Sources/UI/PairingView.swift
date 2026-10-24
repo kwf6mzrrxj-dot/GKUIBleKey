@@ -27,6 +27,7 @@ import SwiftUI
 struct PairingView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showLog = false
 
@@ -39,12 +40,7 @@ struct PairingView: View {
                 bottomState
                 logArea
             }
-            .background(
-                LinearGradient(colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
-                                        Color(red: 0.07, green: 0.08, blue: 0.11)],
-                               startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
-            )
+            .background(background)
             .navigationTitle("蓝牙车控")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -63,6 +59,23 @@ struct PairingView: View {
         }
     }
 
+    // MARK: - 背景（随浅色/深色自适应）
+
+    private var background: some View {
+        Group {
+            if colorScheme == .dark {
+                LinearGradient(colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
+                                        Color(red: 0.07, green: 0.08, blue: 0.11)],
+                               startPoint: .top, endPoint: .bottom)
+            } else {
+                LinearGradient(colors: [Color(red: 0.93, green: 0.95, blue: 0.98),
+                                        Color(red: 0.84, green: 0.87, blue: 0.92)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
     // MARK: - 顶部：请绑定车辆
     //
     // ⚠️ 原 App 这里有「选择车型」，但实测表明**不同车型的协议完全一致**
@@ -73,11 +86,11 @@ struct PairingView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("请绑定车辆")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(.secondary)
 
             Text("初始化车辆")
                 .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 22)
@@ -90,13 +103,12 @@ struct PairingView: View {
         VStack {
             Spacer(minLength: 0)
             if hasVehicle {
-                // 配对完成 → 静态 3/4 车图
-                CarImage(named: "car_rotate_025")
-                    .frame(maxHeight: 230)
-                    .shadow(color: .white.opacity(0.10), radius: 24)
+                // 配对完成 → 静态博越 PRO 车图
+                CarImage(named: "car_on")
+                    .frame(maxHeight: 220)
                     .transition(.opacity)
             } else {
-                // 配对进行中 → 车辆拼装动画
+                // 配对进行中 → 车灯闪烁
                 CarModelView(status: nil, stage: .pairing)
                     .frame(maxHeight: 240)
             }
@@ -112,11 +124,11 @@ struct PairingView: View {
         VStack(spacing: 8) {
             Text(hasVehicle ? "已绑定车辆" : "暂无车辆")
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
 
             Text(stateDetail)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 30)
 
@@ -130,14 +142,14 @@ struct PairingView: View {
                 }
                 Text(statusText)
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Button {
                     withAnimation { showLog.toggle() }
                 } label: {
                     Image(systemName: showLog ? "chevron.down" : "chevron.up")
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 16)
@@ -156,12 +168,12 @@ struct PairingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     if model.pairing.log.isEmpty {
-                        Text("暂无记录").font(.caption2).foregroundStyle(.white.opacity(0.5))
+                        Text("暂无记录").font(.caption2).foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(model.pairing.log.enumerated()), id: \.offset) { _, line in
                             Text(line)
                                 .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(.primary.opacity(0.8))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }

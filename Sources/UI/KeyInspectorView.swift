@@ -39,7 +39,7 @@ struct KeyInspectorView: View {
                 }
                 .padding(18)
             }
-            .background(Color.black.opacity(0.92).ignoresSafeArea())
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationTitle("密钥")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -56,13 +56,13 @@ struct KeyInspectorView: View {
     private var idSection: some View {
         card("设备标识") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("mobileID = IDFV").font(.caption).foregroundStyle(.white.opacity(0.7))
+                Text("mobileID = IDFV").font(.caption).foregroundStyle(.secondary)
                 Text(KeyStore.shared.idfvDisplay)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.cyan)
                     .textSelection(.enabled)
                 Text("车端用它校验「数字钥匙是否属于本机」。重写 App 时必须保持同一签名，IDFV 才不会变。")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.5))
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
     }
@@ -76,15 +76,15 @@ struct KeyInspectorView: View {
                     let d = KeyStore.shared.get(k)
                     HStack(spacing: 8) {
                         Image(systemName: d != nil ? "checkmark.seal.fill" : "circle.dashed")
-                            .foregroundStyle(d != nil ? .green : .white.opacity(0.3))
+                            .foregroundStyle(d != nil ? .green : .secondary)
                             .font(.caption)
                         Text(k.rawValue.replacingOccurrences(of: "com.glble.sdk.", with: ""))
                             .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.85))
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text(d.map { "\($0.count) B" } ?? "—")
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.5))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -103,7 +103,7 @@ struct KeyInspectorView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("共 \(KeyStore.shared.backupItemCount) 项密钥。导出后请保存到备忘录或文件。")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.secondary)
 
                 Button {
                     let text = KeyStore.shared.exportBackup()
@@ -232,7 +232,7 @@ struct KeyInspectorView: View {
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: 10) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                 content()
             }
             .padding(16)
