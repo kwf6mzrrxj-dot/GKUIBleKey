@@ -504,7 +504,7 @@ public final class AppModel: ObservableObject {
         }
         let frame = measured.buildAuth1()
         guard !frame.isEmpty else {
-            statusLine = "鉴权1 构造失败：缺少密钥材料（先用 0D 帧配对拿 0E）"
+            statusLine = "鉴权1 构造失败：缺少密钥材料（需先配对拿到 0E 密钥）"
             return
         }
         guard ble.send(frame) else {

@@ -185,6 +185,7 @@ public final class MeasuredSession: ObservableObject {
     /// `01` 连接确认 → `02` 挑战 → `03`（末字节 = command）→ `04` 结果。
     /// 也就是说**每个动作都是一次完整的鉴权往返**，不存在"先鉴权一次、再连续发命令"。
     public func perform(_ action: IBCommandType) {
+        isPairing = false   // ★ 正常控车永远走真实密钥，清掉配对占位标志（防配对失败残留）
         pendingAction = action
         controlCode = action.controlCode
         append("准备执行：\(action.label)（控制码 0x\(String(format: "%02X", action.rawValue))）")
