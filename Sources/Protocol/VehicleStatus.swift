@@ -1,65 +1,109 @@
 import Foundation
 
-/// 车辆状态解析。
+/// 车辆状态解析 —— 照原 App `InBlue.framework` 反汇编逐字段还原。
 ///
-/// ## ⚠️ 先纠正一个前提
-/// 原 App 对 `05` 帧**不做解析** —— `-[IBMessageManager analyzeMessage:]` 的
-/// `case 5:` 只有 `setLastPacket:5`。
-/// 真正的状态来自**广播解密**（`parseBroadcastData:`，见下方 `Broadcast`）。
-///
-/// 本结构体因此分两用途：
-/// 1. `Broadcast` / `decryptBroadcast` —— **原 App 的真实路径**，语义已确认；
-/// 2. `VehicleStatus(payload:)` —— 对 `05` 帧的**推测映射**（原 App 不解它），
-///    用于界面展示，判断依据是「`05` 的 19 字节若与广播明文同构」这一假设。
-///    **不要用它做安全判断**（例如「已锁」不能据此确认）。
+/// ## 状态来源（反汇编权威，2026-10-24 二次复核）
+/// 车辆状态**确实通过 BLE 下发并解析**，链路：
+/// ```
+/// -[IBDevice parseBroadcastData:] @0x4bc0
+///   key   = stringToData(cidpu)              ; cidpu 16B 作 AES key
+///   plain = VSSecurity.decryptData:withKey:  ; AES-CBC / IV=0
+///   randomNumber   = plain[0,4)
+///   parseStatus:      plain[4]   → 8 个字段（门锁/车门/后备箱/上电/发动机/引擎盖/ACC）
+///   oemID          = plain[5]
+///   parseDoorsStatus: plain[6]   → 四门独立状态
+///   parsePowerStatus: plain[7]   → ACC 电源
+///   additionalData = plain[8,16)
+/// ```
 ///
 /// ## 位序（`hexToBinary:` @`0x112c0` 高位在前）
-/// `substringWithRange:(7,1)` = **该字节的 bit0**，`(6,1)` = bit1，依此类推。
-/// 所以「loc 7/6/5/4/3」读作「bit0/1/2/3/4」，不是位掩码 `0x40`。
+/// `hexToBinary:` 是标准 hex→4 位二进制（`'0'→"0000"` … `'a'→"1010"`），**MSB 在前**。
+/// 因此 `substringWithRange:(7,1)` 取 8 位串的最后一个字符 = **bit0（LSB）**，
+/// `(6,1)` = bit1，依此类推。三个 `parseXxxStatus:` 各只吃 1 字节，
+/// 所以它们内部的 `(loc,1)` 都是「该字节的第 loc 位（0-based，从 LSB 起）」。
 public struct VehicleStatus: Sendable, Equatable {
 
-    /// 原始载荷（`05` 帧去掉命令号后的 19 字节）
+    /// 原始解密明文（16 字节）
     public var raw: [UInt8]
-    /// 整帧的二进制串（高位在前），等于原 App 的 `hexToBinary:` 结果
+    /// 明文二进制串（高位在前），等于原 App `hexToBinary:` 结果
     public var bits: [Bool]
 
-    // ── `parseStatus:` 已确认的字段 ─────────────────────────────
-    /// bit 7（首字节 bit0）
+    // ── `parseStatus:`（plain[4]）8 个字段 ─────────────────────
+    /// bit0 —— `_isLocked`（门锁）
     public var isLocked: Bool
-    /// bit 6（首字节 bit1）
+    /// bit1 —— `_isDoorClosed`（车门关闭）
     public var isDoorClosed: Bool
-    /// bit 5（首字节 bit2）
+    /// bit2 —— `_isTruckLocked`（后备箱锁）
     public var isTrunkLocked: Bool
-    /// bit 4（首字节 bit3）
+    /// bit3 —— `_isTruckClosed`（后备箱关闭）
     public var isTrunkClosed: Bool
-    /// bit 3（首字节 bit4）
+    /// bit4 —— `_isIgnitionOn`（上电 / 点火开关）
     public var isIgnitionOn: Bool
-    /// bit 1（首字节 bit6）
+    /// bit5 —— `_isEnginRunning`（发动机运行）
     public var isEngineRunning: Bool
-    /// `parseStatus:` 里 loc 未取到的一位（夹在 ignition 与 engine 之间）
-    public var reservedBit2: Bool
+    /// bit6 —— `_isHoodClosed`（引擎盖关闭）
+    public var isHoodClosed: Bool
+    /// bit7 —— 未在 `parseStatus:` 取值（MSB）
+    public var reservedBit7: Bool
 
-    public init(payload: [UInt8]) {
-        raw = payload
-        bits = Self.toBits(payload)
+    // ── `parseDoorsStatus:`（plain[6]）四门 ────────────────────
+    /// 前左门关闭
+    public var isFLDoorClosed: Bool
+    /// 前右门关闭
+    public var isFRDoorClosed: Bool
+    /// 后左门关闭
+    public var isRLDoorClosed: Bool
+    /// 后右门关闭
+    public var isRRDoorClosed: Bool
 
-        // ★ 严格照 `-[IBDevice parseStatus:]` @`0x4de4` 反汇编：
-        //   bin = hexToBinary(hexString(data))
-        //   isLocked = bin[7]  →  **首字节 bit0**
-        //
-        // ⚠️ 适用范围：`parseStatus:` 只被 `parseBroadcastData:`（广播解密）调用，
-        // **不是 `05` 帧的解析器**。原 App 收到 `05` 只 NSLog（case 5）。
-        isLocked = ((payload.first ?? 0) & Self.lockMask) != 0
+    // ── `parsePowerStatus:`（plain[7]）电源 ────────────────────
+    /// ACC 电源（bit0）
+    public var isAccOn: Bool
 
-        // 其余字段：`parseStatus:` 反汇编里 loc 6/5/4/3/1 依次取 bit1/2/3/4/6，
-        // 但广播数据在本车上只有 19 字节（需要 ≥36 字节才有 broadcastData），
-        // 这条路径实际走不到，因此不做语义断言。
-        isDoorClosed = false
-        isTrunkLocked = false
-        isTrunkClosed = false
-        isIgnitionOn = false
-        isEngineRunning = false
-        reservedBit2 = false
+    // ── 其他切分 ───────────────────────────────────────────────
+    /// plain[0,4) 随机数
+    public var randomNumber: [UInt8]
+    /// plain[5] OEM ID
+    public var oemID: UInt8
+    /// plain[8,16) 附加数据
+    public var additionalData: [UInt8]
+
+    /// 是否有有效状态（解密成功过）
+    public var isValid: Bool { !raw.isEmpty }
+
+    /// 从**解密后的 16 字节明文**构造完整状态。
+    /// 对应 `parseBroadcastData:` 解密后的切分 + 三个 `parseXxxStatus:`。
+    public init(decryptedPlain plain: [UInt8]) {
+        raw = plain
+        bits = Self.toBits(plain)
+
+        let statusByte = plain.count > 4 ? plain[4] : 0
+        let doorsByte  = plain.count > 6 ? plain[6] : 0
+        let powerByte  = plain.count > 7 ? plain[7] : 0
+
+        let s = Self.decodeStatusByte(statusByte)
+        let d = Self.decodeDoorsByte(doorsByte)
+        let p = Self.decodePowerByte(powerByte)
+
+        isLocked        = s["isLocked"] ?? false
+        isDoorClosed    = s["isDoorClosed"] ?? false
+        isTrunkLocked   = s["isTrunkLocked"] ?? false
+        isTrunkClosed   = s["isTrunkClosed"] ?? false
+        isIgnitionOn    = s["isIgnitionOn"] ?? false
+        isEngineRunning = s["isEngineRunning"] ?? false
+        isHoodClosed    = s["isHoodClosed"] ?? false
+        reservedBit7    = s["reservedBit7"] ?? false
+
+        isFLDoorClosed  = d["isFLDoorClosed"] ?? false
+        isFRDoorClosed  = d["isFRDoorClosed"] ?? false
+        isRLDoorClosed  = d["isRLDoorClosed"] ?? false
+        isRRDoorClosed  = d["isRRDoorClosed"] ?? false
+
+        isAccOn         = p["isAccOn"] ?? false
+
+        randomNumber    = plain.count >= 4 ? Array(plain[0..<4]) : []
+        oemID           = plain.count > 5 ? plain[5] : 0
+        additionalData  = plain.count >= 16 ? Array(plain[8..<16]) : []
     }
 
     /// 锁车位：`parseStatus:` 取 `bin[7]`，即首字节 **bit0**（掩码 `0x01`）
@@ -84,22 +128,7 @@ public struct VehicleStatus: Sendable, Equatable {
 
     // MARK: - ★ 原 App 的真实状态入口（广播解密）
 
-    /// `-[IBDevice parseBroadcastData:]` @`0x4bc0` 的完整切分：
-    /// ```objc
-    /// key   = [IBNSString stringToData:self.cidpu];        // hex → 16B
-    /// plain = [VSSecurity decryptData:data withKey:key];  // AES-CBC / IV=0
-    /// self.randomNumber   = [plain subdataWithRange:NSMakeRange(0, 4)];
-    /// [self parseStatus:      [plain subdataWithRange:NSMakeRange(4, 1)]];  // ← 只 1 字节
-    /// self.oemID          = [plain subdataWithRange:NSMakeRange(5, 1)];
-    /// [self parseDoorsStatus: [plain subdataWithRange:NSMakeRange(6, 1)]];  // ← 只 1 字节
-    /// [self parsePowerStatus: [plain subdataWithRange:NSMakeRange(7, 1)]];  // ← 只 1 字节
-    /// self.additionalData = [plain subdataWithRange:NSMakeRange(8, 8)];
-    /// ```
-    /// 关键：三个 `parseXxxStatus:` **各只吃 1 个字节**，
-    /// 所以它们内部的 `substringWithRange:(7,1)` 都是「同一字节的 bit0」。
-    ///
-    /// 输入密文来自 `VCBAdvertisingData.broadcastData`：
-    /// Gen02 是 `[6,7)`（1B，太短、无法解密），Gen03 是 `[19,35)`（16B，**只有当厂商数据 ≥36B** 才有）。
+    /// `-[IBDevice parseBroadcastData:]` @`0x4bc0` 的完整切分。
     public struct Broadcast: Sendable {
         public var randomNumber: [UInt8]   // [0,4)
         public var statusRaw: UInt8        // [4]
@@ -129,32 +158,39 @@ public struct VehicleStatus: Sendable, Equatable {
             additionalData: Array(plain[8..<16])))
     }
 
-    /// `parseStatus:` 的单字节位映射（bit 序号按 `hexToBinary` 的字符索引）。
+    /// `parseStatus:` @`0x4de4` 的单字节位映射。
+    ///
+    /// 反汇编：`substringWithRange:(7,1)`→`_isLocked`、`(6,1)`→`_isDoorClosed`、
+    /// `(5,1)`→`_isTruckLocked`、`(4,1)`→`_isTruckClosed`、`(3,1)`→`_isIgnitionOn`、
+    /// `(2,1)`→`_isEnginRunning`、`(1,1)`→`_isHoodClosed`。
+    /// 因 `hexToBinary` 高位在前，`(loc,1)` 即 **bit(loc)**（LSB=0）。
     public static func decodeStatusByte(_ b: UInt8) -> [String: Bool] {
         func bit(_ i: Int) -> Bool { (b >> UInt8(i)) & 1 == 1 }
         return [
-            "isLocked": bit(0),        // loc 7
-            "isDoorClosed": bit(1),    // loc 6
-            "isTrunkLocked": bit(2),   // loc 5
-            "isTrunkClosed": bit(3),   // loc 4
-            "isIgnitionOn": bit(4),    // loc 3
-            "reserved2": bit(5),       // loc 2
-            "isEngineRunning": bit(6), // loc 1
+            "isLocked": bit(0),        // loc 7 → bit0
+            "isDoorClosed": bit(1),    // loc 6 → bit1
+            "isTrunkLocked": bit(2),   // loc 5 → bit2
+            "isTrunkClosed": bit(3),   // loc 4 → bit3
+            "isIgnitionOn": bit(4),    // loc 3 → bit4
+            "isEngineRunning": bit(5), // loc 2 → bit5
+            "isHoodClosed": bit(6),    // loc 1 → bit6
+            "reservedBit7": bit(7),    // loc 0 → bit7（未取值）
         ]
     }
 
-    /// `parseDoorsStatus:` 的单字节位映射（loc 7…1 ⇒ bit0…bit6）
+    /// `parseDoorsStatus:` @`0x5274` 的单字节位映射。
+    ///
+    /// 反汇编：`(7,1)`→`_isFLDoorClosed`、`(6,1)`→`_isFRDoorClosed`、
+    /// `(5,1)`→`_isRLDoorClosed`、`(4,1)`→`_isRRDoorClosed`。
     public static func decodeDoorsByte(_ b: UInt8) -> [String: Bool] {
         func bit(_ i: Int) -> Bool { (b >> UInt8(i)) & 1 == 1 }
         return [
             "isFLDoorClosed": bit(0), "isFRDoorClosed": bit(1),
             "isRLDoorClosed": bit(2), "isRRDoorClosed": bit(3),
-            "isFLDoorLocked": bit(4), "isFRDoorLocked": bit(5),
-            "isRLDoorLocked": bit(6),
         ]
     }
 
-    /// `parsePowerStatus:` 的单字节位映射
+    /// `parsePowerStatus:` @`0x517c` 的单字节位映射（`(7,1)`→`_isAccOn`）。
     public static func decodePowerByte(_ b: UInt8) -> [String: Bool] {
         func bit(_ i: Int) -> Bool { (b >> UInt8(i)) & 1 == 1 }
         return ["isAccOn": bit(0)]
@@ -168,18 +204,26 @@ public struct VehicleStatus: Sendable, Equatable {
         }.joined(separator: " ")
     }
 
-    /// 已知字段的可读摘要（**只陈述有证据的部分**）
+    /// 已知字段的可读摘要
     public var summary: String {
-        isLocked ? "已锁车" : "未锁车"
+        var parts: [String] = []
+        parts.append(isLocked ? "已锁" : "未锁")
+        parts.append(isIgnitionOn ? "上电" : "未上电")
+        parts.append(isEngineRunning ? "发动机运行" : "发动机停")
+        parts.append(isAccOn ? "ACC开" : "ACC关")
+        if !isTrunkClosed { parts.append("后备箱开") }
+        return parts.joined(separator: " · ")
     }
 
     public var hex: String { FrameCodec.hexString(raw) }
 
-    /// 逐位明细（全部 152 位，供反推未确认字段）
+    /// 逐字段可读明细（全部字段，来自反汇编）
     public var fullDescription: String {
-        var lines: [String] = ["原始：\(hex)", "位串：\(bitStringGrouped)"]
-        lines.append("已确认：锁=\(isLocked) 门关=\(isDoorClosed) 尾门锁=\(isTrunkLocked) "
-                     + "尾门关=\(isTrunkClosed) 点火=\(isIgnitionOn) 发动机=\(isEngineRunning)")
+        var lines: [String] = ["原始明文：\(hex)"]
+        lines.append("门锁=\(isLocked) 车门关=\(isDoorClosed) 后备箱锁=\(isTrunkLocked) 后备箱关=\(isTrunkClosed)")
+        lines.append("上电=\(isIgnitionOn) 发动机=\(isEngineRunning) 引擎盖关=\(isHoodClosed) ACC=\(isAccOn)")
+        lines.append("四门：FL=\(isFLDoorClosed) FR=\(isFRDoorClosed) RL=\(isRLDoorClosed) RR=\(isRRDoorClosed)")
+        lines.append("oemID=\(String(format: "%02X", oemID)) randomNumber=\(FrameCodec.hexString(randomNumber))")
         return lines.joined(separator: "\n")
     }
 }

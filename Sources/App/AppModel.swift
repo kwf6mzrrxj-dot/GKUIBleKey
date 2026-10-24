@@ -76,6 +76,10 @@ public final class AppModel: ObservableObject {
         ble.onBroadcastCode = { [weak self] rand in
             self?.measured.updateBroadcastRandom(rand)
         }
+        // ★★★ 广播解密出的车辆状态明文 → 更新状态（照原 App parseBroadcastData:）。
+        ble.onBroadcastStatus = { [weak self] plain in
+            self?.measured.updateVehicleStatus(plain: plain)
+        }
 
         // RSSI → 中继防护（周期性采样，检测突变）
         ble.$rssi

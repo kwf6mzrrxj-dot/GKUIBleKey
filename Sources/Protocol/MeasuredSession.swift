@@ -127,7 +127,7 @@ public final class MeasuredSession: ObservableObject {
     @Published public private(set) var lastSucceededAction: IBCommandType?
     /// ★ `05` 原始状态包（原 App 不解析，仅记录）
     @Published public private(set) var vehicleState = IBVehicleState()
-    /// ★ 广播解密得到的完整位级状态（`parseStatus:`；需要 ≥36B 厂商数据才有）
+    /// ★ 广播解密得到的完整位级状态（`parseBroadcastData:` → `parseStatus:` 等）
     @Published public private(set) var status: VehicleStatus?
     /// ★ `0x0E` 下发的密钥数据（原 App 在此调 `saveKeysData:`）
     @Published public private(set) var receivedKeyData: [UInt8] = []
@@ -158,6 +158,16 @@ public final class MeasuredSession: ObservableObject {
         guard !bytes.isEmpty else { return }
         broadcastRandom = Array(bytes.prefix(16))
         append("广播码（仅展示，不参与 01 帧）：" + FrameCodec.hexString(broadcastRandom))
+    }
+
+    /// 用广播解密出的明文更新车辆状态（照原 App `parseBroadcastData:`）。
+    ///
+    /// - Parameter plain: 解密后的 16 字节明文（`parseBroadcastData:` 的 `decryptData:withKey:` 结果）
+    public func updateVehicleStatus(plain: [UInt8]) {
+        guard plain.count >= 8 else { return }
+        let s = VehicleStatus(decryptedPlain: plain)
+        status = s
+        append("车辆状态更新：\(s.summary)")
     }
 
     public init() {

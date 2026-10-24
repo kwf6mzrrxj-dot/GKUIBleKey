@@ -256,15 +256,16 @@ public enum SelfTest {
 
     // MARK: - ★ 车辆状态位解析（照 parseStatus: 反汇编）
 
-    /// 验证 `parseStatus:` 的取位：`isLocked = bin[7]` = 首字节 **bit0**。
+    /// 验证 `parseStatus:` 的取位：`isLocked = bin[7]` = **status 字节（plain[4]）的 bit0**。
     ///
-    /// 注意：`parseStatus:` 只服务**广播解密**（`parseBroadcastData:`），
-    /// 不解析 `05` 帧 —— 原 App 的 `case 5` 只 NSLog。
+    /// 反汇编依据：`parseBroadcastData:` @`0x4bc0` 解密后，
+    /// `[self parseStatus:[plain subdataWithRange:NSMakeRange(4,1)]]`，
+    /// 而 `parseStatus:` @`0x4de4` 里 `substringWithRange:(7,1)` → `_isLocked`。
     static func testVehicleStatusBits() -> Result {
-        func state(_ b0: UInt8) -> VehicleStatus {
-            var p = [UInt8](repeating: 0, count: 19)
-            p[0] = b0
-            return VehicleStatus(payload: p)
+        func state(_ statusByte: UInt8) -> VehicleStatus {
+            var p = [UInt8](repeating: 0, count: 16)
+            p[4] = statusByte   // 状态字节在明文 [4]
+            return VehicleStatus(decryptedPlain: p)
         }
 
         let a = state(0x01)   // bit0=1 → 已锁
@@ -273,7 +274,7 @@ public enum SelfTest {
 
         let ok = a.isLocked && !b.isLocked && !c.isLocked
         return Result(
-            name: "状态位解析（parseStatus: bin[7]）",
+            name: "状态位解析（parseStatus: bin[7]=plain[4] bit0）",
             passed: ok,
             detail: ok
                 ? "0x01→已锁、0x40→未锁、0x00→未锁（与 parseStatus: 的 (7,1) 一致）"

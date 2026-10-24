@@ -155,8 +155,6 @@ public final class BLECentral: NSObject, ObservableObject {
     @Published public private(set) var lastManufacturerData: [UInt8] = []
     /// 当前设备的 CIDPU（从广播名解析，如 `InBlue3f26c66ac89ad4` → `c89ad4`）
     @Published public private(set) var currentCidpu = ""
-    /// 解密后的广播明文（诊断用）
-    @Published public private(set) var parsedBroadcast: [UInt8] = []
 
     /// ★ **配对静默模式**。
     ///
@@ -191,6 +189,8 @@ public final class BLECentral: NSObject, ObservableObject {
     @Published public private(set) var broadcastCode: [UInt8] = []
     /// 收到广播码时的回调（由 AppModel 接到 MeasuredSession）
     public var onBroadcastCode: (([UInt8]) -> Void)?
+    /// 广播解密出车辆状态明文时的回调（由 AppModel 接到 MeasuredSession）
+    public var onBroadcastStatus: (([UInt8]) -> Void)?
 
 
     /// ★ `didDiscover` 回调计数 —— **诊断"扫描到底有没有工作"的关键指标**。
@@ -593,17 +593,15 @@ extension BLECentral: CBCentralManagerDelegate {
                 } else if let cid = BroadcastParser.parseCidpu(from: advName) {
                     currentCidpu = cid      // 兜底：还没配过对时只能从名字猜
                 }
-                parsedBroadcast = BroadcastParser.parse(mfgData, cidpu: currentCidpu)
                 // ★ 把原始数据完整打出来 —— 原 App 的标识信息在厂商数据里
                 //   （`isValeoDeviceWithAdvertisingData:` 是拿它前几字节比魔数），
-                //   所以必须先看清这 19 字节长什么样，才能定位 cidpu / cryptedID。
+                //   所以必须先看清厂商数据长什么样，才能定位 cidpu / cryptedID。
                 FileLogger.shared.append(
                     "广播名=「\(advName)」 厂商数据 \(mfgData.count)B = "
                     + mfgData.map { String(format: "%02X", $0) }.joined(separator: " "),
                     tag: "广播")
                 FileLogger.shared.append(
                     "cidpu=\(currentCidpu.isEmpty ? "(空)" : currentCidpu), "
-                    + "解密=\(parsedBroadcast.isEmpty ? "失败" : "\(parsedBroadcast.count)B"), "
                     + "广播Service=[\(advServiceUUIDs.joined(separator: ","))]",
                     tag: "广播")
                 // ★ Service 数据（可能是广播码缺的那 6 字节）
@@ -634,9 +632,6 @@ extension BLECentral: CBCentralManagerDelegate {
                             + parsed.broadcastRandom.map { String(format: "%02X", $0) }.joined(separator: " "),
                             tag: "广播")
                     }
-                }
-                if !parsedBroadcast.isEmpty {
-                    FileLogger.shared.append(BroadcastParser.describe(parsedBroadcast), tag: "广播明文")
                 }
             }
             // ★ 诊断：先记下"回调确实来过"，再谈过滤
@@ -690,6 +685,20 @@ extension BLECentral: CBCentralManagerDelegate {
                     + "→ \(identity.rawValue)"
                     + (weak ? "（RSSI \(rssiValue) ≤ -91，原 App 会丢弃）" : ""),
                     tag: "匹配")
+
+                // ★★★ 车辆状态：照原 App `parseBroadcastData:` @`0x4bc0`。
+                //   广播里的 `broadcastData`（Gen03 = 厂商数据 [19,35) 16B）是
+                //   用 cidpu 作 AES key 加密的状态密文；解密后明文 [4]/[6]/[7]
+                //   分别喂给 parseStatus:/parseDoorsStatus:/parsePowerStatus:。
+                //   解密成功就把明文回调给 AppModel → MeasuredSession 更新状态。
+                if !adv.broadcastData.isEmpty, !cidpuHex.isEmpty,
+                   let decrypted = VehicleStatus.decryptBroadcast(
+                       cipher: adv.broadcastData, cidpuHex: cidpuHex) {
+                    FileLogger.shared.append(
+                        "车辆状态明文：\(decrypted.plain.map { String(format: "%02X", $0) }.joined(separator: " "))",
+                        tag: "状态")
+                    onBroadcastStatus?(decrypted.plain)
+                }
             }
 
             let dev = DiscoveredDevice(

@@ -515,6 +515,22 @@ struct VehicleDetailView: View {
                     }
                     .glassEffect(.regular, in: .rect(cornerRadius: 16))
 
+                    // ★★★ 车辆状态（照原 App parseBroadcastData: 广播解密）
+                    if let st = model.measured.status {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("车辆状态")
+                                .font(.headline)
+                                .foregroundStyle(.white.opacity(0.9))
+                            statusGrid(st)
+                            Text(st.fullDescription)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                    }
+
                     if cidpuText == "未获取" {
                         Text("CIDPU 由车端在连接后下发；配对成功或鉴权通过后即可看到。")
                             .font(.caption2)
@@ -550,5 +566,34 @@ struct VehicleDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+    }
+
+    /// 车辆状态栅格：门锁 / 后备箱 / 上电 / 发动机 / ACC / 四门
+    private func statusGrid(_ s: VehicleStatus) -> some View {
+        let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+        let items: [(String, String, Bool)] = [
+            ("门锁", s.isLocked ? "已锁" : "未锁", s.isLocked),
+            ("车门", s.isDoorClosed ? "已关" : "未关", s.isDoorClosed),
+            ("后备箱", s.isTrunkClosed ? "已关" : "打开", s.isTrunkClosed),
+            ("上电", s.isIgnitionOn ? "已上电" : "未上电", s.isIgnitionOn),
+            ("发动机", s.isEngineRunning ? "运行中" : "停止", s.isEngineRunning),
+            ("ACC", s.isAccOn ? "开" : "关", s.isAccOn),
+        ]
+        return LazyVGrid(columns: cols, spacing: 10) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                VStack(spacing: 4) {
+                    Text(item.1)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(item.2 ? Color.green : Color.white.opacity(0.85))
+                    Text(item.0)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
     }
 }

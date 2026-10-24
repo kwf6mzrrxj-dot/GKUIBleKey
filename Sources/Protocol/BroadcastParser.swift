@@ -44,38 +44,4 @@ public enum BroadcastParser {
         guard tail.count >= 6 else { return nil }
         return String(tail.suffix(6)).lowercased()
     }
-
-    /// 用 cidpu 解密广播载荷，返回明文（失败返回空数组）。
-    ///
-    /// - 算法：**AES-CBC，无 padding**（`options = 0`）
-    /// - IV：**全零**
-    /// - key：`hexDecode(cidpu)`，必须 16 字节
-    ///
-    /// ⚠️ 旧实现用 `cidpu.data(using: .utf8)`（把 hex 字符的 ASCII 当 key），
-    /// 导致解密必然失败 —— 已修正为 `FrameCodec.bytes(fromHex:)`。
-    public static func parse(_ encrypted: [UInt8], cidpu: String) -> [UInt8] {
-        guard !cidpu.isEmpty else { return [] }
-        guard encrypted.count >= 16, encrypted.count % 16 == 0 else { return [] }
-        guard let key = ValeoAdvMatch.cidpuAESKey(cidpu), key.count == 16 else { return [] }
-
-        let iv = [UInt8](repeating: 0, count: 16)
-        return (try? CryptoBox.aesDecrypt(.cbcNoPadding, key: key,
-                                          iv: iv, cipher: encrypted)) ?? []
-    }
-
-    /// 把解密结果按"可能的"结构做一次宽松展示（诊断用）。
-    ///
-    /// ⚠️ 明文的**确切切分尚未从反汇编取到**（`subdataWithRange:` 的几个 range
-    /// 是在运行时算的）。所以这里只做**只读展示**，不臆造字段含义 ——
-    /// 先看清明文长什么样，再决定怎么切。
-    public static func describe(_ plain: [UInt8]) -> String {
-        guard !plain.isEmpty else { return "（解密失败或为空）" }
-        let hex = plain.map { String(format: "%02X", $0) }.joined(separator: " ")
-        var lines = ["明文长度 \(plain.count)B", hex]
-        // 若含可打印 ASCII，顺便显示出来（设备名/ID 等常是 ASCII）
-        let ascii = String(bytes: plain.map { ($0 >= 0x20 && $0 < 0x7F) ? $0 : 0x2E },
-                           encoding: .ascii) ?? ""
-        lines.append("ASCII: \(ascii)")
-        return lines.joined(separator: "\n")
-    }
 }
