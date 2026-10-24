@@ -1,0 +1,464 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
+		21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF19D2E689EE7C245F20164 /* RootView.swift */; };
+		269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */; };
+		27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
+		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
+		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
+		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
+		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
+		5A5F177B77B566D517418361 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */; };
+		6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
+		6798BD14C932E43943639F5A /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
+		7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
+		8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
+		8627575E3B0A2E597BF1CFE8 /* TboxBroadcastCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11976F8667F6C59B07FFA4FB /* TboxBroadcastCode.swift */; };
+		89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
+		95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */; };
+		A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
+		A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
+		A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
+		A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
+		B0EB85D6856D2317D4F082CF /* KeyInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */; };
+		B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */; };
+		C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062758546AC7B33C61337BD0 /* LogView.swift */; };
+		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
+		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		062758546AC7B33C61337BD0 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
+		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
+		11976F8667F6C59B07FFA4FB /* TboxBroadcastCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TboxBroadcastCode.swift; sourceTree = "<group>"; };
+		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
+		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
+		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
+		32D87676E2E2A3F87BF5416C /* RelayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayGuard.swift; sourceTree = "<group>"; };
+		3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatus.swift; sourceTree = "<group>"; };
+		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
+		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
+		79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValeoAdvMatch.swift; sourceTree = "<group>"; };
+		7A461D59F827B51924794466 /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
+		7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyApp.swift; sourceTree = "<group>"; };
+		7D244EF973360FC3BA785C68 /* InBluePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBluePairing.swift; sourceTree = "<group>"; };
+		85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
+		8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLECentral.swift; sourceTree = "<group>"; };
+		9876C8854751AA1E82168BC5 /* BroadcastParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastParser.swift; sourceTree = "<group>"; };
+		A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInspectorView.swift; sourceTree = "<group>"; };
+		BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GKUIBleKey.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasuredSession.swift; sourceTree = "<group>"; };
+		D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
+		DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeTable.swift; sourceTree = "<group>"; };
+		DC8C6EBB0E8535DD0570907C /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
+		E484F5C4824BDB2B2B2937BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		04747D3734A3790B3EE69DDB = {
+			isa = PBXGroup;
+			children = (
+				64670F20A09733C80856B29C /* Sources */,
+				2C4BFF217D90767F3BE5C80C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0763A5866757F157EF11AEF7 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				DC8C6EBB0E8535DD0570907C /* FileLogger.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		2C4BFF217D90767F3BE5C80C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4AF4D1CD0A6BF2EF496BA61F /* Protocol */ = {
+			isa = PBXGroup;
+			children = (
+				9876C8854751AA1E82168BC5 /* BroadcastParser.swift */,
+				DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */,
+				6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */,
+				4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */,
+				7D244EF973360FC3BA785C68 /* InBluePairing.swift */,
+				D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */,
+				0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */,
+				1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */,
+				1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */,
+				3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */,
+				11976F8667F6C59B07FFA4FB /* TboxBroadcastCode.swift */,
+				79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */,
+				3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */,
+			);
+			path = Protocol;
+			sourceTree = "<group>";
+		};
+		55956701F9A9FE3F9DAB9E64 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */,
+				A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */,
+				062758546AC7B33C61337BD0 /* LogView.swift */,
+				3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */,
+				2EF19D2E689EE7C245F20164 /* RootView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		64670F20A09733C80856B29C /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				66682E538DBE5A237064BF73 /* App */,
+				82EE77D06A830275E525854C /* BLE */,
+				7B140721E512086CA5205FDF /* Crypto */,
+				FE4F737D431983D5561662E9 /* Keychain */,
+				4AF4D1CD0A6BF2EF496BA61F /* Protocol */,
+				900665DD8E86C6537DC8ADE6 /* Security */,
+				0763A5866757F157EF11AEF7 /* Support */,
+				55956701F9A9FE3F9DAB9E64 /* UI */,
+				E484F5C4824BDB2B2B2937BB /* Info.plist */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		66682E538DBE5A237064BF73 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */,
+				7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		7B140721E512086CA5205FDF /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		82EE77D06A830275E525854C /* BLE */ = {
+			isa = PBXGroup;
+			children = (
+				8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */,
+			);
+			path = BLE;
+			sourceTree = "<group>";
+		};
+		900665DD8E86C6537DC8ADE6 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				32D87676E2E2A3F87BF5416C /* RelayGuard.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		FE4F737D431983D5561662E9 /* Keychain */ = {
+			isa = PBXGroup;
+			children = (
+				7A461D59F827B51924794466 /* KeyStore.swift */,
+			);
+			path = Keychain;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		348CC567198478C16B1AAB18 /* GKUIBleKey */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7E4C520F2EA962D2860775C /* Build configuration list for PBXNativeTarget "GKUIBleKey" */;
+			buildPhases = (
+				73519E2249B0E37539E42145 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GKUIBleKey;
+			packageProductDependencies = (
+			);
+			productName = GKUIBleKey;
+			productReference = BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		41D64DE28BA9BF4DAD9F4D56 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					348CC567198478C16B1AAB18 = {
+						DevelopmentTeam = 2PQ29MSM39;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 2F706303403387158D85A9D0 /* Build configuration list for PBXProject "GKUIBleKey" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 04747D3734A3790B3EE69DDB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2C4BFF217D90767F3BE5C80C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				348CC567198478C16B1AAB18 /* GKUIBleKey */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		73519E2249B0E37539E42145 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A5F177B77B566D517418361 /* AppModel.swift in Sources */,
+				289A7C95DC5F829282241571 /* BLECentral.swift in Sources */,
+				E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */,
+				7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */,
+				95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */,
+				27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */,
+				DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */,
+				89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */,
+				B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */,
+				34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */,
+				8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */,
+				B0EB85D6856D2317D4F082CF /* KeyInspectorView.swift in Sources */,
+				49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */,
+				C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */,
+				A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */,
+				269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */,
+				A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */,
+				00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */,
+				A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */,
+				4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */,
+				21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */,
+				6798BD14C932E43943639F5A /* SelfTest.swift in Sources */,
+				8627575E3B0A2E597BF1CFE8 /* TboxBroadcastCode.swift in Sources */,
+				A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */,
+				6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		006DFF8C6893CEC65C849E55 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey;
+				PRODUCT_NAME = GKUIBleKey;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		29BB3075D72C1FA71E9D2672 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		72821C530EDE58BD385D91E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey;
+				PRODUCT_NAME = GKUIBleKey;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		DBDBA4E7FB5B778C1C0EB81D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2F706303403387158D85A9D0 /* Build configuration list for PBXProject "GKUIBleKey" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				29BB3075D72C1FA71E9D2672 /* Debug */,
+				DBDBA4E7FB5B778C1C0EB81D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A7E4C520F2EA962D2860775C /* Build configuration list for PBXNativeTarget "GKUIBleKey" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				006DFF8C6893CEC65C849E55 /* Debug */,
+				72821C530EDE58BD385D91E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 41D64DE28BA9BF4DAD9F4D56 /* Project object */;
+}

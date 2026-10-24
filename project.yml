@@ -1,0 +1,43 @@
+name: GKUIBleKey
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+  GKUIBleKey:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - "**/*.md"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey
+        PRODUCT_NAME: GKUIBleKey
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/Info.plist
+        # 真机部署需要签名。
+        # Team ID 取自证书 OU 字段：Apple Development: mmxisme@icloud.com
+        #   subject=UID=CYAGCJ8C34, OU=2PQ29MSM39, O=MINGXING MU
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2PQ29MSM39
+        CODE_SIGNING_REQUIRED: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "Apple Development"
+        # ★ 修复 Xcode 27.1 命令行 `xcodebuild` 的 SwiftUI 宏展开失败：
+        #   默认不传 -plugin-path，导致 @State 等宏报
+        #   "SwiftUIMacros.StateMacro ... malformed response"。
+        #   显式指向宏库目录后，命令行与 GUI 构建均正常。
+        OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"
