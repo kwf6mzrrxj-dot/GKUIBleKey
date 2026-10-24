@@ -57,7 +57,7 @@ struct RootView: View {
     // MARK: - 顶部标题栏
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 10) {
             // 连接状态胶囊（点色 + 文案）
             HStack(spacing: 6) {
                 Circle()
@@ -70,6 +70,21 @@ struct RootView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(.white.opacity(0.08), in: Capsule())
+
+            // RSSI 信号值（连接后显示）
+            if let r = model.ble.rssi {
+                HStack(spacing: 3) {
+                    Image(systemName: "cellularbars")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("\(r) dBm")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(rssiColor(r))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.08), in: Capsule())
+            }
 
             Spacer()
             Menu {
@@ -88,6 +103,16 @@ struct RootView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
+    }
+
+    /// RSSI 信号颜色：强 → 绿，中 → 黄，弱 → 橙/红
+    private func rssiColor(_ r: Int) -> Color {
+        switch r {
+        case ...(-85): return .red
+        case ..<(-70): return .orange
+        case ..<(-55): return .yellow
+        default:       return .green
+        }
     }
 
     private var linkStateColor: Color {
@@ -138,6 +163,8 @@ struct RootView: View {
 
     private var carArt: some View {
         CarModelView(status: model.measured.status, stage: carStage)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 200)
             .padding(.horizontal, 10)
     }
 

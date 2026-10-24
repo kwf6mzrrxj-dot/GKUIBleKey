@@ -31,11 +31,10 @@ struct CarModelView: View {
     var body: some View {
         switch stage {
         case .connecting:
-            // 未连接：静态车图半透明显示，提示"未激活"
+            // 未连接：正常显示静态车图（与已连接一致，仅无状态动画）
             Image("car_rotate_025")
                 .resizable()
                 .scaledToFit()
-                .opacity(0.35)
                 .frame(height: 230)
         case .pairing:
             LoopingFrames(prefix: "car_build", count: 25, fps: 10)
