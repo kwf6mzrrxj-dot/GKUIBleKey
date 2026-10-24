@@ -12,6 +12,7 @@ import SwiftUI
 ///    不暴露协议细节。
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showDeveloper = false
     @State private var showPairing = false
@@ -43,14 +44,22 @@ struct RootView: View {
         .sheet(isPresented: $showPairing) { PairingView() }
     }
 
-    // MARK: - 背景
+    // MARK: - 背景（随浅色/深色自适应）
 
     private var background: some View {
-        LinearGradient(
-            colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
-                     Color(red: 0.06, green: 0.07, blue: 0.10)],
-            startPoint: .top, endPoint: .bottom
-        )
+        Group {
+            if colorScheme == .dark {
+                LinearGradient(
+                    colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
+                             Color(red: 0.06, green: 0.07, blue: 0.10)],
+                    startPoint: .top, endPoint: .bottom)
+            } else {
+                LinearGradient(
+                    colors: [Color(red: 0.93, green: 0.95, blue: 0.98),
+                             Color(red: 0.84, green: 0.87, blue: 0.92)],
+                    startPoint: .top, endPoint: .bottom)
+            }
+        }
         .ignoresSafeArea()
     }
 
@@ -65,11 +74,11 @@ struct RootView: View {
                     .frame(width: 7, height: 7)
                 Text(linkStateText)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.white.opacity(0.08), in: Capsule())
+            .background(glassFill, in: Capsule())
 
             // RSSI 信号值（连接后显示）
             if let r = model.ble.rssi {
@@ -83,7 +92,7 @@ struct RootView: View {
                 .foregroundStyle(rssiColor(r))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(.white.opacity(0.08), in: Capsule())
+                .background(glassFill, in: Capsule())
             }
 
             Spacer()
@@ -98,11 +107,16 @@ struct RootView: View {
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.title3)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
+    }
+
+    /// 玻璃底填充色（浅色模式用深色半透明，深色模式用白色半透明）
+    private var glassFill: Color {
+        colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)
     }
 
     /// RSSI 信号颜色：强 → 绿，中 → 黄，弱 → 橙/红
@@ -130,10 +144,10 @@ struct RootView: View {
         VStack(spacing: 2) {
             Text(vehicleModelName)
                 .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
             Text(vehicleNickname)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 4)
@@ -199,10 +213,10 @@ struct RootView: View {
             Image(systemName: icon).font(.system(size: 10, weight: .semibold))
             Text(text).font(.system(size: 11, weight: .medium))
         }
-        .foregroundStyle(good ? Color.white.opacity(0.85) : Color.orange)
+        .foregroundStyle(good ? Color.primary : Color.orange)
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(.white.opacity(0.07), in: Capsule())
+        .background(glassFill, in: Capsule())
     }
 
     // MARK: - 控车区
@@ -235,7 +249,7 @@ struct RootView: View {
                         .foregroundStyle(.green).font(.caption2)
                     Text("上一次成功：\(a.label)")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(.secondary)
                     Spacer()
                 }
                 .padding(.top, 2)
@@ -336,7 +350,7 @@ struct RootView: View {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
-                Text(detail).font(.caption2).foregroundStyle(.white.opacity(0.65))
+                Text(detail).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -357,7 +371,7 @@ struct RootView: View {
                 .frame(width: 24)
             Text(text)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.primary)
             Spacer()
             if let t = trailing {
                 Text(t).font(.caption2).foregroundStyle(.cyan)
@@ -365,7 +379,7 @@ struct RootView: View {
             if action != nil {
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -529,7 +543,7 @@ struct PassiveStartDetailView: View {
                 }
                 .padding(18)
             }
-            .background(Color.black.opacity(0.92).ignoresSafeArea())
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("点火位置验证")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -630,7 +644,7 @@ struct VehicleDetailView: View {
                 }
                 .padding(20)
             }
-            .background(Color(red: 0.08, green: 0.09, blue: 0.12).ignoresSafeArea())
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("车辆详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

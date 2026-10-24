@@ -91,9 +91,7 @@ struct PairingView: View {
             Spacer(minLength: 0)
             if hasVehicle {
                 // 配对完成 → 静态 3/4 车图
-                Image("car_rotate_025")
-                    .resizable()
-                    .scaledToFit()
+                CarImage(named: "car_rotate_025")
                     .frame(maxHeight: 230)
                     .shadow(color: .white.opacity(0.10), radius: 24)
                     .transition(.opacity)

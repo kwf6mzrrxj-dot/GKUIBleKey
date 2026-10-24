@@ -1,46 +1,59 @@
 import SwiftUI
+import UIKit
 
 /// 车辆舞台视图 —— **使用原 App 的车辆模型帧序列**（从 `XiaoKa.app` 提取，
 /// 全部透明背景），按连接状态自动切换：
 ///
 /// | 状态 | 展示 | 资源 | 来源序列 |
 /// |---|---|---|---|
-/// | 未连接 | 静态车图（半透明）| `car_rotate_025` | front2quarter 末帧 |
+/// | 未连接 | 静态车图 | `car_rotate_025` | front2quarter 末帧 |
 /// | 配对中 | 车辆拼装动画（循环）| `car_build_000…024` | `dotcar`（25 帧）|
 /// | 已连接 | 入场旋转一次 → 静止车图 | `car_rotate_000…025` | front2quarter（26 帧）|
 ///
-/// 已连接状态下的车辆状态映射（`VehicleStatus`，广播解密）：
-/// - `isTrunkClosed` 变化 → 播放后备箱开/关动画（`car_trunk_000…049`）
-/// - 四门打开 → 车身对应位置叠加开门角标
-/// - 未收到状态 → 显示默认车图
+/// ⚠️ 用 `UIImage(named:)` 而非 `Image(named:)` 加载 —— 原 App 提取的帧是
+/// colormap / CgBI 特殊 PNG，`UIImage` 能正确解码而 SwiftUI 的 `Image` 有时失败。
 struct CarModelView: View {
-    /// 车辆状态（`nil` = 尚未收到广播状态 → 显示默认车图）
     let status: VehicleStatus?
-    /// 当前连接阶段（决定播放哪套动画）
     let stage: Stage
 
     enum Stage: Equatable {
-        /// 未连接 / 扫描中 → 静态车图（半透明）
         case connecting
-        /// 配对流程进行中 → 车辆拼装动画
         case pairing
-        /// 已连接 → 静态车图 + 状态动画
         case ready
     }
 
     var body: some View {
         switch stage {
         case .connecting:
-            // 未连接：正常显示静态车图（与已连接一致，仅无状态动画）
-            Image("car_rotate_025")
-                .resizable()
-                .scaledToFit()
+            CarImage(named: "car_rotate_025")
                 .frame(height: 230)
         case .pairing:
             LoopingFrames(prefix: "car_build", count: 25, fps: 10)
                 .frame(height: 220)
         case .ready:
             ReadyCarView(status: status)
+        }
+    }
+}
+
+/// 用 `UIImage(named:)` 加载并包成 `Image`，规避 colormap/CgBI 解码问题。
+struct CarImage: View {
+    let named: String
+
+    var body: some View {
+        if let img = UIImage(named: named) {
+            Image(uiImage: img)
+                .resizable()
+                .scaledToFit()
+        } else {
+            // 加载失败时的兜底：显示占位（并记录日志便于排查）
+            Image(systemName: "car.side")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .onAppear {
+                    FileLogger.shared.append("⚠️ 车辆模型帧加载失败：\(named)", tag: "UI")
+                }
         }
     }
 }
@@ -57,9 +70,7 @@ private struct LoopingFrames: View {
     @State private var task: Task<Void, Never>?
 
     var body: some View {
-        Image(String(format: "%@_%03d", prefix, index))
-            .resizable()
-            .scaledToFit()
+        CarImage(named: String(format: "%@_%03d", prefix, index))
             .id(index)
             .onAppear { start() }
             .onDisappear { task?.cancel(); task = nil }
@@ -94,9 +105,7 @@ private struct ReadyCarView: View {
 
     var body: some View {
         ZStack {
-            carImage
-                .resizable()
-                .scaledToFit()
+            carImageView
                 .shadow(color: .white.opacity(0.10), radius: 24)
 
             if let s = status, entranceFrame == nil {
@@ -123,14 +132,16 @@ private struct ReadyCarView: View {
     private var trunkOpen: Bool { status?.isTrunkClosed == false }
 
     /// 车图：入场帧 → 后备箱动画帧 → 静态末帧
-    private var carImage: Image {
+    private var carImageView: some View {
+        let name: String
         if let f = entranceFrame {
-            return Image(String(format: "car_rotate_%03d", f))
+            name = String(format: "car_rotate_%03d", f)
+        } else if let f = trunkFrame {
+            name = String(format: "car_trunk_%03d", f)
+        } else {
+            name = "car_rotate_025"
         }
-        if let f = trunkFrame {
-            return Image(String(format: "car_trunk_%03d", f))
-        }
-        return Image("car_rotate_025")
+        return CarImage(named: name)
     }
 
     /// 后备箱动画（开启正放 / 关闭倒放），约 1.6s

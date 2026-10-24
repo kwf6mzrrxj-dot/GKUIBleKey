@@ -42,3 +42,8 @@ targets:
         #   "SwiftUIMacros.StateMacro ... malformed response"。
         #   显式指向宏库目录后，命令行与 GUI 构建均正常。
         OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"
+        # ★ 禁止 Xcode 把 PNG 转成 CgBI 格式（苹果专有优化格式）。
+        #   原 App 提取的车辆模型帧是 colormap/特殊 alpha 的 PNG，
+        #   转 CgBI 后真机 `Image(named:)` 可能解码失败导致车图不显示。
+        #   保留标准 RGBA PNG，交给 UIImage 直接解码。
+        COMPRESS_PNG_FILES: NO
