@@ -8,66 +8,169 @@
 
 /* Begin PBXBuildFile section */
 		00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
+		0422AE0AAFE0F0CA8C502449 /* car_trunk_022.png in Resources */ = {isa = PBXBuildFile; fileRef = 59DFBBACE1955165C1141B29 /* car_trunk_022.png */; };
+		07F08B5FC520BEB27477000E /* car_trunk_009.png in Resources */ = {isa = PBXBuildFile; fileRef = 093AB966BEF7F0F870BC7198 /* car_trunk_009.png */; };
+		1343259251A6413A8DD3A174 /* car_trunk_029.png in Resources */ = {isa = PBXBuildFile; fileRef = 1BD4AF1180E6870E7729DF1E /* car_trunk_029.png */; };
+		18A612C51FA6FCA7DECBCA23 /* car_trunk_042.png in Resources */ = {isa = PBXBuildFile; fileRef = 325BC0B47412FEA4C6A25BB6 /* car_trunk_042.png */; };
+		215C43A687100685180D5E5C /* car_trunk_041.png in Resources */ = {isa = PBXBuildFile; fileRef = C6E698C4AEDA7719F38D3A6F /* car_trunk_041.png */; };
 		21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF19D2E689EE7C245F20164 /* RootView.swift */; };
+		22E8CEAFAE2E8727EEB94DB7 /* car_trunk_047.png in Resources */ = {isa = PBXBuildFile; fileRef = CDCCE9262779E707D981BD75 /* car_trunk_047.png */; };
 		269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */; };
 		27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
+		2AFC91484AD4B1B22917EB53 /* car_trunk_035.png in Resources */ = {isa = PBXBuildFile; fileRef = A9B6EF09210B80D70259ED7D /* car_trunk_035.png */; };
 		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
+		3707182BB8C459C8567EC059 /* car_trunk_026.png in Resources */ = {isa = PBXBuildFile; fileRef = E5A19C0A51ECF68D7D8FAC10 /* car_trunk_026.png */; };
+		3D52E2FDB4AA633E78E2FF81 /* car_trunk_007.png in Resources */ = {isa = PBXBuildFile; fileRef = 4CB8AAA642D4180AC50CEB1C /* car_trunk_007.png */; };
+		3D77A1CF7A0142B90FC51B5F /* car_trunk_045.png in Resources */ = {isa = PBXBuildFile; fileRef = FA6E47CA19AECB02674DE660 /* car_trunk_045.png */; };
+		3F93A9332C616B1BD27D4CD9 /* car_trunk_044.png in Resources */ = {isa = PBXBuildFile; fileRef = 571859B350420CBA1F2A8734 /* car_trunk_044.png */; };
+		40C49C5FEA5F8DBDE6DC7804 /* car_trunk_018.png in Resources */ = {isa = PBXBuildFile; fileRef = 9C81F966A15768B8E76BA31E /* car_trunk_018.png */; };
+		4819515551EB428A2BCB3084 /* car_trunk_016.png in Resources */ = {isa = PBXBuildFile; fileRef = F45561EE18FFCCE23C17C486 /* car_trunk_016.png */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
 		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
+		516D73EB128AD570B6D14506 /* car_trunk_049.png in Resources */ = {isa = PBXBuildFile; fileRef = 058B91CA4FDE6248BF954265 /* car_trunk_049.png */; };
+		553D19092EC7902703E8FA2B /* car_trunk_048.png in Resources */ = {isa = PBXBuildFile; fileRef = B04FBED42110D7BEC68C9054 /* car_trunk_048.png */; };
 		5A5F177B77B566D517418361 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */; };
+		5B9329AB4087F6B33F4869D4 /* car_trunk_033.png in Resources */ = {isa = PBXBuildFile; fileRef = 66971B4503F04050A2776606 /* car_trunk_033.png */; };
 		6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
 		6798BD14C932E43943639F5A /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
+		6A48C659AF47823AE5563DF1 /* car_trunk_014.png in Resources */ = {isa = PBXBuildFile; fileRef = 02A5B0219D3B02DA33BE1D23 /* car_trunk_014.png */; };
+		6D93E4E1229A4076326DC22A /* car_trunk_019.png in Resources */ = {isa = PBXBuildFile; fileRef = 6C0E3B9ECE89A8E98DEA86E8 /* car_trunk_019.png */; };
+		6ECDB1DA615BF085B50CC440 /* car_trunk_020.png in Resources */ = {isa = PBXBuildFile; fileRef = B02F7911E3D226DA4ABB3878 /* car_trunk_020.png */; };
+		716FE061AA1DC0E20E072164 /* car_trunk_004.png in Resources */ = {isa = PBXBuildFile; fileRef = B0C94C324EDEA4A01DD014D8 /* car_trunk_004.png */; };
 		7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
 		8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
 		8627575E3B0A2E597BF1CFE8 /* TboxBroadcastCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11976F8667F6C59B07FFA4FB /* TboxBroadcastCode.swift */; };
+		869B600B92DBCBAD86DB51DE /* car_trunk_025.png in Resources */ = {isa = PBXBuildFile; fileRef = 9AF3B7637E3931B7C9434B05 /* car_trunk_025.png */; };
+		87110365B7327569720610DE /* car_trunk_003.png in Resources */ = {isa = PBXBuildFile; fileRef = 51699B1341FE2912989FD963 /* car_trunk_003.png */; };
 		89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
+		8DAB7603B987980C492D937A /* car_trunk_000.png in Resources */ = {isa = PBXBuildFile; fileRef = EF2FF93D316627271DDF6D6A /* car_trunk_000.png */; };
+		924165F14B840117619CBF79 /* car_trunk_002.png in Resources */ = {isa = PBXBuildFile; fileRef = 8F574756FEDBAD3512566ABE /* car_trunk_002.png */; };
 		95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */; };
+		96FB0D16E1D28E615992558E /* car_trunk_027.png in Resources */ = {isa = PBXBuildFile; fileRef = FCBE72ACD2A0324180B195FE /* car_trunk_027.png */; };
+		991C44E4C874F8312EE422DE /* car_trunk_030.png in Resources */ = {isa = PBXBuildFile; fileRef = 2D9CB009AEFC96E2558CBD4E /* car_trunk_030.png */; };
+		99A0F2D1CBB2A4C581A9E2B8 /* CarModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8346132E51B853D5356F4736 /* CarModelView.swift */; };
+		9AFC3E0C2CD57027A6A24B3D /* car_trunk_023.png in Resources */ = {isa = PBXBuildFile; fileRef = AE4A7012B53CC8FABDB99B00 /* car_trunk_023.png */; };
 		A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
 		A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
 		A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
+		A688080A79CDA17A31764648 /* car_trunk_005.png in Resources */ = {isa = PBXBuildFile; fileRef = 097A8DF0E41103A0ABF2534F /* car_trunk_005.png */; };
 		A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
+		A730B517C2174465AC87B0CE /* car_trunk_008.png in Resources */ = {isa = PBXBuildFile; fileRef = 5C51028FDF1AD20BEBF5EF4E /* car_trunk_008.png */; };
 		B0EB85D6856D2317D4F082CF /* KeyInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */; };
+		B42E7DF0E438EA7B7BD2A267 /* car_trunk_013.png in Resources */ = {isa = PBXBuildFile; fileRef = 9AD8E3BD2838701283CD0B56 /* car_trunk_013.png */; };
 		B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */; };
+		BA92B41AF06E3D227B8744FC /* car_trunk_001.png in Resources */ = {isa = PBXBuildFile; fileRef = 542BE75074661D395BFD9E50 /* car_trunk_001.png */; };
+		BAF7743C496C4325D6806651 /* car_trunk_038.png in Resources */ = {isa = PBXBuildFile; fileRef = 2D48729E672BF8AC12AE9B3E /* car_trunk_038.png */; };
+		BE773FA6A98A3AE8ED7BADD5 /* car_trunk_040.png in Resources */ = {isa = PBXBuildFile; fileRef = 5F907CCDDA7661C42FA3B8B8 /* car_trunk_040.png */; };
 		C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062758546AC7B33C61337BD0 /* LogView.swift */; };
+		CA7CF60B2B2D8A1BB31B092B /* car_trunk_043.png in Resources */ = {isa = PBXBuildFile; fileRef = 69DA3AA5A80511CF2C4E3DEF /* car_trunk_043.png */; };
+		CE8E7F2BFFF25E59FB0E384A /* car_trunk_046.png in Resources */ = {isa = PBXBuildFile; fileRef = 9CE13DE01AFACFFFC1423F90 /* car_trunk_046.png */; };
+		D1A516C6EBC88FA293740564 /* car_trunk_028.png in Resources */ = {isa = PBXBuildFile; fileRef = 28D4E621C7C4388446421C93 /* car_trunk_028.png */; };
+		D60B88E6611D2299050854B8 /* car_trunk_031.png in Resources */ = {isa = PBXBuildFile; fileRef = 2B84EE0EE3125170B3330879 /* car_trunk_031.png */; };
+		D9BB853A6A13B017D53A708F /* car_trunk_021.png in Resources */ = {isa = PBXBuildFile; fileRef = 3187A8915485C4541BF6E753 /* car_trunk_021.png */; };
+		DC99487EDB03DCCA4FFB8FEF /* car_trunk_011.png in Resources */ = {isa = PBXBuildFile; fileRef = C50BA0CAAF05C8A4994615E7 /* car_trunk_011.png */; };
+		DCBAC3F5AF4483E05583023F /* car_trunk_034.png in Resources */ = {isa = PBXBuildFile; fileRef = 519ABF70656EFC44195807F1 /* car_trunk_034.png */; };
+		DF0956B603CD0C5184398D25 /* car_trunk_037.png in Resources */ = {isa = PBXBuildFile; fileRef = 2973C6C0196C6E1E024BB40A /* car_trunk_037.png */; };
 		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
+		E4915EBAA3DB553FE801EB21 /* car_trunk_036.png in Resources */ = {isa = PBXBuildFile; fileRef = 50F339FF56355E32CD434F3F /* car_trunk_036.png */; };
 		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
+		E9A6E565BBD1B7DBB7DF40BC /* car_trunk_024.png in Resources */ = {isa = PBXBuildFile; fileRef = 3E436D80D099446BB837B3DC /* car_trunk_024.png */; };
+		F0211C55187E667FFD81E757 /* car_trunk_017.png in Resources */ = {isa = PBXBuildFile; fileRef = 4B81AB71E95FEEF84FAC3EBE /* car_trunk_017.png */; };
+		F7725DDAE825D58BEB09A4EA /* car_trunk_039.png in Resources */ = {isa = PBXBuildFile; fileRef = 23F5C0C4EFA41A053B31157A /* car_trunk_039.png */; };
+		F853A86603AD9F9866DF50C0 /* car_trunk_012.png in Resources */ = {isa = PBXBuildFile; fileRef = 78AC46364520D5604DC51940 /* car_trunk_012.png */; };
+		F8A24209B964A16EC6FCFE47 /* car_trunk_015.png in Resources */ = {isa = PBXBuildFile; fileRef = A96EBEEBBF9C144E3C9B076C /* car_trunk_015.png */; };
+		FBF11035F36DB29106BEF942 /* car_trunk_010.png in Resources */ = {isa = PBXBuildFile; fileRef = F7DEEA163262A22D6D7A76F4 /* car_trunk_010.png */; };
+		FCDB019F94D798AED8BA329B /* car_trunk_006.png in Resources */ = {isa = PBXBuildFile; fileRef = CD804C15A5F823ABD0A15F84 /* car_trunk_006.png */; };
+		FFDFBD3B9E4A5DC6AB21E201 /* car_trunk_032.png in Resources */ = {isa = PBXBuildFile; fileRef = 17FF5ADB5E4C7D7F2AFAF9AF /* car_trunk_032.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		02A5B0219D3B02DA33BE1D23 /* car_trunk_014.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_014.png; sourceTree = "<group>"; };
+		058B91CA4FDE6248BF954265 /* car_trunk_049.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_049.png; sourceTree = "<group>"; };
 		062758546AC7B33C61337BD0 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
+		093AB966BEF7F0F870BC7198 /* car_trunk_009.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_009.png; sourceTree = "<group>"; };
+		097A8DF0E41103A0ABF2534F /* car_trunk_005.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_005.png; sourceTree = "<group>"; };
 		11976F8667F6C59B07FFA4FB /* TboxBroadcastCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TboxBroadcastCode.swift; sourceTree = "<group>"; };
+		17FF5ADB5E4C7D7F2AFAF9AF /* car_trunk_032.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_032.png; sourceTree = "<group>"; };
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
+		1BD4AF1180E6870E7729DF1E /* car_trunk_029.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_029.png; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
+		23F5C0C4EFA41A053B31157A /* car_trunk_039.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_039.png; sourceTree = "<group>"; };
+		28D4E621C7C4388446421C93 /* car_trunk_028.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_028.png; sourceTree = "<group>"; };
+		2973C6C0196C6E1E024BB40A /* car_trunk_037.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_037.png; sourceTree = "<group>"; };
+		2B84EE0EE3125170B3330879 /* car_trunk_031.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_031.png; sourceTree = "<group>"; };
+		2D48729E672BF8AC12AE9B3E /* car_trunk_038.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_038.png; sourceTree = "<group>"; };
+		2D9CB009AEFC96E2558CBD4E /* car_trunk_030.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_030.png; sourceTree = "<group>"; };
 		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
+		3187A8915485C4541BF6E753 /* car_trunk_021.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_021.png; sourceTree = "<group>"; };
+		325BC0B47412FEA4C6A25BB6 /* car_trunk_042.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_042.png; sourceTree = "<group>"; };
 		32D87676E2E2A3F87BF5416C /* RelayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayGuard.swift; sourceTree = "<group>"; };
 		3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatus.swift; sourceTree = "<group>"; };
+		3E436D80D099446BB837B3DC /* car_trunk_024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_024.png; sourceTree = "<group>"; };
+		4B81AB71E95FEEF84FAC3EBE /* car_trunk_017.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_017.png; sourceTree = "<group>"; };
+		4CB8AAA642D4180AC50CEB1C /* car_trunk_007.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_007.png; sourceTree = "<group>"; };
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
+		50F339FF56355E32CD434F3F /* car_trunk_036.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_036.png; sourceTree = "<group>"; };
+		51699B1341FE2912989FD963 /* car_trunk_003.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_003.png; sourceTree = "<group>"; };
+		519ABF70656EFC44195807F1 /* car_trunk_034.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_034.png; sourceTree = "<group>"; };
+		542BE75074661D395BFD9E50 /* car_trunk_001.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_001.png; sourceTree = "<group>"; };
+		571859B350420CBA1F2A8734 /* car_trunk_044.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_044.png; sourceTree = "<group>"; };
+		59DFBBACE1955165C1141B29 /* car_trunk_022.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_022.png; sourceTree = "<group>"; };
+		5C51028FDF1AD20BEBF5EF4E /* car_trunk_008.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_008.png; sourceTree = "<group>"; };
+		5F907CCDDA7661C42FA3B8B8 /* car_trunk_040.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_040.png; sourceTree = "<group>"; };
+		66971B4503F04050A2776606 /* car_trunk_033.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_033.png; sourceTree = "<group>"; };
+		69DA3AA5A80511CF2C4E3DEF /* car_trunk_043.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_043.png; sourceTree = "<group>"; };
+		6C0E3B9ECE89A8E98DEA86E8 /* car_trunk_019.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_019.png; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
+		78AC46364520D5604DC51940 /* car_trunk_012.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_012.png; sourceTree = "<group>"; };
 		79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValeoAdvMatch.swift; sourceTree = "<group>"; };
 		7A461D59F827B51924794466 /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
 		7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyApp.swift; sourceTree = "<group>"; };
 		7D244EF973360FC3BA785C68 /* InBluePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBluePairing.swift; sourceTree = "<group>"; };
+		8346132E51B853D5356F4736 /* CarModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModelView.swift; sourceTree = "<group>"; };
 		85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
+		8F574756FEDBAD3512566ABE /* car_trunk_002.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_002.png; sourceTree = "<group>"; };
 		8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLECentral.swift; sourceTree = "<group>"; };
 		9876C8854751AA1E82168BC5 /* BroadcastParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastParser.swift; sourceTree = "<group>"; };
+		9AD8E3BD2838701283CD0B56 /* car_trunk_013.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_013.png; sourceTree = "<group>"; };
+		9AF3B7637E3931B7C9434B05 /* car_trunk_025.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_025.png; sourceTree = "<group>"; };
+		9C81F966A15768B8E76BA31E /* car_trunk_018.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_018.png; sourceTree = "<group>"; };
+		9CE13DE01AFACFFFC1423F90 /* car_trunk_046.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_046.png; sourceTree = "<group>"; };
 		A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInspectorView.swift; sourceTree = "<group>"; };
+		A96EBEEBBF9C144E3C9B076C /* car_trunk_015.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_015.png; sourceTree = "<group>"; };
+		A9B6EF09210B80D70259ED7D /* car_trunk_035.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_035.png; sourceTree = "<group>"; };
+		AE4A7012B53CC8FABDB99B00 /* car_trunk_023.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_023.png; sourceTree = "<group>"; };
+		B02F7911E3D226DA4ABB3878 /* car_trunk_020.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_020.png; sourceTree = "<group>"; };
+		B04FBED42110D7BEC68C9054 /* car_trunk_048.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_048.png; sourceTree = "<group>"; };
+		B0C94C324EDEA4A01DD014D8 /* car_trunk_004.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_004.png; sourceTree = "<group>"; };
 		BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GKUIBleKey.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C50BA0CAAF05C8A4994615E7 /* car_trunk_011.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_011.png; sourceTree = "<group>"; };
+		C6E698C4AEDA7719F38D3A6F /* car_trunk_041.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_041.png; sourceTree = "<group>"; };
+		CD804C15A5F823ABD0A15F84 /* car_trunk_006.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_006.png; sourceTree = "<group>"; };
+		CDCCE9262779E707D981BD75 /* car_trunk_047.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_047.png; sourceTree = "<group>"; };
 		D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasuredSession.swift; sourceTree = "<group>"; };
 		D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeTable.swift; sourceTree = "<group>"; };
 		DC8C6EBB0E8535DD0570907C /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
 		E484F5C4824BDB2B2B2937BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E5A19C0A51ECF68D7D8FAC10 /* car_trunk_026.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_026.png; sourceTree = "<group>"; };
+		EF2FF93D316627271DDF6D6A /* car_trunk_000.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_000.png; sourceTree = "<group>"; };
+		F45561EE18FFCCE23C17C486 /* car_trunk_016.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_016.png; sourceTree = "<group>"; };
+		F7DEEA163262A22D6D7A76F4 /* car_trunk_010.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_010.png; sourceTree = "<group>"; };
+		FA6E47CA19AECB02674DE660 /* car_trunk_045.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_045.png; sourceTree = "<group>"; };
+		FCBE72ACD2A0324180B195FE /* car_trunk_027.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_trunk_027.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		04747D3734A3790B3EE69DDB = {
 			isa = PBXGroup;
 			children = (
+				655A75F987A0F520D9504A57 /* Resources */,
 				64670F20A09733C80856B29C /* Sources */,
 				2C4BFF217D90767F3BE5C80C /* Products */,
 			);
@@ -112,6 +215,7 @@
 		55956701F9A9FE3F9DAB9E64 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				8346132E51B853D5356F4736 /* CarModelView.swift */,
 				D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */,
 				A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */,
 				062758546AC7B33C61337BD0 /* LogView.swift */,
@@ -135,6 +239,14 @@
 				E484F5C4824BDB2B2B2937BB /* Info.plist */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		655A75F987A0F520D9504A57 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DC7D866986CAD52C6B9036DF /* CarModel */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		66682E538DBE5A237064BF73 /* App */ = {
@@ -170,6 +282,63 @@
 			path = Security;
 			sourceTree = "<group>";
 		};
+		DC7D866986CAD52C6B9036DF /* CarModel */ = {
+			isa = PBXGroup;
+			children = (
+				EF2FF93D316627271DDF6D6A /* car_trunk_000.png */,
+				542BE75074661D395BFD9E50 /* car_trunk_001.png */,
+				8F574756FEDBAD3512566ABE /* car_trunk_002.png */,
+				51699B1341FE2912989FD963 /* car_trunk_003.png */,
+				B0C94C324EDEA4A01DD014D8 /* car_trunk_004.png */,
+				097A8DF0E41103A0ABF2534F /* car_trunk_005.png */,
+				CD804C15A5F823ABD0A15F84 /* car_trunk_006.png */,
+				4CB8AAA642D4180AC50CEB1C /* car_trunk_007.png */,
+				5C51028FDF1AD20BEBF5EF4E /* car_trunk_008.png */,
+				093AB966BEF7F0F870BC7198 /* car_trunk_009.png */,
+				F7DEEA163262A22D6D7A76F4 /* car_trunk_010.png */,
+				C50BA0CAAF05C8A4994615E7 /* car_trunk_011.png */,
+				78AC46364520D5604DC51940 /* car_trunk_012.png */,
+				9AD8E3BD2838701283CD0B56 /* car_trunk_013.png */,
+				02A5B0219D3B02DA33BE1D23 /* car_trunk_014.png */,
+				A96EBEEBBF9C144E3C9B076C /* car_trunk_015.png */,
+				F45561EE18FFCCE23C17C486 /* car_trunk_016.png */,
+				4B81AB71E95FEEF84FAC3EBE /* car_trunk_017.png */,
+				9C81F966A15768B8E76BA31E /* car_trunk_018.png */,
+				6C0E3B9ECE89A8E98DEA86E8 /* car_trunk_019.png */,
+				B02F7911E3D226DA4ABB3878 /* car_trunk_020.png */,
+				3187A8915485C4541BF6E753 /* car_trunk_021.png */,
+				59DFBBACE1955165C1141B29 /* car_trunk_022.png */,
+				AE4A7012B53CC8FABDB99B00 /* car_trunk_023.png */,
+				3E436D80D099446BB837B3DC /* car_trunk_024.png */,
+				9AF3B7637E3931B7C9434B05 /* car_trunk_025.png */,
+				E5A19C0A51ECF68D7D8FAC10 /* car_trunk_026.png */,
+				FCBE72ACD2A0324180B195FE /* car_trunk_027.png */,
+				28D4E621C7C4388446421C93 /* car_trunk_028.png */,
+				1BD4AF1180E6870E7729DF1E /* car_trunk_029.png */,
+				2D9CB009AEFC96E2558CBD4E /* car_trunk_030.png */,
+				2B84EE0EE3125170B3330879 /* car_trunk_031.png */,
+				17FF5ADB5E4C7D7F2AFAF9AF /* car_trunk_032.png */,
+				66971B4503F04050A2776606 /* car_trunk_033.png */,
+				519ABF70656EFC44195807F1 /* car_trunk_034.png */,
+				A9B6EF09210B80D70259ED7D /* car_trunk_035.png */,
+				50F339FF56355E32CD434F3F /* car_trunk_036.png */,
+				2973C6C0196C6E1E024BB40A /* car_trunk_037.png */,
+				2D48729E672BF8AC12AE9B3E /* car_trunk_038.png */,
+				23F5C0C4EFA41A053B31157A /* car_trunk_039.png */,
+				5F907CCDDA7661C42FA3B8B8 /* car_trunk_040.png */,
+				C6E698C4AEDA7719F38D3A6F /* car_trunk_041.png */,
+				325BC0B47412FEA4C6A25BB6 /* car_trunk_042.png */,
+				69DA3AA5A80511CF2C4E3DEF /* car_trunk_043.png */,
+				571859B350420CBA1F2A8734 /* car_trunk_044.png */,
+				FA6E47CA19AECB02674DE660 /* car_trunk_045.png */,
+				9CE13DE01AFACFFFC1423F90 /* car_trunk_046.png */,
+				CDCCE9262779E707D981BD75 /* car_trunk_047.png */,
+				B04FBED42110D7BEC68C9054 /* car_trunk_048.png */,
+				058B91CA4FDE6248BF954265 /* car_trunk_049.png */,
+			);
+			path = CarModel;
+			sourceTree = "<group>";
+		};
 		FE4F737D431983D5561662E9 /* Keychain */ = {
 			isa = PBXGroup;
 			children = (
@@ -186,6 +355,7 @@
 			buildConfigurationList = A7E4C520F2EA962D2860775C /* Build configuration list for PBXNativeTarget "GKUIBleKey" */;
 			buildPhases = (
 				73519E2249B0E37539E42145 /* Sources */,
+				C813D9AC233B58D87F278E39 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -232,6 +402,66 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		C813D9AC233B58D87F278E39 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8DAB7603B987980C492D937A /* car_trunk_000.png in Resources */,
+				BA92B41AF06E3D227B8744FC /* car_trunk_001.png in Resources */,
+				924165F14B840117619CBF79 /* car_trunk_002.png in Resources */,
+				87110365B7327569720610DE /* car_trunk_003.png in Resources */,
+				716FE061AA1DC0E20E072164 /* car_trunk_004.png in Resources */,
+				A688080A79CDA17A31764648 /* car_trunk_005.png in Resources */,
+				FCDB019F94D798AED8BA329B /* car_trunk_006.png in Resources */,
+				3D52E2FDB4AA633E78E2FF81 /* car_trunk_007.png in Resources */,
+				A730B517C2174465AC87B0CE /* car_trunk_008.png in Resources */,
+				07F08B5FC520BEB27477000E /* car_trunk_009.png in Resources */,
+				FBF11035F36DB29106BEF942 /* car_trunk_010.png in Resources */,
+				DC99487EDB03DCCA4FFB8FEF /* car_trunk_011.png in Resources */,
+				F853A86603AD9F9866DF50C0 /* car_trunk_012.png in Resources */,
+				B42E7DF0E438EA7B7BD2A267 /* car_trunk_013.png in Resources */,
+				6A48C659AF47823AE5563DF1 /* car_trunk_014.png in Resources */,
+				F8A24209B964A16EC6FCFE47 /* car_trunk_015.png in Resources */,
+				4819515551EB428A2BCB3084 /* car_trunk_016.png in Resources */,
+				F0211C55187E667FFD81E757 /* car_trunk_017.png in Resources */,
+				40C49C5FEA5F8DBDE6DC7804 /* car_trunk_018.png in Resources */,
+				6D93E4E1229A4076326DC22A /* car_trunk_019.png in Resources */,
+				6ECDB1DA615BF085B50CC440 /* car_trunk_020.png in Resources */,
+				D9BB853A6A13B017D53A708F /* car_trunk_021.png in Resources */,
+				0422AE0AAFE0F0CA8C502449 /* car_trunk_022.png in Resources */,
+				9AFC3E0C2CD57027A6A24B3D /* car_trunk_023.png in Resources */,
+				E9A6E565BBD1B7DBB7DF40BC /* car_trunk_024.png in Resources */,
+				869B600B92DBCBAD86DB51DE /* car_trunk_025.png in Resources */,
+				3707182BB8C459C8567EC059 /* car_trunk_026.png in Resources */,
+				96FB0D16E1D28E615992558E /* car_trunk_027.png in Resources */,
+				D1A516C6EBC88FA293740564 /* car_trunk_028.png in Resources */,
+				1343259251A6413A8DD3A174 /* car_trunk_029.png in Resources */,
+				991C44E4C874F8312EE422DE /* car_trunk_030.png in Resources */,
+				D60B88E6611D2299050854B8 /* car_trunk_031.png in Resources */,
+				FFDFBD3B9E4A5DC6AB21E201 /* car_trunk_032.png in Resources */,
+				5B9329AB4087F6B33F4869D4 /* car_trunk_033.png in Resources */,
+				DCBAC3F5AF4483E05583023F /* car_trunk_034.png in Resources */,
+				2AFC91484AD4B1B22917EB53 /* car_trunk_035.png in Resources */,
+				E4915EBAA3DB553FE801EB21 /* car_trunk_036.png in Resources */,
+				DF0956B603CD0C5184398D25 /* car_trunk_037.png in Resources */,
+				BAF7743C496C4325D6806651 /* car_trunk_038.png in Resources */,
+				F7725DDAE825D58BEB09A4EA /* car_trunk_039.png in Resources */,
+				BE773FA6A98A3AE8ED7BADD5 /* car_trunk_040.png in Resources */,
+				215C43A687100685180D5E5C /* car_trunk_041.png in Resources */,
+				18A612C51FA6FCA7DECBCA23 /* car_trunk_042.png in Resources */,
+				CA7CF60B2B2D8A1BB31B092B /* car_trunk_043.png in Resources */,
+				3F93A9332C616B1BD27D4CD9 /* car_trunk_044.png in Resources */,
+				3D77A1CF7A0142B90FC51B5F /* car_trunk_045.png in Resources */,
+				CE8E7F2BFFF25E59FB0E384A /* car_trunk_046.png in Resources */,
+				22E8CEAFAE2E8727EEB94DB7 /* car_trunk_047.png in Resources */,
+				553D19092EC7902703E8FA2B /* car_trunk_048.png in Resources */,
+				516D73EB128AD570B6D14506 /* car_trunk_049.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		73519E2249B0E37539E42145 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -240,6 +470,7 @@
 				5A5F177B77B566D517418361 /* AppModel.swift in Sources */,
 				289A7C95DC5F829282241571 /* BLECentral.swift in Sources */,
 				E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */,
+				99A0F2D1CBB2A4C581A9E2B8 /* CarModelView.swift in Sources */,
 				7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */,
 				95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */,
 				27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */,

@@ -21,6 +21,7 @@ targets:
       - path: Sources
         excludes:
           - "**/*.md"
+      - path: Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey

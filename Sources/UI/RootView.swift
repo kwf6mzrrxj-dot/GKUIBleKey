@@ -112,20 +112,13 @@ struct RootView: View {
         }
     }
 
-    // MARK: - 车辆图
+    // MARK: - 车辆图（原 App 车辆模型帧）
 
     private var carArt: some View {
         VStack {
             Spacer(minLength: 0)
-            Image(systemName: "car.side.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(maxHeight: 200)
-                .foregroundStyle(
-                    LinearGradient(colors: [.white.opacity(0.9), .white.opacity(0.3)],
-                                   startPoint: .top, endPoint: .bottom))
-                .shadow(color: .white.opacity(0.15), radius: 34)
-                .padding(.horizontal, 20)
+            CarModelView(status: model.measured.status)
+                .padding(.horizontal, 10)
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
@@ -135,10 +128,14 @@ struct RootView: View {
 
     private var controlSection: some View {
         VStack(spacing: 12) {
-            // 两大键：解锁 / 闭锁
+            // 两大键：解锁 / 闭锁 —— 车锁状态直接体现在按钮上
             HStack(spacing: 12) {
-                primaryAction(.unlock, "解锁", .green, "lock.open.fill")
-                primaryAction(.lock, "闭锁", .blue, "lock.fill")
+                primaryAction(.unlock, "解锁", .green, "lock.open.fill",
+                              isCurrentState: model.measured.status?.isLocked == true,
+                              stateBadge: model.measured.status?.isLocked == true ? "当前已锁" : nil)
+                primaryAction(.lock, "闭锁", .blue, "lock.fill",
+                              isCurrentState: model.measured.status?.isLocked == false,
+                              stateBadge: model.measured.status?.isLocked == false ? "当前未锁" : nil)
             }
 
             // 次要动作：后备箱 / 车窗 / 寻车
@@ -166,18 +163,36 @@ struct RootView: View {
         .padding(.bottom, 16)
     }
 
+    /// 主按钮 —— `isCurrentState` 为 `true` 时（车正处于该按钮对应的状态）
+    /// 加亮边框和状态角标，提示用户「下一步该按哪个」：
+    /// 已锁 → 高亮「解锁」；未锁 → 高亮「闭锁」。
     private func primaryAction(
-        _ action: IBCommandType, _ title: String, _ tint: Color, _ icon: String
+        _ action: IBCommandType, _ title: String, _ tint: Color, _ icon: String,
+        isCurrentState: Bool = false, stateBadge: String? = nil
     ) -> some View {
         Button { model.perform(action) } label: {
             VStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 26, weight: .medium))
                 Text(title).font(.headline)
+                if let badge = stateBadge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(tint.opacity(0.25), in: Capsule())
+                        .foregroundStyle(tint)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 72)
+            .frame(maxWidth: .infinity, minHeight: 76)
         }
         .buttonStyle(.glass)
         .tint(tint)
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .strokeBorder(isCurrentState ? tint.opacity(0.9) : .clear,
+                              lineWidth: isCurrentState ? 2 : 0)
+        )
+        .opacity(isCurrentState ? 1 : (stateBadge == nil && model.measured.status != nil ? 0.75 : 1))
         .disabled(!model.ble.isWriteReady)
     }
 
