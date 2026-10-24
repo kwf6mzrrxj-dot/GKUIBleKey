@@ -116,6 +116,12 @@ public final class BLECentral: NSObject, ObservableObject {
     private var rssiTask: Task<Void, Never>?
     /// 扫描到的 CBPeripheral 对象缓存（绕开 iOS 500 条设备缓存淘汰问题）
     private var peripheralCache: [UUID: CBPeripheral] = [:]
+    /// 同一设备 `didDiscover` 的节流：记录上次处理时间，避免 AllowDuplicates
+    /// 导致的高频重复匹配/日志（同一 identifier 两次处理间隔 < 该值时跳过）。
+    private var lastDiscoveryTime: [UUID: Date] = [:]
+    /// 节流窗口（秒）—— AllowDuplicates=YES 下设备每秒广播数十次，
+    /// 这个窗口内同一设备只做一次匹配与日志。
+    private let discoveryThrottle: TimeInterval = 0.5
     /// 上次成功连接的设备标识（用于"不用扫描"的重连路径）
     private var rememberedPeripheralID: UUID? {
         get {
@@ -301,40 +307,6 @@ public final class BLECentral: NSObject, ObservableObject {
     /// ## ⚠️ 为什么**不能**用 `withServices` 过滤
     /// 之前写的是 `scanForPeripherals(withServices: [GATT.serviceUUID])`，
     /// 结果是**一个设备都扫不到**。
-    ///
-    /// 原因：`withServices` 是交给 **iOS 在系统层**过滤的 ——
-    /// 只有广播包里**真的带了该 Service UUID** 的设备才会回调。
-    /// 而 PEPS 模块为了省电，广播包里常常**只放设备名、不放服务 UUID**，
-    /// 于是被系统直接过滤掉了，App 连"发现过它"都不知道。
-    ///
-    /// 所以这里传 `nil` **扫全部**，目标识别改在 `didDiscover` 里自己做
-    /// （按广播名 `InBlue…` + 广播里的 Service UUID 双重判断）。
-    /// ★ **指定服务扫描**（不需要位置权限）—— 与"扫全部"做对比实验。
-    ///
-    /// iOS 对两种扫描的权限要求不同：
-    /// - `withServices: nil` → 需要位置权限
-    /// - `withServices: [某服务]` → 不需要
-    ///
-    /// 如果这条能收到回调而"扫全部"不能，就说明是扫描方式的问题而非设备问题。
-    public func startScanWithService() {
-        let st = stateText(central.state)
-        guard central.state == .poweredOn else {
-            lastMessage = "❌ 指定服务扫描被拒绝：蓝牙 = 「\(st)」"
-            return
-        }
-        candidates.removeAll()
-        linkState = .scanning
-        discoverCount = 0
-        lastDiscoveredName = ""
-        // ★★★ 用"广播里带的" 16-bit UUID（0x10FF），**不是**连接后的 GATT UUID。
-        //    这是照原 App `-[VCBBluetoothManager startScan]` 的做法。
-        // ★ 同样带 AllowDuplicates（照原 App，见 startScan 的说明）
-        central.scanForPeripherals(
-            withServices: [GATT.advServiceUUID],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
-        lastMessage = "✅ 按广播 Service 扫描已启动（10FF，AllowDuplicates=YES）"
-    }
-
     /// ★★★ **照原 App 的扫描方式**：按广播里的 16-bit Service `0x10FF` 过滤。
     public func startScan() {
         // ★★★ 照原 App：按广播里的 16-bit Service `0x10FF` 过滤。
@@ -669,6 +641,25 @@ extension BLECentral: CBCentralManagerDelegate {
             // ★ 缓存 CBPeripheral 对象本身，后续连接直接用，
             //   避免 iOS 500 条设备缓存淘汰导致的 retrievePeripherals 失败
             peripheralCache[peripheral.identifier] = peripheral
+
+            // ★★★ 性能节流：AllowDuplicates=YES 下同一设备每秒广播数十次，
+            //   每次回调都走 AES 匹配 + 刷多行日志会拖累主线程、撑大日志。
+            //   这里对同一 identifier 在节流窗口内只处理一次。
+            let now = Date()
+            if let last = lastDiscoveryTime[peripheral.identifier],
+               now.timeIntervalSince(last) < discoveryThrottle {
+                return
+            }
+            lastDiscoveryTime[peripheral.identifier] = now
+            // 节流表也做清理，避免长期扫描下无限增长
+            if lastDiscoveryTime.count > 80 {
+                let keep = Set(candidates.map { $0.id })
+                lastDiscoveryTime = lastDiscoveryTime.filter { keep.contains($0.key) }
+            }
+
+            // ★ 诊断：先记下"回调确实来过"，再谈过滤
+            discoverCount += 1
+            lastDiscoveredName = advName.isEmpty ? "(无名)" : advName
 
             // ★★★ **照原 App 的匹配规则**（`+[VCBAdvertisingData isValeoDeviceWithAdvertisingData:]`
             //     → `-[IBVehicleManager updateVehicleWithDevice:]` → `-[IBDevice checkCryptedID:]`）

@@ -584,8 +584,7 @@ struct DeviceListView: View {
                     Text(model.statusLine).font(.caption2)
                 }
                 Section {
-                    Button("扫描（全部设备）") { model.startScan() }
-                    Button("扫描（指定服务）") { model.ble.startScanWithService() }
+                    Button("扫描") { model.startScan() }
                     Button("不扫描直接连（系统已配对）") { model.connectSystemPaired() }
                     Button("清空设备列表") { model.ble.clearCandidates() }
                         .foregroundStyle(.secondary)

@@ -33,9 +33,10 @@ public enum BroadcastParser {
 
     /// 从广播名解析尾部标识（**兜底展示用，不可用于密码学**）。
     ///
-    /// `InBlue3f26c66ac89ad4` → 取后 14 个 hex。
-    /// 这 7 字节等于完整 `cidpu` 的 `[9,16)`（已验证），但**缺前 9 字节**，
-    /// 因此拿它当 AES key 必然失败 —— 只用于未配对时的界面提示。
+    /// `InBlue3f26c66ac89ad4` → 去掉 `INBLUE` 前缀后取**后 6 个 hex（3 字节）**。
+    /// 这 3 字节是完整 `cidpu` 末 3 字节（已验证，`c89ad4` 与车辆详情页 CIDPU
+    /// 末位一致），但**缺前 13 字节**，因此拿它当 AES key 必然失败 ——
+    /// 只用于未配对时的界面提示。
     public static func parseCidpu(from name: String) -> String? {
         let upper = name.uppercased()
         guard upper.hasPrefix("INBLUE") else { return nil }
