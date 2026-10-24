@@ -16,6 +16,7 @@ struct DiagnosticsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    bleStatusSection
                     selfTestSection
                     timingSection
                     streamSection
@@ -31,6 +32,37 @@ struct DiagnosticsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+        }
+    }
+
+    // MARK: - BLE 状态（排查连接问题首先看这里）
+
+    private var bleStatusSection: some View {
+        card("BLE 连接状态") {
+            VStack(alignment: .leading, spacing: 8) {
+                readonlyRow("蓝牙适配器", model.ble.bluetoothStatusText)
+                readonlyRow("位置权限", model.ble.locationAuthText)
+                readonlyRow("链路状态", model.ble.linkState.rawValue)
+                readonlyRow("写特征", model.ble.isWriteReady ? "已就绪" : "未就绪")
+                readonlyRow("发现设备数", "\(model.ble.candidates.count)")
+                Divider().overlay(Color.white.opacity(0.12))
+                Text(model.ble.lastMessage).font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(model.statusLine).font(.caption2)
+                    .foregroundStyle(.cyan.opacity(0.8))
+                Divider().overlay(Color.white.opacity(0.12))
+                HStack(spacing: 10) {
+                    Button("重新扫描") { model.startScan() }
+                        .buttonStyle(.glass)
+                    Button("请求位置权限") { model.ble.requestLocationPermission() }
+                        .buttonStyle(.glass)
+                        .tint(model.ble.hasLocationAuth ? .green : .orange)
+                    Button("重建蓝牙") { model.ble.resetCentral() }
+                        .buttonStyle(.glass)
+                        .tint(.orange)
+                }
+                .font(.caption)
             }
         }
     }

@@ -213,11 +213,12 @@ struct RootView: View {
                       text: model.ble.isWriteReady ? "蓝牙已连接车辆" : "蓝牙未连接车辆",
                       trailing: nil)
 
-            // 密钥状态（未配对时引导去绑定）
+            // 密钥状态（未配对时整行可点，引导去绑定）
             statusRow(icon: model.measured.keys != nil ? "key.fill" : "key",
                       iconColor: model.measured.keys != nil ? .green : .orange,
                       text: model.measured.keys != nil ? "数字钥匙已就绪" : "尚未绑定车辆",
-                      trailing: model.measured.keys == nil ? "去绑定" : nil)
+                      trailing: model.measured.keys == nil ? "去绑定" : nil,
+                      action: model.measured.keys == nil ? { showPairing = true } : nil)
         }
         .padding(.bottom, 12)
     }
@@ -255,8 +256,11 @@ struct RootView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
-    private func statusRow(icon: String, iconColor: Color, text: String, trailing: String?) -> some View {
-        HStack(spacing: 10) {
+    private func statusRow(
+        icon: String, iconColor: Color, text: String, trailing: String?,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        let row = HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 18))
                 .foregroundStyle(iconColor)
@@ -268,10 +272,27 @@ struct RootView: View {
             if let t = trailing {
                 Text(t).font(.caption2).foregroundStyle(.cyan)
             }
+            if action != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
+
+        return Group {
+            if let action {
+                Button(action: action) {
+                    row
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                row
+            }
+        }
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 }
@@ -287,7 +308,6 @@ struct DeveloperMenuView: View {
     @State private var showDiagnostics = false
     @State private var showKeys = false
     @State private var showLogs = false
-    @State private var showDevices = false
     @State private var showVehicleDetail = false
 
     var body: some View {
@@ -296,9 +316,6 @@ struct DeveloperMenuView: View {
                 Section("车辆") {
                     Button { showVehicleDetail = true } label: {
                         menuRow("车辆详情", "car.side", "查看 CIDPU、连接状态")
-                    }
-                    Button { showDevices = true } label: {
-                        menuRow("发现的设备", "dot.radiowaves.left.and.right", "扫描、连接车辆模块")
                     }
                 }
 
@@ -360,7 +377,6 @@ struct DeveloperMenuView: View {
             .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
             .sheet(isPresented: $showKeys) { KeyInspectorView() }
             .sheet(isPresented: $showLogs) { LogView() }
-            .sheet(isPresented: $showDevices) { DeviceListView() }
             .sheet(isPresented: $showVehicleDetail) { VehicleDetailView() }
         }
     }
@@ -534,73 +550,5 @@ struct VehicleDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-    }
-}
-
-// MARK: - 设备列表（调试用）
-
-struct DeviceListView: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("已发现") {
-                    if model.ble.candidates.isEmpty {
-                        Text("暂无 —— 点下方「扫描」")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(model.ble.candidates) { d in
-                        Button {
-                            model.ble.connect(d)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(d.name).font(.subheadline)
-                                    Text(d.id.uuidString)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text("\(d.rssi) dBm")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(d.isLikelyTarget ? .green : .secondary)
-                                if d.isLikelyTarget {
-                                    Image(systemName: "star.fill")
-                                        .font(.caption2).foregroundStyle(.yellow)
-                                }
-                            }
-                        }
-                    }
-                }
-                Section("诊断") {
-                    LabeledContent("蓝牙适配器", value: model.ble.bluetoothStatusText)
-                    LabeledContent("位置权限", value: model.ble.locationAuthText)
-                    LabeledContent("扫描状态", value: model.ble.linkState.rawValue)
-                    LabeledContent("发现设备数", value: "\(model.ble.candidates.count)")
-                    LabeledContent("写特征", value: model.ble.isWriteReady ? "已就绪" : "未就绪")
-                    Text(model.ble.lastMessage).font(.caption2)
-                    Text(model.statusLine).font(.caption2)
-                }
-                Section {
-                    Button("扫描") { model.startScan() }
-                    Button("不扫描直接连（系统已配对）") { model.connectSystemPaired() }
-                    Button("清空设备列表") { model.ble.clearCandidates() }
-                        .foregroundStyle(.secondary)
-                    Button("请求位置权限（扫描必需）") { model.ble.requestLocationPermission() }
-                        .foregroundStyle(model.ble.hasLocationAuth ? .green : .orange)
-                    Button("重建蓝牙管理器") { model.ble.resetCentral() }
-                        .foregroundStyle(.orange)
-                }
-            }
-            .navigationTitle("发现的设备")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
     }
 }
