@@ -249,6 +249,43 @@ public enum InBlueAuth {
         return FirstMessage(frame: frame, rnd1: r, segment1: seg1, segment2: seg2, plain: plain)
     }
 
+    /// 构造**配对（`0x55`）场景**的 `01` 帧 —— 无密钥时的占位鉴权帧。
+    ///
+    /// ## 反汇编依据（决定性）
+    /// `-[VCLSManager requestParametersforCidpu:]` @`0x11bec` **没有任何 nil 检查**：
+    /// 首次配对时 `_keysData` 为空，`objectForKey:cidpu` → nil，
+    /// `[nil objectForKey:"sd"]` → nil（ObjC 对 nil 发消息返回 nil），
+    /// 最终 `stringWithFormat:@"%@%@%@%@%@"` 得到一串 `"(null)"`。
+    ///
+    /// `+[IBNSString stringToData:]` @`0x111c0` 用 `strtoul(base=16)` 每 2 字符转 1 字节，
+    /// `"(null)"` 的 `"("` 不是合法 hex → `strtoul` 返回 0 → 每个字段变成 `0x00`。
+    /// 同样，AES 密钥 `CkTRxSP` 也是 nil → 全零。
+    ///
+    /// 因此原 App 配对时 `01` 帧 = **全零 sd/ed/RndTRx/rights + 真实随机 RND1**，
+    /// 用全零 `CkTRxSP` 加密。车端识别「这是配对命令（0x55）」后**不校验密钥内容**，
+    /// 直接走配对流程下发 `0x0E` 密钥。
+    public static func buildPairingFirstMessage() throws -> FirstMessage {
+        let r = CryptoBox.secureRandomBytes(4)
+        guard r.count == 4 else {
+            throw InBlueAuthError.badKeyLength(field: "RND1", expected: 4, actual: r.count)
+        }
+        // 全零占位：sd(4) + ed(4) + RndTRx(3) + RND1(4) + rights(1) = 16
+        let plain: [UInt8] = [UInt8](repeating: 0, count: 4 + 4 + 3)
+            + r
+            + [UInt8](repeating: 0, count: 1)
+        guard plain.count == 16 else {
+            throw InBlueAuthError.badKeyFrame("配对占位明文长度 \(plain.count)，期望 16")
+        }
+        let zeroKey = [UInt8](repeating: 0, count: 16)
+        let seg1 = try aes(plain: plain, key: zeroKey)
+        let seg2 = try aes(plain: constantKey, key: zeroKey)
+
+        var frame: [UInt8] = [0x01]
+        frame.append(contentsOf: seg1)
+        frame.append(contentsOf: seg2)
+        return FirstMessage(frame: frame, rnd1: r, segment1: seg1, segment2: seg2, plain: plain)
+    }
+
     // MARK: - 03 帧
 
     public struct ResponseMessage: Sendable {

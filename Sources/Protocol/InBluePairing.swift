@@ -5,8 +5,19 @@ import UIKit
 
 /// InBlue 配对流程（首次绑定）。
 ///
-/// ## 只做一件事：发 `0D` 登记帧
-/// 配对就两帧（原 App 反汇编：`pairingMessage` @`0x13afc` + `saveKeysData:` @`0x12660`）：
+/// ## 两条配对路径（原 App 反汇编）
+///
+/// 原 App 里「配对」有**两条独立路径**，不能混为一谈：
+///
+/// | 路径 | 方法 | 命令 | 行为 |
+/// |---|---|---|---|
+/// | **登记帧** | `generatePairingMessage` @`0xfecc` → `pairingMessage` @`0x13afc` | `0x0D` | 直发 37B 登记帧，日志 "Sending message 13" |
+/// | **配对鉴权链** | `startPairing` @`0xa350` → `openConnexionForCommand:0x55` | `0x55` | 走 `01→02→03(0x55)→0x0E` 完整鉴权链 |
+///
+/// 本类保留的是 **`0x0D` 登记帧**路径（对应 `generatePairingMessage`）。
+/// 主配对入口 `startFullPairing` 走的是 **`0x55` 鉴权链**（见 `MeasuredSession.preparePairing`）。
+///
+/// ## `0x0D` 登记帧格式
 /// ```
 /// 手机 → 0D <nonce 15B> <字符数> <手机名 UTF-8> <补零>   共 37B
 /// 模块 → 0E <7 字段密钥载荷 + 16B CIDPU>                共 62B

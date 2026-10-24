@@ -109,13 +109,13 @@ public final class AppModel: ObservableObject {
             self?.beginMeasuredAuth(asPreAuthentication: true)
         }
 
-        // ★ 链路就绪 → 若配对流程在等，自动发登记帧（一键配对的关键）
+        // ★ 链路就绪 → 若配对流程在等，自动发起配对鉴权链（一键配对的关键）
         ble.$linkState
             .filter { $0 == .ready }
             .sink { [weak self] _ in
                 guard let self, self.pairingArmed else { return }
-                self.appendPairingLog("链路已就绪，自动发送登记帧")
-                self.sendPairingRequest()
+                self.appendPairingLog("链路已就绪，自动发起配对鉴权（0x55）")
+                self.beginMeasuredAuthPairing()
             }
             .store(in: &cancellables)
 
@@ -219,15 +219,17 @@ public final class AppModel: ObservableObject {
 
     /// **一键配对** —— 用户唯一需要做的操作。
     ///
-    /// 内部自动串联：
+    /// 内部自动串联（依据原 App 反汇编 `startPairing` @`0xa350`）：
     /// ```
-    /// ① 若已连接 → 直接发登记帧（0x0D）
-    /// ② 若未连接 → 先尝试系统已配对设备，失败则扫描
-    /// ③ 链路一就绪 → 自动发 0x0D（由 linkState 订阅驱动）
-    /// ④ 车端回 0x0E（62B 密钥帧）→ 自动保存
+    /// ① 若已连接 → 关旧连接重连（触发系统配对）
+    /// ② 若未连接 → 扫描并连接
+    /// ③ 链路一就绪 → 自动发起配对鉴权链（由 linkState 订阅驱动）
+    /// ④ 配对走 01 → 02 → 03(末字节 0x55) → 0x0E(Key received)
+    /// ⑤ 收到 0x0E → saveKeysData 落密钥 + 配对成功
     /// ```
-    /// 依据原 App 反汇编：`pairingMessage` @`0x13afc`（37B 登记帧）、
-    /// `saveKeysData:` @`0x12660`（62B 密钥帧切分）。
+    /// 依据原 App `openConnexionForCommand:0x55`（`cmp #0x55` 特判：关旧连接 + 30 秒超时），
+    /// 以及 `formatCommand:toDevice:` 里 `cmp #0x55 → b.eq` **跳过 cidpu 检查**
+    /// （配对时还没有密钥，`01` 帧用全零占位构造）。
     ///
     /// ★ 系统配对框是 iOS 自动弹的（访问加密特征时要求输 6 位码），App 不参与。
     public func startFullPairing() {
@@ -264,15 +266,27 @@ public final class AppModel: ObservableObject {
         ble.startScan()
     }
 
-    /// 发送 0x0D 登记帧（内部使用；链路就绪后自动调用）
-    private func sendPairingRequest() {
+    /// 发起配对鉴权链（`01 → 02 → 03(0x55) → 0x0E`）。
+    ///
+    /// 对应原 App `startPairing` → `openConnexionForCommand:0x55` 之后的
+    /// `formatCommand:toDevice:`：`cmp #0x55` 跳过 cidpu 检查 → `generateFirstMessage:`。
+    /// 配对时无密钥，`01` 帧用全零占位 + 随机 RND1 构造（见 `InBlueAuth.buildPairingFirstMessage`）。
+    private func beginMeasuredAuthPairing() {
         pairingArmed = false
-        let frame = pairing.buildPairingMessage()
-        guard ble.send(frame) else {
-            statusLine = "配对失败：写特征未就绪"
+        measured.reset()
+        measured.preparePairing()
+        let frame = measured.buildAuth1()
+        guard !frame.isEmpty else {
+            statusLine = "配对鉴权1 构造失败"
+            pairing.fail("配对鉴权1 构造失败")
             return
         }
-        statusLine = "登记帧已发送（\(frame.count)B），等待车端下发密钥…"
+        guard ble.send(frame) else {
+            statusLine = "配对鉴权1 写入失败"
+            pairing.fail("配对鉴权1 写入失败（写特征未就绪）")
+            return
+        }
+        statusLine = "已发配对鉴权1（\(frame.count)B），等待车端 02 挑战…"
     }
     /// 处理配对**请求回显**帧（`0x0D`）。
     ///

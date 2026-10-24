@@ -148,6 +148,8 @@ public final class MeasuredSession: ObservableObject {
     public var sendAuth3 = true
 
     private var rnd1: [UInt8] = []
+    /// 是否处于「配对（0x55）」流程 —— 配对时无密钥，`01` 帧用全零占位构造。
+    private var isPairing = false
 
     /// 兼容字段：广播随机数不参与 `01` 帧。
     public var broadcastRandom: [UInt8] = []
@@ -187,9 +189,27 @@ public final class MeasuredSession: ObservableObject {
     /// 必须显式清掉 `pendingAction` —— 否则定时触发时会沿用上一次的
     /// `unlock`/`lock`，预认证就变成一次真实控车（危险）。
     public func preparePreAuthentication() {
+        isPairing = false
         pendingAction = nil
         controlCode = 0x0C
         append("准备预认证（控制码 0x0C，对应 openConnectionWithPassiveStart）")
+    }
+
+    /// 准备一次**配对**（`0x55`）。
+    ///
+    /// 依据：`-[IBVehicle startPairing]` @`0xa350` → `openConnexionForCommand:0x55`，
+    /// `-[IBDevice openConnexionForCommand:]` @`0x4988` 里 `cmp #0x55` 特判：
+    /// `closeConnexionForCommand`（关旧连接）+ 30 秒超时；
+    /// `-[VCLSManager formatCommand:toDevice:]` @`0xfb48` 里 `cmp #0x55 → b.eq`
+    /// **跳过 cidpu 检查**（配对时还没有密钥）→ `generateFirstMessage:`。
+    ///
+    /// 配对走完整鉴权链 `01 → 02 → 03(末字节 0x55) → 0x0E(Key received)`，
+    /// 收到 `0x0E` 后 `saveKeysData:` + `callDidPairingSuccess`。
+    public func preparePairing() {
+        isPairing = true
+        pendingAction = .pairing
+        controlCode = 0x55
+        append("准备配对（控制码 0x55，对应 startPairing → openConnexionForCommand:0x55）")
     }
 
     // MARK: - 构建 01
@@ -197,10 +217,30 @@ public final class MeasuredSession: ObservableObject {
     /// 构建 `01` 帧（33 字节）。
     ///
     /// 走 `InBlueAuth.buildFirstMessage`：两段 AES，密钥都是 `CkTRxSP`。
+    /// **配对（`isPairing`）时无密钥，改用全零占位 + 随机 RND1**（对应原 App
+    /// 在 `formatCommand:toDevice:` 里 `cmp 0x55` 跳过 cidpu 检查后仍构造 01）。
     /// 失败时返回空数组，并在日志里说明缺什么。
     public func buildAuth1() -> [UInt8] {
+        if isPairing {
+            do {
+                let m = try InBlueAuth.buildPairingFirstMessage()
+                rnd1 = m.rnd1
+                phase = .sentAuth1
+                append("→ 01 鉴权1（配对占位：全零 sd|ed|RndTRx|rights + 随机 RND1，AES 密钥全零）")
+                append("   RND1=\(FrameCodec.hexString(m.rnd1))")
+                append("   明文=\(FrameCodec.hexString(m.plain))")
+                append("   段1=\(FrameCodec.hexString(m.segment1))")
+                append("   段2=\(FrameCodec.hexString(m.segment2))（全零密钥下恒定）")
+                append("   \(FrameCodec.hexString(m.frame))")
+                return m.frame
+            } catch {
+                append("❌ 构造配对 01 失败：\(error)")
+                phase = .failed
+                return []
+            }
+        }
         guard let k = keys else {
-            append("❌ 还没有密钥材料（需要先用 0D 帧配对拿到 0E）")
+            append("❌ 还没有密钥材料（需要先配对拿到 0E）")
             phase = .failed
             return []
         }
@@ -225,11 +265,30 @@ public final class MeasuredSession: ObservableObject {
     // MARK: - 构建 03
 
     /// 构建 `03` 帧（18 字节）—— 对应 `calculateResponseforCidpu:randomData:command:`。
+    ///
+    /// **配对（`isPairing`）时无密钥**，`Dk1` 用全零占位派生临时密钥 `enc1` ——
+    /// 与 `01` 帧的全零占位一致，车端识别配对命令后不校验密钥内容。
     public func buildAuth3(challenge: [UInt8]) -> [UInt8] {
-        guard let k = keys else {
-            append("❌ 构造 03 失败：缺少密钥材料")
-            phase = .failed
-            return []
+        let k: InBlueAuth.Keys
+        if isPairing {
+            k = InBlueAuth.Keys(
+                dk1: [UInt8](repeating: 0, count: 16),
+                sd: [UInt8](repeating: 0, count: 4),
+                ed: [UInt8](repeating: 0, count: 4),
+                rndTRx: [UInt8](repeating: 0, count: 3),
+                rights: [UInt8](repeating: 0, count: 1),
+                keyType: [UInt8](repeating: 0, count: 1),
+                ckTRxSP: [UInt8](repeating: 0, count: 16),
+                tail: [UInt8](repeating: 0, count: 16),
+                cidpu: [UInt8](repeating: 0, count: 16)
+            )
+        } else {
+            guard let kk = keys else {
+                append("❌ 构造 03 失败：缺少密钥材料")
+                phase = .failed
+                return []
+            }
+            k = kk
         }
         guard rnd1.count == 4 else {
             append("❌ 构造 03 失败：RND1 缺失（需要先发 01）")
@@ -249,7 +308,7 @@ public final class MeasuredSession: ObservableObject {
                 append("   ✅ 挑战自校验通过（\(FrameCodec.hexString(m.computed)) == \(FrameCodec.hexString(m.expected))）")
             } else {
                 append("   ⚠️ 挑战自校验失败：算出 \(FrameCodec.hexString(m.computed))，车端期望 \(FrameCodec.hexString(m.expected))")
-                append("      → 说明 Dk1 或 RND1 不匹配；原 App 在此时会直接放弃发送")
+                append("      配对占位（全零 Dk1）时此校验本就不匹配，属预期；原 App 配对也走这条")
             }
             append("   \(FrameCodec.hexString(m.frame))")
             return m.frame
@@ -352,6 +411,7 @@ public final class MeasuredSession: ObservableObject {
         }
 
         keys = k
+        isPairing = false   // ★ 配对完成，密钥已落地，后续正常控车不再走全零占位
         let store = KeyStore.shared
         store.set(Data(k.dk1), for: .dk1)
         store.set(Data(k.sd), for: .sd)
