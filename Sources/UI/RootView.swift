@@ -521,7 +521,7 @@ struct PassiveStartDetailView: View {
                             Text("未标定时基准为 -32，几乎不会触发。标定写入端跨底层 GLBLE 协议，"
                                  + "当前尚未实现，因此此功能实际不可用。")
                                 .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.55))
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -556,17 +556,17 @@ struct PassiveStartDetailView: View {
 
     private func row(_ k: String, _ v: String) -> some View {
         HStack {
-            Text(k).font(.caption).foregroundStyle(.white.opacity(0.7))
+            Text(k).font(.caption).foregroundStyle(.secondary)
             Spacer()
             Text(v).font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.primary)
         }
     }
 
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: 10) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                 content()
             }
             .padding(16)
@@ -587,28 +587,28 @@ struct VehicleDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    Image(systemName: "car.side.fill")
-                        .resizable().scaledToFit().frame(maxHeight: 150)
-                        .foregroundStyle(.white.opacity(0.7))
+                    // ★ 博越 PRO 车图（原 App NL3B 模型）
+                    CarImage(named: "car_on")
+                        .frame(maxHeight: 160)
                         .padding(.top, 10)
 
                     VStack(spacing: 0) {
                         row("车辆爱称", "爱车")
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("车辆 ID (CIDPU)", cidpuText, mono: true)
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("连接状态", model.ble.isWriteReady ? "蓝牙连接 iPhone" : "未连接")
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("车辆型号", "博越 PRO")
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("最近动作", model.measured.lastSucceededAction?.label ?? "—")
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("状态帧 (05)", model.measured.vehicleState.isEmpty
                             ? "—" : model.measured.vehicleState.hexDescription, mono: true)
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         row("已登记手机", model.measured.pairedDeviceNames.isEmpty
                             ? "未知（点下方「查询」）" : model.measured.pairedDeviceNames.joined(separator: ", "))
-                        Divider().overlay(Color.white.opacity(0.1))
+                        Divider()
                         Button {
                             model.requestPairedDeviceNames()
                         } label: {
@@ -624,11 +624,11 @@ struct VehicleDetailView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             Text("车辆状态")
                                 .font(.headline)
-                                .foregroundStyle(.white.opacity(0.9))
+                                .foregroundStyle(.primary)
                             statusGrid(st)
                             Text(st.fullDescription)
                                 .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.5))
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
@@ -638,7 +638,7 @@ struct VehicleDetailView: View {
                     if cidpuText == "未获取" {
                         Text("CIDPU 由车端在连接后下发；配对成功或鉴权通过后即可看到。")
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.5))
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
                     }
                 }
@@ -662,11 +662,11 @@ struct VehicleDetailView: View {
 
     private func row(_ k: String, _ v: String, mono: Bool = false) -> some View {
         HStack {
-            Text(k).font(.subheadline).foregroundStyle(.white.opacity(0.85))
+            Text(k).font(.subheadline).foregroundStyle(.primary)
             Spacer()
             Text(v)
                 .font(mono ? .system(.subheadline, design: .monospaced) : .subheadline)
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -688,14 +688,14 @@ struct VehicleDetailView: View {
                 VStack(spacing: 4) {
                     Text(item.1)
                         .font(.subheadline.bold())
-                        .foregroundStyle(item.2 ? Color.green : Color.white.opacity(0.85))
+                        .foregroundStyle(item.2 ? Color.green : Color.primary)
                     Text(item.0)
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
