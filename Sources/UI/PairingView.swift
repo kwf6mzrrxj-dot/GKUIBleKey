@@ -84,23 +84,28 @@ struct PairingView: View {
         .padding(.top, 14)
     }
 
-    // MARK: - 车辆图（用 SF Symbol 代替原 App 的渲染图）
+    // MARK: - 车辆图（原 App 车辆模型：配对中显示拼装动画，完成显示静态车图）
 
     private var carArt: some View {
         VStack {
             Spacer(minLength: 0)
-            Image(systemName: "car.side.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(maxHeight: 190)
-                .foregroundStyle(
-                    LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.35)],
-                                   startPoint: .top, endPoint: .bottom))
-                .shadow(color: .white.opacity(0.12), radius: 30)
-                .padding(.horizontal, 40)
+            if hasVehicle {
+                // 配对完成 → 静态 3/4 车图
+                Image("car_rotate_025")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 230)
+                    .shadow(color: .white.opacity(0.10), radius: 24)
+                    .transition(.opacity)
+            } else {
+                // 配对进行中 → 车辆拼装动画
+                CarModelView(status: nil, stage: .pairing)
+                    .frame(maxHeight: 240)
+            }
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.4), value: hasVehicle)
     }
 
     // MARK: - 底部状态（原 App 只有这一行）

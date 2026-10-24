@@ -3,11 +3,11 @@ import SwiftUI
 /// 车辆舞台视图 —— **使用原 App 的车辆模型帧序列**（从 `XiaoKa.app` 提取，
 /// 全部透明背景），按连接状态自动切换：
 ///
-/// | 状态 | 动画 | 资源 | 来源序列 |
+/// | 状态 | 展示 | 资源 | 来源序列 |
 /// |---|---|---|---|
-/// | 连接中 | 无限循环加载动画 | `car_loading_000…059` | `btloading`（60 帧）|
+/// | 未连接 | 静态车图（半透明）| `car_rotate_025` | front2quarter 末帧 |
 /// | 配对中 | 车辆拼装动画（循环）| `car_build_000…024` | `dotcar`（25 帧）|
-/// | 已连接 | 入场旋转一次 → 静止车图 | `car_rotate_000…025` | `front2quarter`（26 帧）|
+/// | 已连接 | 入场旋转一次 → 静止车图 | `car_rotate_000…025` | front2quarter（26 帧）|
 ///
 /// 已连接状态下的车辆状态映射（`VehicleStatus`，广播解密）：
 /// - `isTrunkClosed` 变化 → 播放后备箱开/关动画（`car_trunk_000…049`）
@@ -20,7 +20,7 @@ struct CarModelView: View {
     let stage: Stage
 
     enum Stage: Equatable {
-        /// 扫描 / 连接中 → 加载动画
+        /// 未连接 / 扫描中 → 静态车图（半透明）
         case connecting
         /// 配对流程进行中 → 车辆拼装动画
         case pairing
@@ -31,8 +31,12 @@ struct CarModelView: View {
     var body: some View {
         switch stage {
         case .connecting:
-            LoopingFrames(prefix: "car_loading", count: 60, fps: 24)
-                .frame(height: 170)
+            // 未连接：静态车图半透明显示，提示"未激活"
+            Image("car_rotate_025")
+                .resizable()
+                .scaledToFit()
+                .opacity(0.35)
+                .frame(height: 230)
         case .pairing:
             LoopingFrames(prefix: "car_build", count: 25, fps: 10)
                 .frame(height: 220)
