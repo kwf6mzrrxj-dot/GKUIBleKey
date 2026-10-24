@@ -459,11 +459,16 @@ public final class MeasuredSession: ObservableObject {
     public func recordNote(_ line: String) { append("· \(line)") }
 
     private func append(_ s: String) {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        log.append("[\(f.string(from: Date()))] \(s)")
+        log.append("[\(Self.timestampFormatter.string(from: Date()))] \(s)")
         if log.count > 400 { log.removeFirst(log.count - 400) }
         // ★ 同时落盘：重装/重启后仍能查（覆盖安装不清沙盒）
         FileLogger.shared.append(s, tag: "DK")
     }
+
+    /// 时间戳格式器（复用，避免每次日志都新建 DateFormatter）
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
 }

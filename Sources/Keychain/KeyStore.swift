@@ -104,7 +104,11 @@ public final class KeyStore {
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
                 kSecAttrSynchronizable as String: kCFBooleanTrue as CFBoolean,
             ]
-            SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            if updateStatus != errSecSuccess {
+                NSLog("[KeyStore] 更新失败 \(key.rawValue): \(updateStatus)")
+            }
+            return
         }
         if status != errSecSuccess {
             NSLog("[KeyStore] 写入失败 \(key.rawValue): \(status)")

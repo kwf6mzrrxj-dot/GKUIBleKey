@@ -17,15 +17,19 @@ public final class FileLogger {
 
     private let queue = DispatchQueue(label: "com.mmxisme.gkuiblekey.filelog")
     private let fileURL: URL
-    private let formatter: DateFormatter
     /// 单文件上限，防止无限增长（超过就截半）
     private let maxBytes = 512 * 1024
+
+    /// 时间戳格式器（static 复用；只在串行队列里访问，避免并发竞争）
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss.SSS"
+        return f
+    }()
 
     private init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         fileURL = docs.appendingPathComponent("gkuiblekey.log")
-        formatter = DateFormatter()
-        formatter.dateFormat = "MM-dd HH:mm:ss.SSS"
     }
 
     /// 日志文件路径（供界面显示 / 外部拉取）
@@ -33,12 +37,13 @@ public final class FileLogger {
 
     /// 追加一行（自动加时间戳）
     public func append(_ line: String, tag: String = "") {
-        let text = "[\(formatter.string(from: Date()))]"
-            + (tag.isEmpty ? " " : " [\(tag)] ")
-            + line + "\n"
-        guard let data = text.data(using: .utf8) else { return }
-
+        // ★ 时间戳生成放进串行队列，避免 DateFormatter 的并发访问（非线程安全）。
         queue.async { [fileURL, maxBytes] in
+            let text = "[\(Self.formatter.string(from: Date()))]"
+                + (tag.isEmpty ? " " : " [\(tag)] ")
+                + line + "\n"
+            guard let data = text.data(using: .utf8) else { return }
+
             let fm = FileManager.default
             if !fm.fileExists(atPath: fileURL.path) {
                 try? data.write(to: fileURL)

@@ -485,10 +485,15 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 统一时间戳（毫秒级），便于和使用抓包工具的时间对齐。
     static func stamp() -> String {
+        Self.stampFormatter.string(from: Date())
+    }
+
+    /// 时间戳格式器（复用，避免高频收发时反复创建 DateFormatter 的开销）
+    private static let stampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: Date())
-    }
+        return f
+    }()
 
     /// 蓝牙适配器状态的可读文本（**供界面显示**）。
     ///
