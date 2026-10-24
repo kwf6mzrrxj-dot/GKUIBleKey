@@ -28,6 +28,7 @@ struct RootView: View {
                 topBar
                 vehicleHeader
                 carArt
+                statusChips
                 Spacer(minLength: 0)
                 controlSection
                 statusSection
@@ -57,10 +58,19 @@ struct RootView: View {
 
     private var topBar: some View {
         HStack {
-            Spacer()
-            Text("蓝牙车控")
-                .font(.headline)
-                .foregroundStyle(.white)
+            // 连接状态胶囊（点色 + 文案）
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(linkStateColor)
+                    .frame(width: 7, height: 7)
+                Text(linkStateText)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.white.opacity(0.08), in: Capsule())
+
             Spacer()
             Menu {
                 Button { showPairing = true } label: {
@@ -77,30 +87,35 @@ struct RootView: View {
             }
         }
         .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.bottom, 10)
+    }
+
+    private var linkStateColor: Color {
+        switch model.ble.linkState {
+        case .ready:        return .green
+        case .connecting, .discovering, .scanning: return .yellow
+        case .failed:       return .red
+        case .disconnected, .idle: return .gray
+        }
     }
 
     // MARK: - 车辆标题
 
     private var vehicleHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("\(vehicleNickname) \(linkStateText)")
+        VStack(spacing: 2) {
+            Text(vehicleModelName)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+            Text(vehicleNickname)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.6))
-
-            HStack(spacing: 8) {
-                Text(vehicleModelName)
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.white)
-                Image(systemName: "chevron.right")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.75))
-            }
+                .foregroundStyle(.white.opacity(0.55))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
     }
 
     private var linkStateText: String {
+        if model.pairingArmed { return "配对中" }
         switch model.ble.linkState {
         case .ready:        return "已连接"
         case .connecting:   return "连接中"
@@ -112,16 +127,55 @@ struct RootView: View {
         }
     }
 
-    // MARK: - 车辆图（原 App 车辆模型帧）
+    // MARK: - 车辆图（原 App 车辆模型帧 + 状态动画）
+
+    /// 车辆舞台状态：连接阶段 → 对应动画
+    private var carStage: CarModelView.Stage {
+        if model.ble.linkState == .ready { return .ready }
+        if model.pairingArmed { return .pairing }
+        return .connecting
+    }
 
     private var carArt: some View {
-        VStack {
-            Spacer(minLength: 0)
-            CarModelView(status: model.measured.status)
-                .padding(.horizontal, 10)
-            Spacer(minLength: 0)
+        CarModelView(status: model.measured.status, stage: carStage)
+            .padding(.horizontal, 10)
+    }
+
+    // MARK: - 状态芯片（车门/后备箱/上电/发动机/ACC，广播解密状态）
+
+    @ViewBuilder private var statusChips: some View {
+        if let s = model.measured.status {
+            HStack(spacing: 8) {
+                chip(icon: s.isLocked ? "lock.fill" : "lock.open.fill",
+                     text: s.isLocked ? "已锁" : "未锁",
+                     good: s.isLocked)
+                chip(icon: "door.left.hand.closed",
+                     text: s.isDoorClosed ? "门关" : "门开",
+                     good: s.isDoorClosed)
+                chip(icon: "car.rear.open",
+                     text: s.isTrunkClosed ? "后备箱关" : "后备箱开",
+                     good: s.isTrunkClosed)
+                chip(icon: "engine.combustion",
+                     text: s.isEngineRunning ? "已启动" : "未启动",
+                     good: true)
+                chip(icon: "bolt.fill",
+                     text: s.isAccOn ? "ACC开" : "ACC关",
+                     good: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
         }
-        .frame(maxHeight: .infinity)
+    }
+
+    private func chip(icon: String, text: String, good: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            Text(text).font(.system(size: 11, weight: .medium))
+        }
+        .foregroundStyle(good ? Color.white.opacity(0.85) : Color.orange)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(.white.opacity(0.07), in: Capsule())
     }
 
     // MARK: - 控车区
@@ -221,12 +275,6 @@ struct RootView: View {
                           title: "蓝牙\(model.ble.bluetoothStatusText)",
                           detail: hintForBluetoothState)
             }
-
-            // 连接状态
-            statusRow(icon: "bluetooth",
-                      iconColor: model.ble.isWriteReady ? .blue : .gray,
-                      text: model.ble.isWriteReady ? "蓝牙已连接车辆" : "蓝牙未连接车辆",
-                      trailing: nil)
 
             // 密钥状态（未配对时整行可点，引导去绑定）
             statusRow(icon: model.measured.keys != nil ? "key.fill" : "key",
