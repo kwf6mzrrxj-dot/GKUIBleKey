@@ -162,6 +162,33 @@ public struct PassiveStartJudge: Sendable {
     /// 采样稀疏阈值 —— `0x1fba0` 处的 double 常量 `0.3`
     public static let sparseIntervalThreshold: TimeInterval = 0.3
 
+    /// **离开区域所需的连续「区域外」判定次数（去抖）。**
+    ///
+    /// ## 为什么需要（2026-10-29，后台保活）
+    ///
+    /// 反汇编 `checkRssiForPassiveStart` 是**单帧即时判定**：一次
+    /// `combined <= calibration - leaveOffset` 就 `setIsInPassiveStartArea:NO`。
+    /// 原 App 这么写没问题 —— 它扫描常开、前台广播 0.5 秒一帧，
+    /// 单帧抖动最多让预认证停顿 0.5 秒。
+    ///
+    /// 但我们**在后台**时广播会稀疏到几秒甚至十几秒一帧，于是：
+    /// ```text
+    /// 一帧 RSSI < -77 → isInPassiveStartArea = false
+    ///   → updateArea(false) → stop() → didStart = false（预认证停）
+    /// 下一帧 RSSI > -77 → updateArea(true) → launchPreAuthentication()
+    ///   → 又发一帧 0x0C（可能撞车端「7 秒内不接受第二次加密重连」）
+    /// ```
+    /// 一次抖动就是一次「停 + 重启」，后台待机时反复发生 ——
+    /// 这就是「切到后台预认证保不住」的核心机制。
+    ///
+    /// 所以**只在「离开」方向加去抖**：进入区域仍然即时（不能漏掉靠近），
+    /// 离开要连续 `leaveDebounceSamples` 帧都判定在区域外才真的停。
+    /// 阈值判定式本身**一个字没改**，仍然严格照反汇编。
+    public var leaveDebounceSamples = 3
+
+    /// 连续判定「区域外」的次数
+    private var outOfAreaStreak = 0
+
     public init() {}
 
     // MARK: - ① 两路 RSSI 的合成值（对应 `-[IBVehicle rssisOneAndTwo]` @`0x8954`）
@@ -224,11 +251,13 @@ public struct PassiveStartJudge: Sendable {
     /// ```
     /// 即 `在区域内 ⟺ rssisOneAndTwo.intValue > (calibration - leaveOffset)`。
     /// `rssisOneAndTwo` 用 `combinedRSSI` 还原（稀疏取最新 / 密集取均值）。
+    /// - Parameter date: 采样时刻。默认 `Date()`；测试可注入间隔以覆盖
+    ///   「采样稀疏 → 只取最新值」那条分支（`combinedRSSI` 的自适应逻辑）。
     @discardableResult
-    public mutating func check(rssiOne: Double, rssiTwo: Double) -> Bool {
+    public mutating func check(rssiOne: Double, rssiTwo: Double, at date: Date = Date()) -> Bool {
         let dist = distance(rssiOne: rssiOne, rssiTwo: rssiTwo)
 
-        samples.append(Sample(date: Date(), rssiOne: rssiOne,
+        samples.append(Sample(date: date, rssiOne: rssiOne,
                               rssiTwo: rssiTwo, distance: dist))
         if samples.count > 20 { samples.removeFirst(samples.count - 20) }
 
@@ -236,8 +265,19 @@ public struct PassiveStartJudge: Sendable {
         let combined = Int(combinedRSSI.rounded())
         // 未标定时 calibration 按 0 处理（与原 App `[nil intValue]` 一致）
         let base = (calibration ?? 0) - leaveOffset
+        let insideNow = combined > base
 
-        isInPassiveStartArea = combined > base
+        if insideNow {
+            // 进入：**即时生效**（不能漏掉靠近，否则点火时车端不认钥匙）
+            outOfAreaStreak = 0
+            isInPassiveStartArea = true
+        } else {
+            // 离开：连续 N 帧才真的判离开（去抖，见 `leaveDebounceSamples`）
+            outOfAreaStreak += 1
+            if outOfAreaStreak >= leaveDebounceSamples {
+                isInPassiveStartArea = false
+            }
+        }
         return isInPassiveStartArea
     }
 
@@ -245,6 +285,7 @@ public struct PassiveStartJudge: Sendable {
     /// `setIsInPassiveStartArea:NO` + `setDidRequestWelcome:NO`）
     public mutating func reset() {
         isInPassiveStartArea = false
+        outOfAreaStreak = 0
         samples.removeAll()
     }
 

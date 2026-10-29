@@ -29,6 +29,7 @@ public enum SelfTest {
             testKeyFrameLengthGuard(),
             testCommandTable(),
             testPassiveStartJudge(),
+            testPassiveStartLeaveDebounce(),
             testErrorCodeTable(),
         ]
     }
@@ -427,6 +428,50 @@ public enum SelfTest {
             detail: ok
                 ? "未标定基准 -32：合成 -28 在区域、-58 不在；标定 -50 后合成 -58 在区域"
                 : "leaveOffset=\(a.leaveOffset) 基准=\(a.threshold) a=\(a.isInPassiveStartArea) b=\(b.isInPassiveStartArea) c=\(c.isInPassiveStartArea)")
+    }
+
+    // MARK: - ★ 离开区域去抖（后台保活的核心机制）
+
+    /// 验证「单帧弱信号不会立刻判离开」。
+    ///
+    /// 这是后台保活的关键：后台广播稀疏（几秒到十几秒一帧），
+    /// 若沿用反汇编的**单帧即时判定**，一次信号抖动就会
+    /// `updateArea(false)` → `stop()` → 预认证停摆 → 下一帧又重启。
+    /// 加了「连续 3 帧才判离开」之后，单帧抖动不再打断续发链。
+    ///
+    /// 测试用注入时间戳制造「采样稀疏」条件（`avgInterval > 0.3s`），
+    /// 否则 `combinedRSSI` 会走均值分支，测不出即时判定。
+    static func testPassiveStartLeaveDebounce() -> Result {
+        var j = PassiveStartJudge()
+        j.calibration = -45                   // 阈值 = -45 - 32 = -77
+        let t0 = Date()
+
+        // ① 强信号 → 进入（进入方向必须**即时**，不能漏掉靠近）
+        _ = j.check(rssiOne: -50, rssiTwo: -50, at: t0)
+        let entered = j.isInPassiveStartArea
+
+        // ② 1 秒后单帧骤降到 -98（合成 ≈ -96，远低于阈值 -77）
+        //    稀疏分支取最新值 → 判定区域外，但去抖应保住 true
+        _ = j.check(rssiOne: -98, rssiTwo: -98, at: t0.addingTimeInterval(1))
+        let afterOne = j.isInPassiveStartArea
+
+        // ③ 再来两帧（连续 3 帧都在区域外）→ 才真的判离开
+        _ = j.check(rssiOne: -98, rssiTwo: -98, at: t0.addingTimeInterval(2))
+        _ = j.check(rssiOne: -98, rssiTwo: -98, at: t0.addingTimeInterval(3))
+        let afterThree = j.isInPassiveStartArea
+
+        let ok = j.leaveDebounceSamples == 3
+            && j.threshold == -77
+            && entered
+            && afterOne                       // 单帧抖动不打断
+            && !afterThree                    // 持续离开才真离开
+        return Result(
+            name: "离开区域去抖（单帧抖动不得打断预认证续发）",
+            passed: ok,
+            detail: ok
+                ? "进区域即时；单帧 -98 后仍保持在区域内；连续 3 帧才判离开"
+                : "debounce=\(j.leaveDebounceSamples) 阈值=\(j.threshold) "
+                  + "entered=\(entered) afterOne=\(afterOne) afterThree=\(afterThree)")
     }
 
     // MARK: - ★ 错误码表

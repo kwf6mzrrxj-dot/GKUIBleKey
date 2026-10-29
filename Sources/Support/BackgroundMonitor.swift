@@ -53,6 +53,13 @@ public final class BackgroundMonitor {
     private var backgroundEnteredAt: Date?
     private var lastHeartbeatAt: Date?
 
+    /// 当前是否在后台。
+    ///
+    /// 用来给「预认证这一轮是在前台还是后台发出的」打标记 ——
+    /// 排查后台保活时，只看「已发次数」无法区分这两种情况，
+    /// 而它们的意义完全不同（后台发出才说明保活真的在工作）。
+    public private(set) var isInBackground = false
+
     /// 心跳间隔。30 秒足够密：既能看出断档，又不会把日志刷爆
     /// （一天约 2880 行，`FileLogger` 的轮转能扛住）。
     private let heartbeatInterval: TimeInterval = 30
@@ -89,11 +96,13 @@ public final class BackgroundMonitor {
     }
 
     public func didEnterBackground() {
+        isInBackground = true
         backgroundEnteredAt = Date()
         log("[保活] ⬇️ 进入后台（前台停留 \(Self.format(Date().timeIntervalSince(appLaunchTime)))）")
     }
 
     public func willEnterForeground() {
+        isInBackground = false
         var msg = "[保活] ⬆️ 即将回前台"
         if let at = backgroundEnteredAt {
             let stay = Date().timeIntervalSince(at)

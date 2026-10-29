@@ -140,8 +140,20 @@ public final class AppModel: ObservableObject {
         // assumeIsolated 在非主线程会直接崩溃，这里只差几毫秒，不值得冒险。
         NotificationCenter.default
             .publisher(for: UIApplication.didEnterBackgroundNotification)
-            .sink { _ in
-                Task { @MainActor in BackgroundMonitor.shared.didEnterBackground() }
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    BackgroundMonitor.shared.didEnterBackground()
+                    // ★ 切后台前**趁还有前台执行权**补一帧（2026-10-29）。
+                    //
+                    // 进后台之后能不能再发，完全取决于系统还给不给广播唤醒。
+                    // 如果距上次 `0x0C` 已经超期，就在这最后几秒里先补上 ——
+                    // 相当于把「钥匙在场」的有效期从后台起点重新计时，
+                    // 让进入后台后的第一段空窗期不至于过期。
+                    //
+                    // `tickIfNeeded` 自带 29 秒守卫，不会因为频繁切换而多发。
+                    self.preAuth.tickIfNeeded()
+                }
             }
             .store(in: &cancellables)
         NotificationCenter.default
@@ -308,6 +320,15 @@ public final class AppModel: ObservableObject {
             self?.measured.recordNote(line)
         }
         preAuth.onSend = { [weak self] in
+            // ★ 先申请后台执行时间，再发帧（2026-10-29，后台保活）。
+            //
+            // 后台被广播唤醒时，系统只给**几秒**执行时间。而一轮预认证是
+            // 「连接（1–2s）+ 01 → 02 → 03 → 04（0.5–1s）」，
+            // 中途被挂起就会半途而废：03 没发出 / 04 收不到 →
+            // `didComplete()` 不触发 → 这一轮白费，只能等下一个广播 tick。
+            //
+            // `beginBackgroundTask` 能争取到约 30 秒，足够走完一整轮。
+            self?.beginPreAuthBackgroundTask()
             // 预认证 = 一次完整 `01→02→03(0x0C)→04`
             self?.beginMeasuredAuth(asPreAuthentication: true)
         }
@@ -906,6 +927,8 @@ public final class AppModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             self.commandTimeoutTask = nil
             self.measured.commandTimedOut()
+            // 超时 = 本轮结束 → 释放后台执行权，别一直占着（见 `beginPreAuthBackgroundTask`）
+            self.endPreAuthBackgroundTask()
             self.statusLine = "❌ \(what) 超时（\(Int(seconds))s，code 690）"
             // ★★★ 超时必须**收口所有「等待中」的状态**（2026-10-29 修复）。
             //
@@ -1336,6 +1359,50 @@ public final class AppModel: ObservableObject {
         pendingActionWatchdog = nil
     }
 
+    // MARK: - 后台执行时间保障（预认证一轮往返）
+
+    /// 正在持有的后台执行权（`.invalid` = 未持有）
+    private var preAuthBGTask: UIBackgroundTaskIdentifier = .invalid
+
+    /// 申请后台执行时间，保证这一轮 `01 → 02 → 03(0x0C) → 04` 能走完。
+    ///
+    /// ## 为什么必须有（2026-10-29，「切后台保持预认证」）
+    ///
+    /// 后台被广播唤醒时系统只给**几秒**。而一轮预认证是
+    /// 「连接（1–2 秒）+ 鉴权往返（0.5–1 秒）」，中途被挂起就半途而废：
+    /// `03` 没发出或 `04` 收不到 → `didComplete()` 不触发 →
+    /// 这一轮白费，只能干等下一个广播。
+    ///
+    /// `beginBackgroundTask` 能争取约 30 秒，足够走完一整轮。
+    /// 到期（系统收回）时主动结束，避免进程被强杀。
+    private func beginPreAuthBackgroundTask() {
+        guard preAuthBGTask == .invalid else { return }
+        preAuthBGTask = UIApplication.shared.beginBackgroundTask(withName: "preAuthRound") { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.measured.recordNote("预认证：后台执行时间到期，本轮未走完（系统收回）")
+                self.endPreAuthBackgroundTask()
+            }
+        }
+        if preAuthBGTask != .invalid {
+            let where_ = BackgroundMonitor.shared.isInBackground ? "后台" : "前台"
+            measured.recordNote("预认证：已申请后台执行时间（\(where_)，保证本轮 01→04 走完）")
+        }
+    }
+
+    /// 一轮走完（收到 04）或失败/中止时释放后台执行权。
+    private func endPreAuthBackgroundTask() {
+        guard preAuthBGTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(preAuthBGTask)
+        preAuthBGTask = .invalid
+    }
+
+    /// 是否正持有「预认证一轮往返」的后台执行权（供诊断页显示）。
+    ///
+    /// 排查「切后台预认证还在不在」时，这个值比「已发次数」更直接：
+    /// 后台发帧的那一刻它应该是 true，收完 04 回到 false。
+    public var isHoldingPreAuthBackgroundTime: Bool { preAuthBGTask != .invalid }
+
     /// **手动补发一次预认证 `0x0C`** —— 上车前点一下，提高点火命中率。
     ///
     /// ## 为什么需要它
@@ -1540,6 +1607,8 @@ public final class AppModel: ObservableObject {
                         // 不区分成功/失败：反汇编 `0xb7d4` 的 `cbz x20` 是 self 判空，
                         // 不是 error 分支；实测节奏 30 秒（见 `didComplete()` 说明）。
                         preAuth.didComplete()
+                        // 本轮走完了 → 释放后台执行权（见 `beginPreAuthBackgroundTask`）
+                        endPreAuthBackgroundTask()
                     }
                     // ★ 收到 04 → 立刻恢复扫描（对齐原 App 06:25:14 的
                     //   `Data received {0x0400}` → `Start scan`，不等车端断开）。
@@ -1567,6 +1636,8 @@ public final class AppModel: ObservableObject {
                 if measured.phase == .failed {
                     measured.abortRound("下行帧被拒（命令 0x\(String(format: "%02X", cmd))）")
                     resolveIntent(false)
+                    // 本轮中止 → 释放后台执行权
+                    endPreAuthBackgroundTask()
                     if pendingPassiveEntryValue != nil {
                         settlePassiveEntryToggle(.refused(0x2BB))
                     }

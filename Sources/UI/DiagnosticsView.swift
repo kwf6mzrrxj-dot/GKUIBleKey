@@ -54,6 +54,20 @@ struct DiagnosticsView: View {
                                      model.preAuth.timeBetweenPassiveStart)
                             : "未启动")
                 Divider()
+                // ★ 后台保活三件套（2026-10-29）：判断「切后台还在不在维持」
+                //
+                // 只看「已发次数」区分不出前台还是后台发的 ——
+                // 而后台发出才说明保活真的在工作。
+                readonlyRow("App 状态", BackgroundMonitor.shared.isInBackground
+                            ? "后台（靠广播唤醒续发）"
+                            : "前台")
+                readonlyRow("后台执行权", model.isHoldingPreAuthBackgroundTime
+                            ? "已持有（本轮 01→04 受保护）"
+                            : "无")
+                readonlyRow("最近一次发送", model.preAuth.lastSentAt.map {
+                    String(format: "%.0f 秒前", Date().timeIntervalSince($0))
+                } ?? "还没发过")
+                Divider()
                 readonlyRow("RSSI 标定值", model.passiveStart.isCalibrated
                             ? "\(model.passiveStart.calibration ?? 0)"
                             : "未标定（区域判定永不成立）")

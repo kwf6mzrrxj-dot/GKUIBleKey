@@ -170,6 +170,7 @@ public final class PreAuthenticationController: ObservableObject {
         // `0xb350: tbz w0, #0` —— 已启动直接返回
         guard !didStart else { return }
         didStart = true
+        didStartAt = Date()
         onLog?("start sending passive start commands")
         launchEntryCommands()
     }
@@ -178,6 +179,8 @@ public final class PreAuthenticationController: ObservableObject {
 
     /// 上一次真正把 `0x0C` 交出去的时刻（事件驱动补发的判据，同时供锁屏卡片显示）
     public private(set) var lastSentAt: Date?
+    /// `didStart` 置真的时刻 —— 用于「首帧还没交出去就被挂起」的补救
+    private var didStartAt: Date?
     /// 正在排/发（防止广播高频触发反复 cancel 定时器）
     private var isSending = false
 
@@ -218,7 +221,24 @@ public final class PreAuthenticationController: ObservableObject {
     public func tickIfNeeded() {
         guard isEnabled, isInArea, didStart else { return }
         guard !isSending else { return }
-        guard let last = lastSentAt else { return }
+        guard let last = lastSentAt else {
+            // ★ 首帧补救（2026-10-29，后台保活）。
+            //
+            // `lastSentAt` 为 nil 说明**一次都没交出去过**。最常见的原因是：
+            // `launchPreAuthentication` 刚把 `didStart` 置真、进入
+            // `schedule(1.0)` 的 1 秒延迟，App 就被系统挂起了 ——
+            // `Task.sleep` 不推进，这一帧永远发不出去。
+            //
+            // 而原来的写法在这里直接 `return`，于是后台**永远不补发**，
+            // 表现为「后台一帧都没发，回前台才突然好了」。
+            // 现在只要「启动后超过 1 秒延迟 + 1 秒余量」就主动补一发。
+            if let startedAt = didStartAt,
+               Date().timeIntervalSince(startedAt) >= Self.connectedDelay + 1.0 {
+                onLog?("广播唤醒：首帧 0x0C 从未发出（启动被挂起）→ 立即补发")
+                launchEntryCommands()
+            }
+            return
+        }
         let elapsed = Date().timeIntervalSince(last)
         guard elapsed >= Self.retryInterval else { return }
         onLog?(String(format: "广播唤醒：距上次 0x0C 已 %.0f 秒（定时器未推进）→ 提前补发", elapsed))
@@ -298,6 +318,7 @@ public final class PreAuthenticationController: ObservableObject {
     public func stop() {
         guard didStart else { return }
         didStart = false
+        didStartAt = nil
         cancelPending()
         onLog?("stop sending passive start commands")
     }
@@ -311,6 +332,7 @@ public final class PreAuthenticationController: ObservableObject {
         isInArea = false
         if didStart { stop() }
         didStart = false
+        didStartAt = nil
         cancelPending()
     }
 
