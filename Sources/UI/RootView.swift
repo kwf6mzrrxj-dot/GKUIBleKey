@@ -16,6 +16,8 @@ struct RootView: View {
 
     @State private var showDeveloper = false
     @State private var showPairing = false
+    /// 密钥详情（点「数字钥匙已就绪」进入）
+    @State private var showKeys = false
     /// 点击「当前不可执行」的按钮时，用它弹出明确原因。
     ///
     /// 之前控车按钮直接 `.disabled(!isWriteReady)`：未连接时按钮变灰、
@@ -76,6 +78,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDeveloper) { DeveloperMenuView() }
         .sheet(isPresented: $showPairing) { PairingView() }
+        .sheet(isPresented: $showKeys) { KeyInspectorView() }
         .alert("暂时无法执行", isPresented: Binding(
             get: { actionHint != nil },
             set: { if !$0 { actionHint = nil } }
@@ -502,18 +505,11 @@ struct RootView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity)
-                    // ★ 与上下两行**同一套**外观（2026-10-30 修复「圆角对不上」）。
-                    //
-                    // 原来这里用 `.buttonStyle(.glass)` —— 那是系统定义的玻璃按钮，
-                    // 圆角/内边距由系统给，和 `passiveEntryCard` / `statusRow`
-                    // 手写的 `.glassEffect(.regular, in: .rect(cornerRadius: 14))`
-                    // 对不上：同一列三个卡片，中间那个圆角明显不同。
-                    // 现在改成和它们逐项一致：图标 18pt / frame 24、
-                    // 内边距 h16 v12、圆角 14、`.buttonStyle(.plain)`。
-                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
-                    .contentShape(.rect(cornerRadius: 14))
                 }
-                .buttonStyle(.plain)
+                // ★ 与相邻两栏同一套系统样式（2026-10-30）。
+                //   三栏全部 `.buttonStyle(.glass)`：圆角/按压态/高光都由系统给，
+                //   不再和手写 `cornerRadius` 混用 —— 那正是「圆角对不上」的根因。
+                .buttonStyle(.glass)
             }
 
             // 密钥状态（未配对时整行可点，引导去绑定）
@@ -525,7 +521,11 @@ struct RootView: View {
                       iconColor: model.hasLocalKey ? .green : .orange,
                       text: model.hasLocalKey ? "数字钥匙已就绪" : "尚未绑定车辆",
                       trailing: model.hasLocalKey ? nil : "去绑定",
-                      action: model.hasLocalKey ? nil : { showPairing = true })
+                      // 已绑定 → 看密钥详情；未绑定 → 去配对。
+                      // 系统按钮样式必须挂在 Button 上，所以这一行一定有去处。
+                      action: {
+                          if model.hasLocalKey { showKeys = true } else { showPairing = true }
+                      })
 
             // ★★★ 动作结果 / 拒绝原因（2026-10-29 补上）
             //
@@ -576,41 +576,55 @@ struct RootView: View {
 
     /// 无感进入开关卡片：靠近车辆时拉门把手解锁。
     private var passiveEntryCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: model.passiveEntryEnabled
-                  ? "figure.walk.arrival" : "figure.walk.departure")
-                .font(.system(size: 18))
-                .foregroundStyle(model.passiveEntryEnabled ? .green : .secondary)
-                .frame(width: 24)
+        // ★ 统一用系统 `.buttonStyle(.glass)`（2026-10-30）。
+        //
+        // 这一栏原来是 `Toggle` + 手写 `.glassEffect(cornerRadius: 14)`，
+        // 而相邻两栏用的是系统按钮样式 —— 两套外观的圆角/边距来源不同，
+        // 必然对不齐。现在三栏全部走系统样式：圆角、按压态、高光全由系统给，
+        // 以后系统改版也会自动跟随。
+        //
+        // 代价：系统玻璃按钮里放不了 `Toggle`，所以开关状态改用
+        // `togglepower` 图标 + 颜色表达，点击整行切换。
+        Button {
+            model.setPassiveEntry(!model.passiveEntryEnabled)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: model.passiveEntryEnabled
+                      ? "figure.walk.arrival" : "figure.walk.departure")
+                    .font(.system(size: 18))
+                    .foregroundStyle(model.passiveEntryEnabled ? .green : .secondary)
+                    .frame(width: 24)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("无感进入")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(model.passiveEntryEnabled
-                     ? "靠近车辆时拉门把手解锁"
-                     : "手动控车（不自动解锁）")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("无感进入")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(model.passiveEntryEnabled
+                         ? "靠近车辆时拉门把手解锁"
+                         : "手动控车（不自动解锁）")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                if model.passiveEntrySwitching {
+                    ProgressView()
+                } else {
+                    Image(systemName: "togglepower")
+                        .font(.system(size: 20))
+                        .foregroundStyle(model.passiveEntryEnabled
+                                         ? Color.green : Color.secondary)
+                }
             }
-
-            Spacer()
-
-            if model.passiveEntrySwitching {
-                ProgressView()
-            } else {
-                Toggle("", isOn: Binding(
-                    get: { model.passiveEntryEnabled },
-                    set: { model.setPassiveEntry($0) }
-                ))
-                .labelsHidden()
-                .tint(.green)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .buttonStyle(.glass)
+        // ★ 不用 `.disabled(passiveEntrySwitching)`：那会让整行在切换的 1–4 秒里
+        //   变灰，而「能点的按钮画成不能点」正是之前修过的问题。
+        //   切换中的重复点击由 `setPassiveEntry` 内部 guard 拦下并给提示。
     }
 
     private var hintForBluetoothState: String {
@@ -628,62 +642,73 @@ struct RootView: View {
         }
     }
 
+    /// 蓝牙异常提示卡 —— 与整列其它卡片一样走系统 `.buttonStyle(.glass)`。
+    ///
+    /// 它平时不显示，但一旦蓝牙没开/没授权就会和三行状态卡同时出现；
+    /// 若保留手写 `glassEffect`，那一刻又会出现「圆角不一样」。
+    /// 点击直接跳系统设置，正好是这一步用户要做的事。
     private func alertCard(icon: String, color: Color, title: String, detail: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(color)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
-                Text(detail).font(.caption2).foregroundStyle(.secondary)
+        Button {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
             }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
-    }
-
-    private func statusRow(
-        icon: String, iconColor: Color, text: String, trailing: String?,
-        action: (() -> Void)? = nil
-    ) -> some View {
-        let row = HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(iconColor)
-                .frame(width: 24)
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-            Spacer()
-            if let t = trailing {
-                Text(t).font(.caption2).foregroundStyle(.cyan)
-            }
-            if action != nil {
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(color)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.glass)
+    }
 
-        return Group {
-            if let action {
-                Button(action: action) {
-                    row
-                        .contentShape(Rectangle())
+    /// 通用状态行 —— **统一走系统 `.buttonStyle(.glass)`**（2026-10-30）。
+    ///
+    /// 之前这里手写 `.glassEffect(cornerRadius: 14)`，而相邻的「准备点火」
+    /// 用系统按钮样式，两套外观的圆角/边距来源不同，视觉上必然对不齐。
+    /// 现在整列三行统一交给系统：圆角、按压态、高光全由系统决定。
+    ///
+    /// 代价：系统按钮样式必须挂在 `Button` 上，所以**纯展示行也要有 action**。
+    /// 这里让「已绑定」点击进密钥详情、「未绑定」点击去配对 —— 有去处，
+    /// 不会出现「按下去有反馈但什么都没发生」。
+    private func statusRow(
+        icon: String, iconColor: Color, text: String, trailing: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 24)
+                Text(text)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                if let t = trailing {
+                    Text(t).font(.caption2).foregroundStyle(.cyan)
                 }
-                .buttonStyle(.plain)
-            } else {
-                row
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .buttonStyle(.glass)
     }
 }
 
