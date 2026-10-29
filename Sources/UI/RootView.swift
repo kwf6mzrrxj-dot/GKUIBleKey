@@ -34,14 +34,39 @@ struct RootView: View {
         ZStack {
             background
 
+            // ★ 顶栏吸顶 + 其余可滚动（2026-10-30 修复「UI 超出安全区」）。
+            //
+            // ## 原来为什么会溢出
+            //
+            // 原先是一个**裸 VStack**：
+            // ```swift
+            // ZStack { background; VStack { topBar … statusSection } }
+            // ```
+            // 各块实测高度加起来约 **796pt**
+            // （顶栏 26 + 标题 60 + 车图 200 + 状态芯片 30 + 控制区 240 + 状态区 240），
+            // 而 iPhone 17 Pro 竖屏可用高度只有约 **781pt**。
+            // 内容一旦超过可用高度，`VStack` 会保持自身高度、在 `ZStack` 里
+            // **默认居中** —— 于是顶部溢出到状态栏/灵动岛那一行、底部被切掉。
+            // 截图实证：顶栏「扫描中 / -100 dBm」和系统时间同一行，
+            // 底部「鉴权：操作成功」被截断。
+            //
+            // ## 现在
+            //
+            // 顶栏留在安全区内固定不动（连接状态始终可见），
+            // 其余内容放进 `ScrollView`：内容再多也只是能滚，不会再挤出去。
             VStack(spacing: 0) {
                 topBar
-                vehicleHeader
-                carArt
-                statusChips
-                Spacer(minLength: 0)
-                controlSection
-                statusSection
+                    .padding(.top, 6)      // 与状态栏/灵动岛留一点呼吸间距
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        vehicleHeader
+                        carArt
+                        statusChips
+                        controlSection
+                        statusSection
+                    }
+                    .padding(.bottom, 8)
+                }
             }
             .padding(.horizontal, 20)
         }

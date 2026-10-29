@@ -5,6 +5,76 @@
 
 ---
 
+## v6.4（2026-10-30）—— 主界面溢出安全区：顶栏被压到状态栏、底部被切
+
+用户反馈「UI 超出安全区」，截图实证：顶栏「扫描中 / -100 dBm」和系统时间
+在同一行（压到灵动岛那条线），底部「鉴权：操作成功（04 00）」被截断。
+
+### 根因：内容高度超过可用高度，`VStack` 在 `ZStack` 里居中溢出
+
+原来是一个**裸 VStack**：
+
+```swift
+ZStack { background; VStack { topBar … statusSection } }
+```
+
+各块实测高度加起来约 **796pt**：
+
+| 块 | 高度 |
+|---|---|
+| `topBar` | ≈ 26 |
+| `vehicleHeader`（30pt 粗体 + 副标题） | ≈ 60 |
+| `carArt`（`minHeight: 200`） | ≥ 200 |
+| `statusChips` | ≈ 30 |
+| `controlSection`（两大键 + 三个次键 + 寻车） | ≈ 240 |
+| `statusSection`（无感进入 / 准备点火 / 数字钥匙 / 状态卡） | ≈ 240 |
+
+而 iPhone 17 Pro 竖屏可用高度（扣掉顶部安全区 59 + 底部 34）只有约 **781pt**。
+
+**`VStack` 内容超过可用高度时不会自动裁剪或压缩**，它保持自身高度并在
+`ZStack` 里**默认居中** —— 于是上下同时溢出：顶部被顶到状态栏/灵动岛那一行，
+底部被切到屏幕外。截图完全吻合。
+
+> 注意：**这不是 safe area 没处理好**。`background` 的 `.ignoresSafeArea()`
+> 只作用在背景 Group 上，其余内容本来是遵守安全区的 —— 问题是内容装不下。
+
+### 修法：顶栏吸顶 + 其余可滚
+
+```swift
+VStack(spacing: 0) {
+    topBar.padding(.top, 6)          // 吸顶，连接状态始终可见
+    ScrollView(.vertical, showsIndicators: false) {
+        VStack(spacing: 0) {
+            vehicleHeader; carArt; statusChips; controlSection; statusSection
+        }
+        .padding(.bottom, 8)
+    }
+}
+.padding(.horizontal, 20)
+```
+
+- 去掉 `Spacer(minLength: 0)`：它的作用是「内容不足时把控制区推到底部」，
+  但正是内容超出时，`Spacer` 被压到 0、`VStack` 仍保持超高 —— 掩盖了问题。
+- 内容再多也只是能滚，不会再挤到安全区外。
+- `topBar` 加 6pt 上边距，与状态栏/灵动岛留呼吸间距。
+
+### 其它视图已核查（无需改）
+
+| 视图 | 容器 | 结论 |
+|---|---|---|
+| `PairingView` | `VStack` + `carArt` 带 `frame(maxHeight: .infinity)` + 内部 `Spacer` | 车图会吸收多余空间，可压缩到 0，不溢出 |
+| `LogView` | `VStack { controls; Divider; logBody }`，`logBody` 为弹性日志区 | 不溢出 |
+| `DiagnosticsView` / `KeyInspectorView` | `NavigationStack` + `ScrollView` | 本来就可滚 |
+
+### 验证
+
+- `swiftc -typecheck`：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- **待实测**：解锁手机后装机，主界面顶栏应完全在状态栏下方，
+  「鉴权：操作成功」应可滚动看到；内容不足一屏时不应出现多余滚动条
+
+---
+
 ## v6.3（2026-10-29）—— 切后台保持预认证：补掉三个断点
 
 用户要求「切到后台也要保持预认证状态」。先摸清后台链路的实际断点，
