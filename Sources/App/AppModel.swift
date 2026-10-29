@@ -105,7 +105,12 @@ public final class AppModel: ObservableObject {
     /// - 链路都不通 → 先解决 BLE（UUID、广播名、配对）
     /// - 链路通、但车端不发数据 → 说明还缺鉴权，属正常
     /// - 链路通、车端主动发数据 → 这些字节就是最宝贵的协议线索
-    @Published public var listenOnly = false
+    /// ★ 置位后**任何**发送都会被 BLE 层拦下（`BLECentral.send` 里统一守卫）。
+    ///
+    /// 不能只在 `perform` 里判断 —— 预认证 `0x0C` 和配对 `0x0D` 不走 `perform`。
+    @Published public var listenOnly = false {
+        didSet { ble.listenOnly = listenOnly }
+    }
 
     // ── 防暴力破解（PEPS 强制要求：连续失败要锁定，避免被穷举）──────
     /// 连续鉴权失败次数
@@ -252,11 +257,20 @@ public final class AppModel: ObservableObject {
                 } else if self.relayGuard.alarm == nil {
                     self.lastRelayAlarm = nil
                 }
-                // ★ 点火位置验证：照原 App 的 checkRssiForPassiveStart
-                //   原 App 用 RSSI1/RSSI2 两个天线值；这里 BLE 只给一个，
-                //   先用同一个值填两路（待确认模块是否上报双路 RSSI）。
+                // ★ 点火位置验证：照原 App 的 `checkRssiForPassiveStart:`
+                //
+                // 反汇编 `rssisOneAndTwo` @`0x8954` 对**两路**天线值做 dB 合成
+                // （`10×log10(√(10^(r1/10)² + 10^(r2/10)²) × pondOutToIn)`）。
+                //
+                // 2026-10-29 修复：广播里的 antenna 高 4 位（0x80/0x40）已经把
+                // 两路分开了，`handleDualRSSI` 也一直在存 —— 但区域判定此前
+                // 仍用同一个值填两路（等于退化成单天线）。现在两路都齐就用真值。
                 let v = Double(value)
-                _ = self.passiveStart.check(rssiOne: v, rssiTwo: v)
+                if let one = self.rssiAntennaOne, let two = self.rssiAntennaTwo {
+                    _ = self.passiveStart.check(rssiOne: one, rssiTwo: two)
+                } else {
+                    _ = self.passiveStart.check(rssiOne: v, rssiTwo: v)
+                }
                 // 未标定 → 只提示一次，避免日志刷屏
                 if !self.passiveStart.isCalibrated, !self.didWarnUncalibrated {
                     self.didWarnUncalibrated = true
@@ -434,13 +448,18 @@ public final class AppModel: ObservableObject {
             statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
             return
         }
-        guard ble.isWriteReady else {
-            statusLine = "写特征未就绪，无法切换无感进入（需先连接车辆）"
-            return
-        }
+        // ★ 不再要求 `isWriteReady`（2026-10-29 修复）。
+        //
+        // 原来未连接时直接拒绝（"需先连接车辆"），但 `perform` 本身支持
+        // 「挂起动作 → 自动连接 → 就绪后执行」。同一个 App 里两套行为，
+        // 用户刚点完控车（车端已断开）马上切开关就会被拒。
+        // 现在统一交给 `perform` 的排队机制。
         passiveEntrySwitching = true
         // 记录本次期望值，供 04 回执时确认是否切换成功
         pendingPassiveEntryValue = enabled
+        if !ble.isWriteReady {
+            statusLine = "未连接，正在连接车辆，就绪后切换无感进入…"
+        }
         perform(enabled ? .enablePassiveEntry : .disablePassiveEntry)
     }
 
@@ -730,7 +749,24 @@ public final class AppModel: ObservableObject {
             self.commandTimeoutTask = nil
             self.measured.commandTimedOut()
             self.statusLine = "❌ \(what) 超时（\(Int(seconds))s，code 690）"
-            self.appendPairingLog("❌ 命令超时：Timeout to send command is reached. (code 690)")
+            // ★★★ 超时必须**收口所有「等待中」的状态**（2026-10-29 修复）。
+            //
+            // 原来只改 statusLine，于是：
+            //   · 无感进入开关：`passiveEntrySwitching` 永远不复位
+            //     （只有"断连"才复位）→ 车端收下命令但不回 04 也不断开时，
+            //     开关永久转圈，只能重启 App
+            //   · Siri / 快捷指令：要一直等到 12 秒兜底才回话
+            //   · 配对：`pairing.state` 停在「发送配对请求」
+            if self.pendingPassiveEntryValue != nil {
+                self.settlePassiveEntryToggle(.timedOut)
+            }
+            self.resolveIntent(false)
+            self.pairingArmed = false
+            if self.pairing.state == .requestingPairing {
+                self.pairing.fail("命令超时（\(Int(seconds))s，code 690）")
+            }
+            // 控车超时不该写进「配对日志」，进会话日志即可
+            self.measured.recordNote("超时：\(what)（\(Int(seconds))s, code 690）")
         }
     }
 
@@ -769,9 +805,21 @@ public final class AppModel: ObservableObject {
             // ★ 密钥帧：两件事都做 —— 记进配对日志 + 交给会话解析并落 Keychain
             pairing.acceptRawResponse(payload)
             _ = measured.handle(bytes)          // MeasuredSession 里会 saveKeyData()
+            // ★ 必须校验「真的落库了」再报成功（2026-10-29 修复）。
+            //   原来无条件报「已保存，配对完成」，帧长不符时会话侧其实
+            //   一个字段都没写，用户看到成功、主界面仍是「尚未绑定车辆」。
+            guard measured.lastResult == .paired else {
+                statusLine = "❌ 0x0E 密钥帧无法解析（\(payload.count)B），未写入密钥"
+                appendPairingLog("❌ 0x0E 密钥帧长度不符（\(payload.count)B），配对失败")
+                pairing.fail("密钥帧长度不符（\(payload.count)B）")
+                pairingArmed = false
+                return true
+            }
             // ★ 配对后 cidpu 变了 → 重新读该车对应的标定值
             //   （`getCalibrationSavedValues` 用 "<cidpu>_CALIBRATION" 作 key）
             loadCalibration()
+            // ★ 新密钥落库 → 立刻重算完整性指纹，避免下次启动才自愈
+            verifyKeyIntegrity()
             statusLine = "收到车端密钥（\(payload.count)B）已保存，配对完成"
             // ★★★ 原 App 配对成功后 `callDidPairingSuccess` @0x6d6c 里会
             //     `disconnect` @0x6588（实为 `resetCommandTimeout` + `startScan`，
@@ -895,6 +943,16 @@ public final class AppModel: ObservableObject {
             // 的冷却（防止「连→断→扫→连」死循环）。两者叠加会导致：车端刚断开、
             // 用户马上点按钮时链路还没就绪，原来是直接拒绝，体验很差。
             // 现在改成「挂起重试」。
+            //
+            // ⚠️ `pendingActionAfterConnect` 只能存**一个**动作。如果之前挂起的是
+            //    无感进入切换，又被别的动作顶掉，`passiveEntrySwitching` 就没人
+            //    复位了（开关永久转圈）。这里显式收口。
+            if pendingPassiveEntryValue != nil,
+               action != .enablePassiveEntry, action != .disablePassiveEntry {
+                pendingPassiveEntryValue = nil
+                passiveEntrySwitching = false
+                measured.recordNote("无感进入切换被「\(action.label)」打断，已复位开关")
+            }
             pendingActionAfterConnect = action
             ble.forceConnectOnce = true          // 无视冷却，扫到就立刻连
             // ★ 优先「直接连已知设备」——不等扫描广播，省掉 1–2 秒

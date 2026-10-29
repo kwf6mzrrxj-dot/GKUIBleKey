@@ -97,6 +97,12 @@ public final class BLECentral: NSObject, ObservableObject {
         UserDefaults.standard.removeObject(forKey: "gkuiblekey.lastPeripheral")
     }
 
+    /// ★ **只读监听**（安全开关）：置位后 `send()` 直接拒绝任何写入。
+    ///
+    /// 由 `AppModel.listenOnly` 的 `didSet` 同步过来。放在 BLE 层是刻意的 ——
+    /// 上层的发送路径不止 `perform` 一条（预认证、配对、被动回 03）。
+    public var listenOnly = false
+
     /// 当前设备的 CIDPU（从广播名解析，如 `InBlue3f26c66ac89ad4` → `c89ad4`）
     @Published public private(set) var currentCidpu = ""
 
@@ -673,8 +679,22 @@ public final class BLECentral: NSObject, ObservableObject {
     // MARK: - 发送
 
     /// 写入一帧（走写特征 F000FF11）。
+    ///
+    /// ## ★ 只读监听在这里统一拦截（2026-10-29）
+    ///
+    /// `AppModel.listenOnly` 原来只在 `perform` / `setPassiveEntry` 里守卫，
+    /// 但**预认证 `0x0C`**（`preAuth.onSend → beginMeasuredAuth`）和
+    /// **配对 `0x0D`**（`beginMeasuredAuthPairing`）不走 `perform` ——
+    /// 用户勾了「只读监听」，实际仍在发加密命令。这里放在唯一的写入口，
+    /// 任何上层路径都绕不过去。
     @discardableResult
     public func send(_ bytes: [UInt8]) -> Bool {
+        guard !listenOnly else {
+            lastMessage = "只读监听：已拦截发送（\(bytes.count)B）"
+            FileLogger.shared.info(
+                "只读监听拦截发送：\(FrameCodec.hexString(bytes))", module: "TX")
+            return false
+        }
         guard let p = peripheral, let c = writeChar else {
             lastMessage = "写特征未就绪"
             return false

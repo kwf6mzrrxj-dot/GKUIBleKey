@@ -5,6 +5,106 @@
 
 ---
 
+## v4.9（2026-10-29）—— 端到端流程审查：8 处缺陷全部修复
+
+按 8 个阶段（启动/扫描/连接/配对/控车/无感/状态/后台）过了一遍数据流，
+发现 8 处流程级缺陷，本轮全部修完，并为最严重的两处加了回归护栏。
+
+### ① 0x0E 密钥帧解析失败仍报「配对成功」★假成功
+
+`saveKeyData` 在 `parseKeyFrame` 返回 nil 时只留存 `core`、一个字段都不写，
+但调用方 `case .keyData` **无条件**设 `lastResult = .paired` 并打印
+「✅ 配对成功」；`AppModel.handlePairingFrame` 也跟着报「已保存，配对完成」。
+
+用户会看到「配对成功」，主界面却仍是「尚未绑定车辆」（`keys == nil`）。
+
+- `saveKeyData` 改返回 `Bool`；
+- `case .keyData` 里 `guard saveKeyData(payload) else { phase = .failed;
+  lastResult = .refused(0x2BB) }`；
+- `handlePairingFrame` 校验 `measured.lastResult == .paired` 才报成功，
+  否则 `pairing.fail(...)`；
+- 成功路径补 `verifyKeyIntegrity()`，新密钥立刻重算指纹（不再等下次启动）；
+- 新增 `SelfTest.testKeyFrameLengthGuard()`：40B 短帧必须 `nil`、
+  62B 标准帧必须切出 dk1/ckTRxSP/tail 各 16B。
+
+**验证**：诊断页跑自检，应看到「0x0E 密钥帧长度守卫」通过。
+
+### ② 命令超时不收口「等待中」状态 ★开关永久转圈
+
+`startCommandTimeout` 原来只改 `statusLine`。而 `passiveEntrySwitching`
+只在**断连**时复位 —— 车端收下命令但不回 04、也不断开时，无感开关永久转圈，
+只能重启 App。同一处还漏了 Siri 和配对状态。
+
+现在超时统一收口：
+
+```swift
+if pendingPassiveEntryValue != nil { settlePassiveEntryToggle(.timedOut) }
+resolveIntent(false)                       // Siri 立刻拿到失败，不等 12s 兜底
+pairingArmed = false
+if pairing.state == .requestingPairing { pairing.fail("命令超时…") }
+measured.recordNote("超时：…")              // 不再写进「配对日志」
+```
+
+**验证**：车端不回 04 时点无感开关 → 4 秒后开关恢复可点并提示超时；
+Siri 解锁 → 4 秒内报失败（原来要 12 秒）；配对超时后绑定页显示「配对失败」。
+
+### ③ `listenOnly` 漏拦两条发送路径 ★安全承诺没兑现
+
+只读监听原来只在 `perform` / `setPassiveEntry` 里守卫，但**预认证 `0x0C`**
+（`preAuth.onSend → beginMeasuredAuth`）和**配对 `0x0D`**
+（`beginMeasuredAuthPairing`）不走 `perform` —— 用户勾了「只读」，
+实际仍在发加密命令。
+
+改为下沉到唯一写入口 `BLECentral.send()`，任何上层路径都绕不过；
+`AppModel.listenOnly` 用 `didSet` 同步给 BLE 层，并在拦截时写日志。
+
+**验证**：开只读 → 走到车旁 → 日志里 `send prehauthentication` 应为 0 条，
+且出现「只读监听拦截发送」。
+
+### ④⑤⑥ 超时引发的三个连带问题
+
+已在 ② 一起修掉：Siri 白等 12 秒 / 配对状态卡「发送配对请求」/
+控车超时写进配对日志（语义错位）。
+
+### ⑦ 区域判定退化成单天线
+
+`rssisOneAndTwo` @`0x8954` 是**两路**天线 dB 合成
+（`10×log10(√(10^(r1/10)²+10^(r2/10)²)×pondOutToIn)`），
+但区域判定一直用同一个 RSSI 填两路 —— 而广播里 antenna 高 4 位（0x80/0x40）
+早就把两路分开了，`handleDualRSSI` 也一直在存，只是没用于判定。
+
+现在两路都齐就用真值，缺一路才退化单路。
+
+**验证**：站在车左前 / 右后各测一次，`passiveStart.summary` 的合成值应不同
+（原来两种情况完全相同）。改完建议重做一次标定。
+
+### ⑧ 无感开关「未连接就拒绝」与控车「挂起自动执行」两套行为
+
+`setPassiveEntry` 提前 `guard isWriteReady` 直接拒绝，而 `perform` 支持
+「挂起 → 连接 → 就绪后执行」。用户刚控完车（车端已断开）马上切开关会被拒。
+
+现在统一交给 `perform` 排队；同时给 `perform` 加防覆盖：
+`pendingActionAfterConnect` 只能存一个动作，若被别的动作顶掉，
+显式复位 `passiveEntrySwitching`，避免开关永久转圈。
+
+**验证**：未连接时点开关 → 应提示「正在连接，就绪后切换」而非「需先连接车辆」。
+
+### ⑨ 安全：导出备份不再进通用剪贴板
+
+`UIPasteboard.general.string = text` 会把明文车钥匙写进全局剪贴板，
+并通过「通用剪贴板」同步到同账号的其他设备。改为
+`setItems([...], options: [.localOnly: true, .expirationDate: +60s])`，
+按钮文案改为「导出并复制（仅本机）」。
+
+### 验证
+
+- `swiftc -typecheck`（32 文件）：**0 error / 0 warning**
+- `xcodebuild build`：BUILD SUCCEEDED
+- 自检新增用例：`0x0E 密钥帧长度守卫`
+
+---
+
+
 ## v4.8（2026-10-29）—— 系统性审查 + 死代码清理
 
 按「覆盖主要模块、检查逻辑/边界/错误处理/安全/可维护性」的要求全量过了一遍，

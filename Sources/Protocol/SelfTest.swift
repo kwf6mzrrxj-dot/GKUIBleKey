@@ -26,6 +26,7 @@ public enum SelfTest {
             testCryptedIDRoundTrip(),
             testCryptedIDBoundaries(),
             testVehicleStatusBits(),
+            testKeyFrameLengthGuard(),
             testCommandTable(),
             testPassiveStartJudge(),
             testErrorCodeTable(),
@@ -323,6 +324,36 @@ public enum SelfTest {
             name: "状态位解析（parseStatus: 发动机为 2 位编码）",
             passed: ok,
             detail: detail)
+    }
+
+    // MARK: - ★ 0x0E 密钥帧长度守卫
+
+    /// 短帧必须解析失败 —— 这是「配对假成功」的回归护栏。
+    ///
+    /// `saveKeyData` 在 `parseKeyFrame` 返回 nil 时只留存 `core`、不写任何密钥，
+    /// 因此**必须**把 `lastResult` 判为失败。之前无条件报 `✅ 配对成功`，
+    /// 用户会看到「配对成功」但主界面仍是「尚未绑定车辆」。
+    static func testKeyFrameLengthGuard() -> Result {
+        // 40B：不足 62B 标准长度 → 必须 nil
+        let shortFrame = [UInt8](repeating: 0xAA, count: 40)
+        // 62B：长度刚好 → 必须能切出完整字段
+        var exactFrame = [UInt8](repeating: 0x11, count: InBlueAuth.keyFrameLength)
+        exactFrame[0] = 0x0E
+
+        let shortNil = InBlueAuth.parseKeyFrame(shortFrame) == nil
+        let exact = InBlueAuth.parseKeyFrame(exactFrame)
+        let exactOK = exact != nil
+        let fieldLensOK = exact.map {
+            $0.dk1.count == 16 && $0.ckTRxSP.count == 16 && $0.tail.count == 16
+                && $0.sd.count == 4 && $0.rndTRx.count == 3
+        } ?? false
+
+        let ok = shortNil && exactOK && fieldLensOK
+        let detail: String = ok
+            ? "40B 短帧 → nil（会被判配对失败）；62B 标准帧 → dk1/ckTRxSP/tail 各 16B"
+            : "shortNil=\(shortNil) exactOK=\(exactOK) fieldLensOK=\(fieldLensOK)"
+        return Result(name: "0x0E 密钥帧长度守卫（短帧不得判成功）",
+                      passed: ok, detail: detail)
     }
 
     // MARK: - ★ 命令号表

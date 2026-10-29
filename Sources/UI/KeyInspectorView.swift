@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 密钥检视 / 备份恢复。
 ///
@@ -106,10 +107,25 @@ struct KeyInspectorView: View {
                 Button {
                     let text = KeyStore.shared.exportBackup()
                     backupText = text
-                    UIPasteboard.general.string = text
-                    backupResult = text.isEmpty ? "没有可导出的密钥" : "已导出并复制到剪贴板"
+                    // ★ 不要把明文钥匙留在系统通用剪贴板里（2026-10-29 修复）。
+                    //
+                    // `UIPasteboard.general.string = text` 会进全局剪贴板，
+                    // 还会通过「通用剪贴板」同步到同一 Apple ID 的其他设备 ——
+                    // 一次导出，整把车钥匙（dk1 + CkTRxSP + tail）就散到别处了。
+                    // 现在标记为仅本机（`.localOnly`）+ 60 秒后自动失效。
+                    if !text.isEmpty {
+                        UIPasteboard.general.setItems(
+                            [[UTType.plainText.identifier: text]],
+                            options: [
+                                .localOnly: true,
+                                .expirationDate: Date().addingTimeInterval(60),
+                            ])
+                    }
+                    backupResult = text.isEmpty
+                        ? "没有可导出的密钥"
+                        : "已导出并复制（仅本机，60 秒后自动失效）"
                 } label: {
-                    Label("导出并复制到剪贴板", systemImage: "square.and.arrow.up")
+                    Label("导出并复制（仅本机）", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glassProminent)

@@ -430,7 +430,14 @@ public final class MeasuredSession: ObservableObject {
             receivedKeyData = payload
             append("← 0E 收到密钥：\(payload.count)B（原 App 在此 saveKeysData:）")
             append("   \(hex)")
-            saveKeyData(payload)
+            guard saveKeyData(payload) else {
+                // ★ 切分失败 ≠ 配对成功（2026-10-29 修复）。
+                //   原来无条件往下跑，把「帧长不符」也报成「✅ 配对成功」。
+                phase = .failed
+                lastResult = .refused(0x2BB)
+                append("❌ 0x0E 密钥帧无法解析，**配对失败**（未写入任何密钥）")
+                return nil
+            }
             // ★ 照 `performActionBasedOnPayloadType:` case 14 @`0x101b0`：
             //   `saveKeysData:` 之后立刻 `callDidPairingSuccess`（M1）。
             //   这里给出显式成功态，而不是只靠上层改写 statusLine。
@@ -487,14 +494,24 @@ public final class MeasuredSession: ObservableObject {
     /// 反汇编给出的 location 全部以「含命令号 `0x0E` 的帧头」为基准：
     /// `Dk1`=[1,17)、`sd`=[17,21)、`ed`=[21,25)、`RndTRx`=[25,28)、
     /// `rights`=[28,29)、`keyType`=[29,30)、`CkTRxSP`=[30,46)、尾部 16B=[46,62)。
-    private func saveKeyData(_ payload: [UInt8]) {
+    /// 保存 `0x0E` 下发的密钥帧（照 `saveKeysData:` @`0x12660`）。
+    ///
+    /// - Returns: 是否**真的按反汇编切分并落库**。返回 `false` 时只留了原始
+    ///   `core`，调用方**不能**报「配对成功」。
+    ///
+    /// 原来这里是 `Void`，帧长不足时静默 return，而上层无条件设
+    /// `lastResult = .paired` 并打印「✅ 配对成功」——用户看到成功、
+    /// 主界面却仍是「尚未绑定车辆」（`keys == nil`）。典型的假成功。
+    @discardableResult
+    private func saveKeyData(_ payload: [UInt8]) -> Bool {
         let frame: [UInt8] = payload.first == 0x0E ? payload : [0x0E] + payload
         append("   密钥帧长度 \(frame.count)B（标准 \(InBlueAuth.keyFrameLength)B）")
 
         guard let k = InBlueAuth.parseKeyFrame(frame) else {
-            append("   ⚠️ 帧长不足 \(InBlueAuth.keyFrameLength)B，无法按反汇编切分，先原样留存")
+            append("   ❌ 帧长不足 \(InBlueAuth.keyFrameLength)B，无法按反汇编切分")
+            append("      仅原样留存 core（\(frame.count)B），**未写入任何密钥字段**")
             KeyStore.shared.set(Data(frame), for: .core)
-            return
+            return false
         }
 
         keys = k
@@ -551,6 +568,7 @@ public final class MeasuredSession: ObservableObject {
         append("   ✅ cidpu(完整 16B)=\(FrameCodec.hexString(k.tail))")
         append("   ✅ 已写入 Keychain：dk1/sd/ed/rndTRx/rights/keyType/CkTRxSP/tail/core")
         append("   ✅ 已写入 IBSavedKeys（原 App 同构：NSKeyedArchiver 归档字典）")
+        return true
     }
 
     // MARK: - 从 Keychain 恢复
