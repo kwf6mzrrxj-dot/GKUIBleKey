@@ -5,6 +5,75 @@
 
 ---
 
+## v5.0（2026-10-29）—— 「指令没用」的真因：挂起动作从未被执行
+
+用户反馈「开窗/关窗指令好像没用」。拉日志一查，**不是车窗命令的问题，
+是命令根本没发出去**。
+
+### 日志实证
+
+```text
+链路就绪 .......................... 30 次
+已连接，发现服务 .................. 30 次
+「未连接（connecting）→ 连接后自动执行「开窗」」... 9 次
+「链路已就绪，自动执行」........... 0 次   ← 关键
+「准备执行：开窗」................. 1 次（17:30:17，且没有 04 回执）
+```
+
+即：**只有「点击时链路恰好就绪」的那 12 次真正执行了**（其中锁车/解锁/无感
+共 5 次拿到 `04 00`），凡是「点击时未就绪」的几十次挂起，**一次都没被执行**。
+
+### 根因一：`pairingArmed` 挡在用户动作前面
+
+`.ready` 回调里的顺序原来是：
+
+```swift
+if pairingArmed { 发 0x0D 配对帧; return }   // ← 先判断
+if let action = pendingActionAfterConnect { 执行 }  // ← 永远轮不到
+```
+
+而 `autoConnect()` 在 `measured.keys == nil` 时会反复把 `pairingArmed` 置真。
+
+### 根因二：`measured.keys` 是内存缓存，误判「未配对」
+
+`MeasuredSession.init` 只读一次 Keychain。Keychain 在「重启后尚未首次解锁」
+等场景读不到 → `keys == nil` → 被当成「未配对」→ 进配对流程。
+但实际鉴权时 `beginMeasuredAuth` 会 `reloadKeys()`，所以密钥是好的 ——
+于是出现「能解锁（12 次直接执行成功 5 次），但挂起的动作全部消失」。
+
+### 根因三：配对日志不落盘，问题不可见
+
+`appendPairingLog` 只写 `pairing.log`（@Published 数组，内存），
+`FileLogger` 里一条都没有 —— 「链路已就绪，自动发配对登记帧」这类关键分支
+在日志文件里完全查不到，排查时只能靠猜。
+
+### 改动
+
+1. **`.ready` 回调改为「用户动作优先」**：`pendingActionAfterConnect` >
+   `pairingArmed` > `pendingPreAuth`。用户明确点了按钮，不该被自动配对吞掉。
+2. **`autoConnect()` 判断未配对时，二次确认 Keychain**：
+   `measured.keys == nil && KeyStore.communicationKey == nil` 才算真的未配对；
+   只有内存没加载出来就 `reloadKeys()`，不进配对。
+3. **`appendPairingLog` 同时写 FileLogger**（module = "配对"）。
+4. **`.ready` 回调入口加诊断日志**：
+   `链路就绪 → 挂起项：action=… / pairing=… / preAuth=…`，
+   下次同类问题一眼定位。
+
+### 验证
+
+- `swiftc -typecheck`：0 error / 0 warning
+- `xcodebuild build`：BUILD SUCCEEDED
+- **待实测**：车旁点开窗 → 日志应出现
+  「链路就绪 → 挂起项：action=开窗 …」紧跟「链路已就绪，自动执行「开窗」」。
+
+### 遗留疑问（需要实测确认）
+
+17:30:17 那次开窗**确实执行了**（`准备执行：开窗（控制码 0x05）`），
+但**没有 04 回执** → 超时。可能是车端要求「上电/IG ON」才受理升窗命令。
+这个只能真车在不同电源状态下对比才能定论。
+
+---
+
 ## v4.9（2026-10-29）—— 端到端流程审查：8 处缺陷全部修复
 
 按 8 个阶段（启动/扫描/连接/配对/控车/无感/状态/后台）过了一遍数据流，

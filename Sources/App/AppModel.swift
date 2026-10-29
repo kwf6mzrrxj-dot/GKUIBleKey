@@ -302,21 +302,39 @@ public final class AppModel: ObservableObject {
             self?.measured.recordNote("出范围：已复位被动进入/预认证的边沿状态")
         }
 
-        // ★ 链路就绪 → ① 配对流程在等则自动发 0x0D；② 有挂起的控车动作则自动执行
+        // ★ 链路就绪 → ① 有挂起的控车动作则自动执行；② 配对流程在等则发 0x0D；③ 补发预认证
+        //
+        // ★★★ 顺序是关键（2026-10-29 修复）：**用户动作优先**。
+        //
+        // 原来 `pairingArmed` 判断在最前面，只要它为真就直接发配对帧并 return，
+        // 挂起的控车动作永远轮不到执行。而 `autoConnect()` 在 `measured.keys == nil`
+        // 时会反复把 `pairingArmed` 置真 —— 一旦内存里的 keys 没加载出来
+        //（Keychain 首次解锁前、或 init 时读失败），
+        // **用户每次点按钮都会被配对流程吞掉**，表现就是「指令没用」。
+        //
+        // 日志实证（2026-10-29）：`链路就绪` 出现 30 次，
+        // 而「链路已就绪，自动执行」**0 次** —— 挂起机制从未生效过。
         ble.$linkState
             .filter { $0 == .ready }
             .sink { [weak self] _ in
                 guard let self else { return }
-                if self.pairingArmed {
-                    self.appendPairingLog("链路已就绪，自动发配对登记帧（0x0D）")
-                    self.beginMeasuredAuthPairing()
-                    return
-                }
-                // ★ 用户点了按钮但当时未连接 → 这里补执行
+                // 诊断：把三个等待标志的实际值记进会话日志，排查时有据可查
+                self.measured.recordNote(
+                    "链路就绪 → 挂起项：action=\(self.pendingActionAfterConnect?.label ?? "无")"
+                    + " / pairing=\(self.pairingArmed)"
+                    + " / preAuth=\(self.pendingPreAuth)")
+
+                // ① 用户动作优先（明确意图 > 自动流程）
                 if let action = self.pendingActionAfterConnect {
                     self.pendingActionAfterConnect = nil
                     self.measured.recordNote("链路已就绪，自动执行「\(action.label)」")
                     self.perform(action)
+                    return
+                }
+                // ② 配对流程在等
+                if self.pairingArmed {
+                    self.appendPairingLog("链路已就绪，自动发配对登记帧（0x0D）")
+                    self.beginMeasuredAuthPairing()
                     return
                 }
                 // ★ 预认证在「未连接」时被挂起 → 这里补发。
@@ -513,6 +531,12 @@ public final class AppModel: ObservableObject {
 
     private func appendPairingLog(_ s: String) {
         pairing.appendExternal("· \(s)")
+        // ★ 必须同时落盘（2026-10-29 修复）。
+        //
+        // 原来只写 `pairing.log`（@Published 数组，内存），FileLogger 里一条都没有 ——
+        // 于是「链路已就绪，自动发配对登记帧」这类**关键分支**在日志文件里
+        // 完全不可见，排查时只能靠猜。配对流程的诊断价值恰恰最高。
+        FileLogger.shared.info("[配对] \(s)", module: "配对")
     }
 
     /// 配对流程是否在等待链路就绪（就绪后自动发登记帧）
@@ -629,16 +653,28 @@ public final class AppModel: ObservableObject {
               ble.linkState != .connecting,
               ble.linkState != .discovering else { return }
         // ★ 本地无密钥 = 原 App 的「未配对」状态 → 自动等配对
+        //
+        // ⚠️ 不能只看 `measured.keys`（内存缓存，`init` 里读一次）：
+        //   Keychain 在「重启后尚未首次解锁」等场景读不到，keys 会是 nil ——
+        //   此时若判定为"未配对"，`pairingArmed` 会被反复置真，
+        //   于是每次 `.ready` 都去发 0x0D 配对帧，**挂起的控车动作永远轮不到**。
+        //   所以再确认一次 Keychain：里面有密钥就只重载，不进配对。
         if measured.keys == nil {
-            if !pairingArmed {
-                pairingArmed = true
-                appendPairingLog(
-                    "本地无密钥（keys=0）→ 自动进入配对等待："
-                    + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
+            if KeyStore.shared.communicationKey == nil {
+                if !pairingArmed {
+                    pairingArmed = true
+                    appendPairingLog(
+                        "本地无密钥（keys=0）→ 自动进入配对等待："
+                        + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
+                }
+                // 配对必须「主动连接」：v4.4 起扫描命中不再自动连（避免空连接
+                // 被车端 2 秒踢掉），所以这里显式置位。
+                ble.forceConnectOnce = true
+            } else {
+                // Keychain 里有密钥，只是内存没加载出来 → 重载，别走配对
+                measured.reloadKeys()
+                appendPairingLog("内存无密钥但 Keychain 有 → 已重载（不进配对流程）")
             }
-            // 配对必须「主动连接」：v4.4 起扫描命中不再自动连（避免空连接
-            // 被车端 2 秒踢掉），所以这里显式置位。
-            ble.forceConnectOnce = true
         }
         ble.adoptConnectedPeripheral()      // 已连着就直接用（不 connect、不 cancel）
         if ble.linkState == .discovering || ble.linkState == .ready { return }
