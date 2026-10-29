@@ -53,7 +53,7 @@ struct CarImage: View {
                 .scaledToFit()
                 .foregroundStyle(.secondary)
                 .onAppear {
-                    FileLogger.shared.append("⚠️ 车辆模型帧加载失败：\(named)", tag: "UI")
+                    FileLogger.shared.warning("车辆模型帧加载失败：\(named)", module: "UI")
                 }
         }
     }

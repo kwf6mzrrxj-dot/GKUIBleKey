@@ -113,27 +113,8 @@ public enum IBCommandType: UInt8, CaseIterable, Sendable {
     /// 不存在"未确认所以拒发"的情况。
     public var controlCode: UInt8 { rawValue }
 
-    /// 是否属于「用户可点」的车辆动作（排除配对这类流程性命令）
-    public var isUserAction: Bool { self != .pairing }
-
     /// 是否为被动进入（无感）开关 —— 二者互斥，界面应成对展示
     public var isPassiveEntryToggle: Bool {
         self == .enablePassiveEntry || self == .disablePassiveEntry
-    }
-
-    /// 系统符号名（界面用）
-    public var symbolName: String {
-        switch self {
-        case .lock:                 return "lock.fill"
-        case .unlock:               return "lock.open.fill"
-        case .openCloseTrunk:       return "car.side.rear.open"
-        case .windowUp:             return "arrow.up.square"
-        case .windowDown:           return "arrow.down.square"
-        case .panic:                return "light.beacon.max.fill"
-        case .requestPairedDevices: return "iphone.gen3.badge.person.crop"
-        case .enablePassiveEntry:   return "figure.walk.arrival"
-        case .disablePassiveEntry:  return "figure.walk.departure"
-        case .pairing:              return "link.badge.plus"
-        }
     }
 }

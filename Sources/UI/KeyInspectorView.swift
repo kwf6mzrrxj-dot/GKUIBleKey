@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// 密钥检视 / 导入。
+/// 密钥检视 / 备份恢复。
 ///
 /// ## 重要说明（写给使用者）
-/// 该车的蓝牙钥匙是 **Cloudless（无云）** 方案：密钥在你换用本 App **之前**
-/// 就已经存在于原 App 的 Keychain 里。要让本 App 能开锁点火，有两条路：
-/// 1. **用诊断仪重新匹配**（推荐，无需越狱）：诊断仪让蓝牙钥匙模块进入配对模式，
-///    之后本 App 走 §7.2 的配对流程写入密钥；
-/// 2. **从原 App 的 Keychain 导出后粘贴到下面**（需要越狱设备）：
-///    - 原 App 的键名：`com.glble.sdk.communication.key` / `.auth.key` / `.ID.key` / `.core`
-///    - ⚠️ 注意：密钥在 **Keychain**，不在 `NSUserDefaults`/plist 里
-///      （`GLBLEStorageManager` 走的是 NSUserDefaults，只存普通配置）。
+/// 该车的蓝牙钥匙是 **Cloudless（无云）** 方案：密钥在配对成功后由车端下发、
+/// 存进本 App 的 Keychain。获取密钥的唯一途径是**配对**（诊断仪让模块进入配对模式，
+/// 本 App 走 0x55 鉴权链拿 0x0E 密钥帧）。
+///
+/// 原 App（iOS 版 XiaoKa）**没有任何导出密钥的界面**，密钥无法从它迁移过来，
+/// 因此本 App 不提供「从原 App 导入」（2026-10-25 移除，此前误以为可以）。
+/// 「备份 / 恢复」导出的只是**本 App 自己的**密钥（升级/换机兜底）。
 ///
 /// ## 为什么必须保持 IDFV 不变
 /// 车端会校验 `mobileId`（= IDFV）。IDFV 对「同一开发者签名 + 同一设备」稳定，
@@ -20,8 +19,6 @@ struct KeyInspectorView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var importTarget: KeyStore.Key = .communicationKey
-    @State private var importHex = ""
     @State private var refreshTick = 0
     /// ★ 整包备份文本（导出/恢复用）
     @State private var backupText = ""
@@ -33,8 +30,9 @@ struct KeyInspectorView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     idSection
                     keyStatusSection
+                        .id(refreshTick)   // ★ 只重建密钥列表，不重建整个页面（避免丢 TextField 焦点）
                     backupSection
-                    importSection
+                    builtInSection
                     dangerSection
                 }
                 .padding(18)
@@ -48,7 +46,6 @@ struct KeyInspectorView: View {
                 }
             }
         }
-        .id(refreshTick)
     }
 
     // MARK: - 设备标识
@@ -61,7 +58,8 @@ struct KeyInspectorView: View {
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.cyan)
                     .textSelection(.enabled)
-                Text("车端用它校验「数字钥匙是否属于本机」。重写 App 时必须保持同一签名，IDFV 才不会变。")
+                Text("属于 GLBLEAuthSDK / 云端接口层；BLE 协议帧（0x0D / 0x01）不含此字段，"
+                     + "所以它不影响本 App 的配对与控车链路。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -142,42 +140,47 @@ struct KeyInspectorView: View {
         }
     }
 
-    private var importSection: some View {
-        card("手动导入（从原 App 导出）") {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("目标键", selection: $importTarget) {
-                    ForEach(KeyStore.Key.allCases, id: \.self) { k in
-                        Text(k.rawValue.replacingOccurrences(of: "com.glble.sdk.", with: ""))
-                            .tag(k)
+    /// 内置钥匙（从原 App 的加密备份里提取的那把）
+    ///
+    /// 只在首次启动自动写入一次。这里提供一个手动入口，方便：
+    /// - 解绑之后想立刻恢复内置钥匙（不用重启 App）；
+    /// - 确认当前生效的是不是内置的那把。
+    private var builtInSection: some View {
+        card("内置钥匙") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: BuiltInKeys.isActive
+                          ? "checkmark.seal.fill" : "seal")
+                        .foregroundStyle(BuiltInKeys.isActive ? .green : .secondary)
+                    Text(BuiltInKeys.isActive ? "当前生效：内置钥匙" : "当前生效：非内置钥匙")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !BuiltInKeys.isComplete {
+                        Label("字段不全", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                     }
                 }
-                .pickerStyle(.menu)
-                .tint(.cyan)
+                Text("内置的是原 App 最后一次配对成功（2026-10-28 21:12）拿到的那把，"
+                     + "车端确认有效。本机原有的那把（10-04）车端从未写入槽位，"
+                     + "所以鉴权必被拒、连上即断。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
 
-                TextField("十六进制，如 00112233…（也可粘贴 base64）", text: $importHex, axis: .vertical)
-                    .font(.system(.caption, design: .monospaced))
-                    .textFieldStyle(.plain)
-                    .padding(10)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 12))
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-
-                HStack(spacing: 10) {
-                    Button {
-                        importValue()
-                    } label: {
-                        Label("写入 Keychain", systemImage: "square.and.arrow.down")
-                            .frame(maxWidth: .infinity)
+                Button {
+                    if BuiltInKeys.apply() {
+                        model.measured.reloadKeys()
+                        refreshTick += 1
+                        backupResult = "✅ 已写入内置钥匙"
+                    } else {
+                        backupResult = "❌ 内置钥匙写入失败"
                     }
-                    .buttonStyle(.glassProminent)
-
-                    Button {
-                        importHex = ""
-                    } label: {
-                        Label("清空", systemImage: "eraser").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.glass)
+                } label: {
+                    Label("重新应用内置钥匙", systemImage: "arrow.down.to.line.compact")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.glass)
             }
         }
     }
@@ -185,48 +188,14 @@ struct KeyInspectorView: View {
     private var dangerSection: some View {
         card("危险操作") {
             Button(role: .destructive) {
-                KeyStore.shared.clearAll()
+                model.deleteVehicle()
                 refreshTick += 1
             } label: {
-                Label("清除本 App 的全部密钥", systemImage: "trash")
+                Label("解绑车辆（清除密钥与标定）", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.glass)
         }
-    }
-
-    // MARK: - 工具
-
-    private func importValue() {
-        let hex = importHex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !hex.isEmpty else { return }
-        var data: Data?
-        // 先按 hex 解析
-        let cleaned = hex.replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "0x", with: "")
-        if cleaned.count % 2 == 0,
-           cleaned.allSatisfy({ $0.isHexDigit }),
-           let d = dataFromHex(cleaned) {
-            data = d
-        } else if let d = Data(base64Encoded: hex) {
-            data = d
-        }
-        guard let final = data else { return }
-        KeyStore.shared.set(final, for: importTarget)
-        importHex = ""
-        refreshTick += 1
-    }
-
-    private func dataFromHex(_ s: String) -> Data? {
-        var out = Data()
-        var idx = s.startIndex
-        while idx < s.endIndex {
-            let next = s.index(idx, offsetBy: 2)
-            guard let b = UInt8(s[idx..<next], radix: 16) else { return nil }
-            out.append(b)
-            idx = next
-        }
-        return out
     }
 
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {

@@ -4,22 +4,20 @@ import CommonCrypto
 
 /// 协议用到的密码学原语集合。
 ///
-/// ## 逆向依据（全部来自 iOS `GLBLEAuthSDK` / `InBlue` 反汇编）
-/// - **AES-128**：`+[GLAlgorithmManager aes_encrypt:plainData:iv:key:]` @`0x8650`
-///   取 `plainData.length` / `iv.length` / `key.length` → `_malloc` → `dataWithBytes:length:`，
-///   **未调用 CCCrypt/OpenSSL**，是框架自实现；ID 2 中 `sessionKey` = 16 字节 → **AES-128**；
-///   因 `iv` 为独立入参且被使用，**非 ECB**（CBC 可能性最大）。
+/// ## 逆向依据
+/// - **AES**：InBlue 的 `+[IBAESData AES128WithData:withKey:encrypt:cbc:option:]` @`0x10cac`
+///   反汇编为 `CCCrypt(op, kCCAlgorithmAES, options=0, iv=NULL)` —— 即
+///   **AES-128-CBC / IV 全零 / 无 padding**（`options=0`）。这是 InBlue 协议
+///   （`01`/`03` 帧、广播解密、归属校验）唯一使用的 AES 模式。
 /// - **HMAC-SHA256**：`-[VCLSManager sha256HMacWithData:withKey:]` @`0x12c6c`
 ///   反汇编为 `CCHmacInit(kCCHmacAlgSHA256)` / `CCHmacUpdate` / `CCHmacFinal`。
 /// - **SHA-256**：`-[NSData sha256]`（ID 1 确认帧用）。
 ///
-/// ## ⚠️ 待实测确认
-/// ID 2 里 `aes_encrypt` 的第 1 个参数为 `2`，语义未定（推测为模式/填充选项）。
-/// 这里抽象成 `AESMode`，默认 `.cbcPKCS7`，实测后可切换。
+/// ⚠️ 早期的「GLBLEAuthSDK 自实现 AES / 默认 cbcPKCS7」是旧结论，已作废：
+/// 实际协议全部走 InBlue 的 `CCCrypt` CBC 无 padding，调用点已显式传 `.cbcNoPadding`。
 public enum AESMode: String, Sendable, CaseIterable, Codable {
     case cbcPKCS7
     case cbcNoPadding
-    case ecbPKCS7
     case ecbNoPadding
 }
 
@@ -31,20 +29,12 @@ public enum CryptoBox {
         Array(SHA256.hash(data: Data(data)))
     }
 
-    public static func sha256(_ data: Data) -> Data {
-        Data(SHA256.hash(data: data))
-    }
-
     // MARK: - HMAC-SHA256
 
     public static func hmacSHA256(key: [UInt8], data: [UInt8]) -> [UInt8] {
         let k = SymmetricKey(data: Data(key))
         let mac = HMAC<SHA256>.authenticationCode(for: Data(data), using: k)
         return Array(mac)
-    }
-
-    public static func hmacSHA256(key: Data, data: Data) -> Data {
-        Data(hmacSHA256(key: Array(key), data: Array(data)))
     }
 
     /// 直接走 CommonCrypto，和为逆向一致（`CCHmacInit/Update/Final`）。
@@ -78,8 +68,6 @@ public enum CryptoBox {
             options = CCOptions(kCCOptionPKCS7Padding)
         case .cbcNoPadding:
             options = 0
-        case .ecbPKCS7:
-            options = CCOptions(kCCOptionECBMode | kCCOptionPKCS7Padding)
         case .ecbNoPadding:
             options = CCOptions(kCCOptionECBMode)
         }
@@ -126,7 +114,8 @@ public enum CryptoBox {
 
     // MARK: - 随机数
 
-    /// 与框架一致：`arc4random`（`createANewKeyWithCidpu:` 内部就是它）。
+    /// 非安全随机数（用系统 `UInt8.random`），仅作兜底。
+    /// 协议关键随机数请用 `secureRandomBytes`（SecRandomCopyBytes）。
     public static func randomBytes(_ count: Int) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: count)
         for i in 0..<count { out[i] = UInt8.random(in: 0...255) }
@@ -145,14 +134,10 @@ public enum CryptoBox {
 
 public enum CryptoError: Error, CustomStringConvertible {
     case aesFailed(status: Int32)
-    case badKeyLength(Int)
-    case notImplemented(String)
 
     public var description: String {
         switch self {
         case .aesFailed(let s): return "AES 操作失败 (CCCrypt status=\(s))"
-        case .badKeyLength(let n): return "密钥长度不合法: \(n) 字节"
-        case .notImplemented(let s): return "尚未实现: \(s)"
         }
     }
 }

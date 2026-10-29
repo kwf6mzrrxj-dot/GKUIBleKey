@@ -5,26 +5,27 @@ import UIKit
 /// 密钥与凭据的持久化。
 ///
 /// ## 逆向依据
-/// - iOS 侧 Keychain 键名（`GLBLEAuthSDK` 字符串）：
-///   `com.glble.sdk.communication.key` / `com.glble.sdk.auth.key` /
-///   `com.glble.sdk.ID.key` / `com.glble.sdk.core`
+/// - iOS 侧 Keychain 键名复用了原 App（`GLBLEAuthSDK`）的字符串，
+///   如 `com.glble.sdk.communication.key` / `com.glble.sdk.core`。
 /// - Keychain 封装方法：`VKsave:data:` / `VKgetKeychainQuery:` / `VKdelete:`
 /// - **重要**：`GLBLEStorageManager` 走的是 `NSUserDefaults`（`+[GLBLEStorageManager
 ///   saveStorage:forKey:]` → `[NSUserDefaults standardUserDefaults] setObject:forKey:`），
 ///   只存普通配置；**密钥必须走 Keychain**。
 ///
-/// ## mobileID = IDFV
-/// `+[GLBLEKeyManager mobileID]`（`0xba54`）反汇编：
-/// ```
-/// ba70  ldr x1, VKKeychainIDFV
-/// ba74  bl  +[UIDevice VKKeychainIDFV]      ; 取 IDFV
-/// ba88  dataUsingEncoding:
-/// baa4  subdataWithRange:                   ; 截取一段
-/// ```
-/// 且 IDFV 本身也被 `VKsaveIdfvToKeyChain:` 存进 Keychain。
-/// **IDFV 对「同一开发者签名 + 同一设备」稳定** —— 因此重写 App 必须保持
-/// **相同 bundle id 与相同签名证书（Team）**，否则 `mobileId` 变化会导致
-/// 车端返回 `error_sdk_50003 数字钥匙校验mobileId错误`。
+/// ## IDFV（mobileId）
+/// 原 App 用 `VKsaveIdfvToKeyChain:` 把 IDFV 存进 Keychain（`VKKeychainIDFV`），
+/// 作为 `mobileID` 使用。本 App 采用同样的持久化策略：首次取
+/// `identifierForVendor` 后写入 Keychain，之后一律读 Keychain —— 这样即使
+/// 卸载重装（IDFV 会被系统重置）也不会变。
+///
+/// **适用范围（重要，避免误判）**：
+/// - `mobileID` 属于 **GLBLEAuthSDK / 云端接口**层的设备标识
+///   （对应 `error_sdk_50003 数字钥匙校验mobileId错误`）；
+/// - **BLE 协议帧里没有这个字段** —— `0x0D` = `命令 + sidpu(16) + 名称(20)`，
+///   `0x01` = `sd+ed+RndTRx+RND1+rights` 五段，都不含 mobileId。
+///
+/// 因此本 App 的 `idfvDisplay` 目前**只用于界面展示**，不参与任何 BLE 交互；
+/// 「IDFV 与原 App 不同」不会影响配对或控车的 BLE 链路。
 public final class KeyStore {
 
     public nonisolated(unsafe) static let shared = KeyStore()
@@ -33,10 +34,9 @@ public final class KeyStore {
     // MARK: - Keychain 键名（与原 App 保持一致，便于从旧 App 迁移）
 
     public enum Key: String, CaseIterable {
-        // ★ 原 App（GLBLEAuthSDK）真实存在的 4 个键名，保留以便从旧 App 迁移。
+        // ★ 复用了原 App（GLBLEAuthSDK）的键名：communicationKey 存 CkTRxSP、
+        //   core 存完整密钥帧（InBlue 密钥体系的字段）。
         case communicationKey = "com.glble.sdk.communication.key"
-        case authKey = "com.glble.sdk.auth.key"
-        case idKey = "com.glble.sdk.ID.key"
         case core = "com.glble.sdk.core"
         /// IDFV（原 App 用 `VKKeychainIDFV` 存放）
         case idfv = "com.glble.sdk.idfv"
@@ -75,6 +75,9 @@ public final class KeyStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key.rawValue,
+            // ★ 删除/更新时匹配「任意同步状态」的旧记录（同步项 + 本地项），
+            //   否则旧的 ThisDeviceOnly 记录删不掉 → SecItemAdd 报 duplicate。
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         SecItemDelete(query as CFDictionary)
 
@@ -94,8 +97,8 @@ public final class KeyStore {
         //
         // 这样**升级/重装 App 后密钥仍在**，不必重新配对。
         // ⚠️ 前提：用户的「iCloud 钥匙串」是开启的。
-        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         attrs[kSecAttrSynchronizable as String] = kCFBooleanTrue as CFBoolean
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(attrs as CFDictionary, nil)
         if status == errSecDuplicateItem {
             // 已存在（可能是旧的 ThisDeviceOnly 记录）→ 直接更新
@@ -104,7 +107,10 @@ public final class KeyStore {
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
                 kSecAttrSynchronizable as String: kCFBooleanTrue as CFBoolean,
             ]
-            let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            // ★ 更新时用「任意同步状态」匹配，确保能命中旧的非同步项
+            var updateQuery = query
+            updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+            let updateStatus = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
             if updateStatus != errSecSuccess {
                 NSLog("[KeyStore] 更新失败 \(key.rawValue): \(updateStatus)")
             }
@@ -147,35 +153,85 @@ public final class KeyStore {
         set(Data(value.utf8), for: key)
     }
 
+    // MARK: - 原 App 兼容存储（`IBSavedKeys` + NSKeyedArchiver）
+
+    /// 以与原 App **完全相同**的格式写一份密钥字典。
+    ///
+    /// ## 反汇编依据
+    /// `-[VCLSManager saveKeysData:]` @`0x12660` 末尾：
+    /// ```asm
+    /// 0x12a2c: adr x3, #0x212e8     ; CFSTR "IBSavedKeys"
+    /// 0x12a28: bl  ... storeDictionary:toKeychainWithKey:
+    /// ```
+    /// `+[IBKeyChainManager storeDictionary:toKeychainWithKey:]` @`0x131b4`：
+    /// ```objc
+    /// NSData *archived = [NSKeyedArchiver archivedDataWithRootObject:dictionary];
+    /// [self deleteFromKeychainWithKey:key];            // 先删旧值
+    /// SecItemAdd(@{ kSecClass:      kSecClassGenericPassword,
+    ///               kSecAttrService: key,
+    ///               kSecAttrAccount: key,
+    ///               kSecValueData:  archived }, NULL);
+    /// ```
+    ///
+    /// ## 结构
+    /// `saveKeysData:` 里 `setObject:forKey:` 的两个参数是
+    /// `x2 = 七元子字典`、`x3 = hexString(frame[0x2E,0x10])`，因此外层是
+    /// `{ "<cidpu32hex>" : { Dk1, sd, ed, RndTRx, rights, keyType, CkTRxSP } }`，
+    /// 7 个值**全部是 hex 字符串**（`hexString:` 转换，非原始字节）。
+    ///
+    /// ## 为什么双写
+    /// 本 App 的主存储是「一字段一 Keychain 项」（`service = com.glble.sdk.core`），
+    /// 这套格式已稳定工作，**不替换**；这里额外写一份 `IBSavedKeys` 归档，
+    /// 好处是：抓包/比对原 App 行为时可直接读出同构数据，且将来若需迁移不用再改协议层。
+    public func setIBSavedKeysArchive(_ keysData: [String: [String: String]]) {
+        guard let archived = try? NSKeyedArchiver.archivedData(
+            withRootObject: keysData, requiringSecureCoding: false
+        ) else {
+            NSLog("[KeyStore] IBSavedKeys 归档失败")
+            return
+        }
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "IBSavedKeys",
+            kSecAttrAccount as String: "IBSavedKeys",
+        ]
+        // 原 App 先 delete 再 add，保持一致
+        SecItemDelete(base as CFDictionary)
+        var attrs = base
+        attrs[kSecValueData as String] = archived
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(attrs as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("[KeyStore] IBSavedKeys 写入失败: \(status)")
+        }
+    }
+
+    /// 读回 `IBSavedKeys` 归档（用于校验/导出比对）。
+    public func getIBSavedKeysArchive() -> [String: [String: String]]? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "IBSavedKeys",
+            kSecAttrAccount as String: "IBSavedKeys",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data else { return nil }
+        // 用现代 API 解档（`unarchiveTopLevelObjectWithData:` 自 iOS 12 起废弃）。
+        // 允许的类覆盖嵌套结构：外层 NSDictionary → 内层 NSDictionary → NSString。
+        guard let obj = try? NSKeyedUnarchiver.unarchivedObject(
+            ofClasses: [NSDictionary.self, NSString.self, NSArray.self], from: data
+        ) else { return nil }
+        return obj as? [String: [String: String]]
+    }
+
+
     public func getString(_ key: Key) -> String? {
         get(key).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    public func setUInt32(_ value: UInt32, for key: Key) {
-        var v = value.littleEndian
-        set(Data(bytes: &v, count: 4), for: key)
-    }
-
-    public func getUInt32(_ key: Key) -> UInt32? {
-        guard let d = get(key), d.count == 4 else { return nil }
-        return d.withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian
-    }
-
     // MARK: - mobileID（= IDFV）
-
-    /// 取 mobileID。优先用 Keychain 里缓存的 IDFV
-    /// （与原 App 行为一致：IDFV 会被 `VKsaveIdfvToKeyChain:` 存起来）。
-    @MainActor
-    public func mobileID() -> Data {
-        if let cached = getString(.idfv), let d = cached.data(using: .utf8) {
-            // 原 App 做了 subdataWithRange 截取；这里保持一致：取前 16 字节
-            return d.count >= 16 ? Data(d.prefix(16)) : d
-        }
-        let idfv = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        setString(idfv, for: .idfv)
-        let d = Data(idfv.utf8)
-        return d.count >= 16 ? Data(d.prefix(16)) : d
-    }
 
     /// 用于界面展示的 IDFV 原文。
     @MainActor
@@ -192,8 +248,6 @@ public final class KeyStore {
     public var communicationKey: [UInt8]? { self.get(.communicationKey).map { Array($0) } }
     /// ★ 16 字节通信密钥材料（`saveKeysData:` 的 `CkTRxSP` 字段）
     public var ckTRxSP: [UInt8]? { self.get(.ckTRxSP).map { Array($0) } }
-    public var identityKey: [UInt8]? { self.get(.idKey).map { Array($0) } }
-    public var isPaired: Bool { self.get(.communicationKey) != nil }
 
     /// ★ 完整的 CIDPU（32 hex = 16 字节）—— `checkCryptedID` 的 AES key。
     ///

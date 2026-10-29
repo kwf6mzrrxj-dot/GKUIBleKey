@@ -24,6 +24,18 @@ targets:
       - path: Resources
     settings:
       base:
+        # 关于 bundle id 与 IDFV（2026-10-29 调查结论，避免以后重复踩坑）
+        #
+        # GLBLEAuthSDK 里存在 `VKKeychainIDFV` / `VKgetIdfvFromKeyChain` /
+        # `VKsaveIdfvToKeyChain:` / `mobileID`，说明原 App 把 IDFV 持久化在 Keychain
+        # 当 mobileId 使用。IDFV 按 bundle id **前两段（vendor）** 分组，所以理论上
+        # 改成 `cn.com.ecarx.*` 就能与原 App 共享同一个 IDFV。
+        #
+        # **但实测不可行**：本机只有一个 explicit App ID 的 profile
+        # （2PQ29MSM39.com.mmxisme.gkuiblekey），Xcode 未登录账号（No Accounts），
+        # 换 bundle id 无法自动生成 profile → 构建直接失败。
+        # 另外本 App 自己已实现 IDFV 的 Keychain 持久化（KeyStore.idfvDisplay），
+        # 重复安装不会改变上送值，所以这条路暂不是缺口。
         PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey
         PRODUCT_NAME: GKUIBleKey
         TARGETED_DEVICE_FAMILY: "1"

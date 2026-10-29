@@ -46,15 +46,23 @@ public struct VehicleStatus: Sendable, Equatable {
     /// bit7 —— 未在 `parseStatus:` 取值（MSB）
     public var reservedBit7: Bool
 
-    // ── `parseDoorsStatus:`（plain[6]）四门 ────────────────────
-    /// 前左门关闭
+    // ── `parseDoorsStatus:`（plain[6]）四门 8 位 ────────────────
+    /// 前左门关闭（bit0）
     public var isFLDoorClosed: Bool
-    /// 前右门关闭
+    /// 前右门关闭（bit1）
     public var isFRDoorClosed: Bool
-    /// 后左门关闭
+    /// 后左门关闭（bit2）
     public var isRLDoorClosed: Bool
-    /// 后右门关闭
+    /// 后右门关闭（bit3）
     public var isRRDoorClosed: Bool
+    /// 前左门**已锁**（bit4）
+    public var isFLDoorLocked: Bool
+    /// 前右门**已锁**（bit5）
+    public var isFRDoorLocked: Bool
+    /// 后左门**已锁**（bit6）
+    public var isRLDoorLocked: Bool
+    /// 后右门**已锁**（bit7）
+    public var isRRDoorLocked: Bool
 
     // ── `parsePowerStatus:`（plain[7]）电源 ────────────────────
     /// ACC 电源（bit0）
@@ -98,6 +106,10 @@ public struct VehicleStatus: Sendable, Equatable {
         isFRDoorClosed  = d["isFRDoorClosed"] ?? false
         isRLDoorClosed  = d["isRLDoorClosed"] ?? false
         isRRDoorClosed  = d["isRRDoorClosed"] ?? false
+        isFLDoorLocked  = d["isFLDoorLocked"] ?? false
+        isFRDoorLocked  = d["isFRDoorLocked"] ?? false
+        isRLDoorLocked  = d["isRLDoorLocked"] ?? false
+        isRRDoorLocked  = d["isRRDoorLocked"] ?? false
 
         isAccOn         = p["isAccOn"] ?? false
 
@@ -187,6 +199,12 @@ public struct VehicleStatus: Sendable, Equatable {
         return [
             "isFLDoorClosed": bit(0), "isFRDoorClosed": bit(1),
             "isRLDoorClosed": bit(2), "isRRDoorClosed": bit(3),
+            // ★ 后 4 位同样是 `parseDoorsStatus:` 解析的字段（反汇编里
+            //   `substringWithRange:` 的起始位依次是 7,6,5,4,3,2,1,0，
+            //   而 `hexToBinary:` 高位在前 → 第 7 个字符 = bit0）。
+            //   之前只解析了前 4 位（关闭），漏掉 bit4~bit7 的「锁」状态。
+            "isFLDoorLocked": bit(4), "isFRDoorLocked": bit(5),
+            "isRLDoorLocked": bit(6), "isRRDoorLocked": bit(7),
         ]
     }
 

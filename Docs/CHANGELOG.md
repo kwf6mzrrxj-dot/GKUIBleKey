@@ -1,0 +1,1806 @@
+# 变更日志（CHANGELOG）
+
+> 版本号采用 **0.1 步进**：每次对外发布 `CFBundleShortVersionString` +0.1，
+> `CFBundleVersion`（构建号）每次构建 +1。
+
+---
+
+## v4.2（2026-10-29）—— 后台保活「可验证」：心跳 + 定时器偏差 + 进程重启间隔
+
+上一版只能从代码推断后台能力，这一版把**证据做进日志**，让实测能给出确定答案。
+
+### 一、新增 `Sources/Support/BackgroundMonitor.swift`
+
+iOS 没有 API 能直接查「我还有没有后台执行权」，所以靠三类证据反推：
+
+**① 前后台切换 + 后台停留时长**
+
+```
+[保活] ⬇️ 进入后台（前台停留 3 分 20 秒）
+[保活] ⬆️ 即将回前台（后台停留 35 分 10 秒，期间心跳 12 次，理论应有 70 次）
+```
+
+「理论应有 70 次、实际 12 次」直接量化了被挂起的比例。
+
+**② 30 秒心跳**
+
+```
+[保活] 心跳 #7 状态=后台 广播累计=412 连接=3 断开=3 后台剩余=无限
+```
+
+- 心跳**连续** = 进程活着
+- 心跳**断档** = 被挂起（日志时间戳自己就是证据）
+
+`后台剩余` 读的是 `UIApplication.shared.backgroundTimeRemaining`：
+有 `bluetooth-central` 且保持会话时是「无限」，被降级成几十秒就说明后台权要没了。
+
+**③ 进程重启间隔**
+
+每次心跳把当前时间写进 `UserDefaults["bgmon.lastSeen"]`；
+冷启动时先读旧值再覆盖（顺序错了差值恒为 0，已修正）：
+
+```
+[保活] 进程启动 #5，距上次存活 2.3 小时（说明中间被系统终止过）
+```
+
+配合 `willRestoreState` 的日志，就能回答「被杀之后有没有被 BLE 唤醒」。
+
+### 二、预认证定时器记录「计划 vs 实际」
+
+```swift
+let plannedAt = Date()
+try await Task.sleep(29s)
+let actual = Date().timeIntervalSince(plannedAt)
+if actual - 29 > 2 { 警告：进程在这段时间被挂起过 }
+```
+
+`Task.sleep` 在挂起时不会按时唤醒，恢复后才补执行。所以：
+
+```
+[保活] 预认证定时器被延迟：计划 29s，实际 302.4s（偏差 +273.4s）—— 进程在这段时间被挂起过
+```
+
+这是**最直接的挂起证据**，比任何推断都硬。
+
+### 三、接入点
+
+| 位置 | 动作 |
+|---|---|
+| `AppModel.init` | `BackgroundMonitor.shared.start()` + 三个 `UIApplication` 通知订阅 |
+| `BLECentral.didDiscover` | `noteBroadcast()`（在 MainActor 块内） |
+| `BLECentral.didConnect` | `noteConnect()` |
+| `BLECentral.didDisconnect` | `noteDisconnect()` |
+| `PreAuthenticationController.schedule` | 计划/实际偏差 |
+
+### 四、日志判读表（实测用）
+
+| 现象 | 结论 |
+|---|---|
+| 心跳连续 30s 一条，`状态=后台` | 后台**活着** ✅ |
+| 心跳出现 >60s 断档 | 进程被**挂起** |
+| `广播累计` 持续增长 | 后台仍在收广播（扫描有效） |
+| 心跳在跑但 `广播累计` 不动 | 进程活着，但**扫描停了** |
+| 冷启动显示「距上次存活 2 小时」 | 被系统**终止**过 |
+| 终止后出现 `willRestoreState` | 被 BLE 事件**唤醒**（恢复机制生效） |
+| 预认证定时器偏差 +270s | 那段时间**被挂起** |
+
+### 五、实测步骤（需真机）
+
+**测试 A：短时后台（5 分钟）**
+
+1. 打开 App，走到车边让它开始扫描（或已连接）
+2. 上滑回桌面（**不要**划掉 App）
+3. 等 5 分钟
+4. 回到 App
+5. 拉日志筛 `保活`
+
+**测试 B：隔夜（验证系统回收 + 唤醒）**
+
+1. 睡前把 App 切后台（不划掉），手机放车上附近
+2. 第二天早上回 App
+3. 看日志里有没有「进程启动 #N，距上次存活 X 小时」
+
+**测试 C：强制退出（对照组）**
+
+1. 上滑**划掉** App
+2. 走近车、拉门把手
+3. 预期：**不响应**（iOS 不会为 BLE 事件重启被用户强制退出的 App）
+
+### 版本
+
+**4.2 / build 42**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 仍无法安装：`CoreDeviceError 4016`。
+> 诊断结果：`CurrentlyAssertableStates: []`，缺
+> `remoteServiceDiscoveryTrustedConnectivityAvailable` + `powerAssertionTaken`，
+> 即**设备必须解锁且屏幕亮着、并已信任此电脑**。
+>
+> 待装：3.6 / 3.7 / 3.8 / 3.9 / 4.0 / 4.1 / 4.2。
+
+---
+
+## v4.1（2026-10-29）—— 修 `resetCentral()` 丢恢复标识 + 后台能力盘点
+
+### 一、修了一个真 bug：重建 manager 时丢了 RestoreIdentifier
+
+```swift
+// 旧
+central = CBCentralManager(delegate: self, queue: .main)
+```
+
+`resetCentral()`（状态卡在 `.unknown` 时的自救路径）重建出来的 manager
+**没有带** `CBCentralManagerOptionRestoreIdentifierKey` —— 也就是说一旦用过这个
+自救，App 就永久失去「系统会在 BLE 事件时唤醒它」的能力，直到下次冷启动。
+
+改为统一引用常量：
+
+```swift
+private static let restoreIdentifier = "com.mmxisme.gkuiblekey.central"
+```
+
+### 二、后台能力盘点（回答「不打开 App 能用吗」）
+
+| 能力 | 后台可用 | 说明 |
+|---|---|---|
+| Siri / 快捷指令 / 控制中心控车 | ✅ | `supportedModes = .background`，元数据 `supportedModes = 1` |
+| 解锁 / 闭锁 / 后备箱 / 寻车 | ✅ | 后台启动进程执行，无界面，约 1–2 秒 |
+| 查车辆状态 | ✅ | 只读广播缓存，不连车 |
+| 无感进入（拉门把手解锁） | ✅ | **车端 PEPS 功能**，开过一次 `0x11` 后车端自己工作 |
+| 预认证保活（29s 循环） | ⚠️ | 见下面三个缺口 |
+| 点火位置标定 | ❌ | 必须前台（要连续 90 次 RSSI 采样） |
+
+### 三、三个真实缺口
+
+**① 后台扫描收不到重复广播**
+
+`scanForPeripherals(..., options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])`
+在后台会被系统忽略：`didDiscover` 只在该设备**第一次**出现时回调一次。
+
+影响：RSSI 滑窗 / 距离判定在后台断流 —— 只影响「App 自己判断远近」，
+不影响控车命令（那条路径是连接后直接发包）。
+
+**② `Task.sleep` 定时器在 App 挂起后停摆**
+
+`PreAuthenticationController.schedule(after:)` 用的是 `Task.sleep`。
+App 进入挂起状态后这个 Task 不会按时醒，29 秒循环实际会停。
+
+**③ `location` 后台模式是空壳**
+
+```swift
+locationManager.allowsBackgroundLocationUpdates = true
+locationManager.pausesLocationUpdatesAutomatically = false
+```
+
+两行都设了，但**从来没有 `startUpdatingLocation()`**，
+也没有 `CLCircularRegion` / `CLLocationManagerDelegate`。
+也就是说声明了后台定位，却没有用它做任何唤醒。
+
+### 四、要补的话，标准做法是地理围栏
+
+```
+记录车辆位置（首次连接时取 GPS）
+  → CLCircularRegion(center: 车, radius: 300~500m) + startMonitoring(for:)
+    → 进入区域：系统唤醒 App（即使已被系统终止）→ 启动扫描 + 预认证
+    → 离开区域：停止，省电
+```
+
+这正是原 App 声明 `location` 后台模式的用途。需要补 `CLLocationManagerDelegate`。
+
+### 五、诚实的边界
+
+- **「不打开 App 控车」**：100% 可靠 ✅
+- **「不打开 App 靠近自动解锁」**：车端负责，可靠 ✅
+- **「不打开 App 也能点火」**：依赖预认证在后台存活，**尽力而为**，无法保证。
+  另外 iOS 一旦用户从多任务里**强制划掉 App**，系统不会因 BLE/定位事件重启它，
+  这条对所有第三方 App 都成立。
+
+### 版本
+
+**4.1 / build 41**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 仍未安装（`CoreDeviceError 4016` 锁屏）。
+> 待装：3.6 / 3.7 / 3.8 / 3.9 / 4.0 / 4.1。
+> 🔴 签名 profile 2026-10-31 过期。
+
+---
+
+## v4.0（2026-10-29）—— 用 `supportedModes = .background` 硬保证「不跳 App」
+
+### 问题
+
+v3.8/v3.9 用的是 `static var openAppWhenRun: Bool { false }`。
+
+**iOS 26 起这个属性已被废弃**，SDK 里明确标注：
+
+```
+@available(iOS, deprecated: 26.0, message: "Please provide 'supportedModes' instead")
+static var openAppWhenRun: Bool { get }
+```
+
+虽然它仍会通过兼容层推导出后台模式，但既然部署目标是 iOS 27，
+继续依赖一个废弃属性来保证「不跳 App」是不该的 —— 一旦兼容层行为变化，
+控制中心点一下就会把 App 拉到前台。
+
+### 改法
+
+6 个 Intent 全部改为：
+
+```swift
+static var supportedModes: IntentModes { .background }
+```
+
+`IntentModes` 是 iOS 26 新增的 OptionSet：
+
+```swift
+public static var background: IntentModes
+public static var foreground: IntentModes
+public static func foreground(_ mode: ForegroundMode) -> IntentModes  // .immediate/.deferred/.dynamic
+```
+
+`.background` = **只允许后台执行**，系统不会把 App 切到前台。
+
+### 已用构建产物验证
+
+`Metadata.appintents/extract.actionsdata` 里 6 个 Intent 全部是：
+
+```json
+"openAppWhenRun": false,
+"supportedModes": 1          // 1 = 仅 .background
+```
+
+（若包含前台模式，这个值会带上 foreground 的位。）
+
+### 澄清一个容易误解的点
+
+`.background` 说的是「**不显示界面**」，不是「不启动进程」。
+
+App 被系统回收后，点控制中心里的快捷指令，系统会：
+1. 静默启动 App 进程（无 UI，不停留在桌面）
+2. 在进程里跑 `perform()` → BLE 连接 + 鉴权
+3. 结束后进程继续按系统策略存活或回收
+
+所以看不到 App 界面，但蓝牙命令是真的执行了。
+
+### 仍然会有的一点点视觉反馈（系统行为，非 App 控制）
+
+- **Siri**：会念一句「已解锁」
+- **控制中心**：可能有一个系统的运行提示浮层，可在
+  「快捷指令 → 该快捷指令 → 详情」里关掉「运行时显示」
+
+### 顺带确认：锁屏也能用
+
+`KeyStore` 写 Keychain 用的是 `kSecAttrAccessibleAfterFirstUnlock`
+（不是 `WhenUnlocked`），所以设备**开机后解锁过一次**之后，
+即使锁屏状态下从控制中心触发也能读到密钥、完成鉴权。
+
+### 版本
+
+**4.0 / build 40**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 仍未安装（`CoreDeviceError 4016` 锁屏）。3.6 / 3.7 / 3.8 / 3.9 / 4.0 待一并安装。
+> 🔴 签名 profile 2026-10-31 过期。
+
+---
+
+## v3.9（2026-10-29）—— 拆出 4 个无参动作，适配「控制中心 / 快捷指令」
+
+### 问题
+
+v3.8 只有一个带参数的 `VehicleControlIntent(action:)`。这在本 App 内部没问题，
+但**快捷指令 App 的动作列表是按 Intent 类型列的**：
+
+- 只会显示一条「控制车辆」
+- 用户每建一个快捷指令，都要再进二级菜单配一次参数
+- 加到控制中心后想换动作，得回快捷指令里重新配
+
+### 改法：每个动作一个无参 Intent
+
+新增 4 个独立动作（`Sources/Intents/VehicleIntents.swift`）：
+
+| Intent | 动作名 | 控制码 |
+|---|---|---|
+| `UnlockVehicleIntent` | 解锁车辆 | `0x02` |
+| `LockVehicleIntent` | 闭锁车辆 | `0x01` |
+| `TrunkVehicleIntent` | 开/关后备箱 | `0x03` |
+| `FindVehicleIntent` | 寻车 | `0x06` |
+
+加上原有的 `VehicleStatusIntent`（车辆状态），快捷指令 App 里会看到 5 条独立动作，
+建快捷指令只要「搜到 → 保存」两步。
+
+`AppShortcutsProvider` 的短语也改为绑到这些无参 Intent 上 ——
+Siri 命中后直接执行，不会在带参 Intent 里追问「哪个动作」。
+
+带参的 `VehicleControlIntent` 保留作为「通用」入口（想用一个动作覆盖全部时用）。
+
+### 注册已验证
+
+构建产物 `Metadata.appintents/extract.actionsdata` 中：
+
+```
+UnlockVehicleIntent ✓  LockVehicleIntent ✓  TrunkVehicleIntent ✓
+FindVehicleIntent ✓    VehicleStatusIntent ✓  VehicleControlIntent ✓
+```
+
+### 怎么加到控制中心（用户操作，App 无法代劳）
+
+1. 「快捷指令」App → 新建 → 搜索 **蓝牙钥匙** → 选「解锁车辆」→ 命名保存
+2. 下拉打开控制中心 → 左上角 **+** → **添加控制**
+3. 搜「快捷指令」→ 添加该控件 → 点它 → 选刚建的那个
+
+> 控制中心里能加的是**快捷指令**（系统自带控件），不是 App 自己的按钮。
+> App 自己的按钮要放控制中心，得做 **Control Widget**（iOS 18+ 的
+> `ControlWidget`），那必须放在 Widget Extension 里 —— 见 v3.8 的评估：
+> 免费个人团队无 App Groups、Xcode 未登录账号生成不了扩展 profile，
+> **当前做不了**。
+
+### 版本
+
+**3.9 / build 39**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 仍未安装（`CoreDeviceError 4016` 锁屏）。3.6 / 3.7 / 3.8 / 3.9 四版待一并安装。
+> 🔴 签名 profile 2026-10-31 过期。
+
+---
+
+## v3.8（2026-10-29）—— 爱称可改 + Siri / 快捷指令 / 操作按钮
+
+### 一、车辆爱称可改
+
+原来两处硬编码（`RootView.swift:27` 与详情页那一行），现在改为
+`@AppStorage("vehicle.nickname")`：
+
+- 主界面车图下方的名字、详情页「车辆爱称」共用同一个键，改完立刻同步
+- 详情页那一行改成可点，弹输入框（保存 / 恢复默认 / 取消）
+- `VehicleProfile.sanitize()` 去首尾空白、按 Character 截断到 12 字、空串回退默认「爱车」
+- **不做多车抽象**：本 App 只服务这一台车，按 cidpu 分键没有意义
+
+### 二、App Intents（Siri / 快捷指令 / 操作按钮）
+
+新增 `Sources/Intents/VehicleIntents.swift`，**不需要新 target、不需要额外 entitlement**。
+
+| Intent | 动作 | 控制码 |
+|---|---|---|
+| `VehicleControlIntent(action:.unlock)` | 解锁 | `0x02` |
+| `VehicleControlIntent(action:.lock)` | 闭锁 | `0x01` |
+| `VehicleControlIntent(action:.trunk)` | 开/关后备箱 | `0x03` |
+| `VehicleControlIntent(action:.find)` | 寻车 | `0x06` |
+| `VehicleStatusIntent` | 查状态（**不连车**，读广播缓存） | — |
+
+`openAppWhenRun = false`：Siri 触发时在**后台**完成
+「扫描 → 连接 → 订阅 → `01/02/03` → 等 `04`」，
+依赖 Info.plist 已有的 `UIBackgroundModes: bluetooth-central`。
+
+### 三、关键前提：AppModel 必须单例
+
+```swift
+public static let shared = AppModel()
+@StateObject private var model = AppModel.shared   // App 入口
+```
+
+**不单例化就会出现两个 `CBCentralManager`**：Intent 在后台 new 一个，
+和 UI 那个同时扫同一台车、抢同一个写特征 → 连接互相打断（表现为「秒断」）。
+
+### 四、Intent 等待结果的机制
+
+`perform()` 是同步触发 + 异步回调，不能直接 `await`。新增：
+
+```swift
+public func runIntentCommand(_ action:, timeout: TimeInterval = 12) async -> Bool
+```
+
+- 内部用 `withCheckedContinuation` 挂起，`resolveIntent(_:)` 在收到 `04`
+  的分支里 resume（`.success/.paired/.acceptedAwaitingNames` → true，其余 false）
+- 12 秒兜底，防止蓝牙不可用时 Siri 无限挂住
+- `intentContinuation != nil` 时直接返回 false —— 不允许两条命令同时在飞
+
+### 五、Siri 短语（免配置，不需要手动建快捷指令）
+
+```
+"用蓝牙钥匙解锁车" / "蓝牙钥匙解锁" / "蓝牙钥匙帮我解锁"
+"用蓝牙钥匙锁车"   / "蓝牙钥匙锁车" / "蓝牙钥匙帮我锁车"
+"用蓝牙钥匙打开后备箱" / "蓝牙钥匙后备箱"
+"用蓝牙钥匙寻车"   / "蓝牙钥匙找车"
+"用蓝牙钥匙查车状态" / "蓝牙钥匙车锁了吗"
+```
+
+`\(.applicationName)` 取 `CFBundleDisplayName` = **蓝牙钥匙**。
+
+⚠️ 每个短语**必须**含 `\(.applicationName)`，否则整组会被系统静默丢弃。
+
+**注册已验证**：构建产物里 `Metadata.appintents/extract.actionsdata`
+含 5 组 `phraseTemplates`，全部带 `${applicationName}`。
+
+### 六、待验证（真机）
+
+- Siri 首次使用会请求授权
+- 系统索引短语需要几分钟（或重启 Siri 触发）
+- 车不在范围时，Siri 会回「操作失败」（4 秒命令超时或 12 秒兜底）
+
+### 版本
+
+**3.8 / build 38**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 仍未安装：`CoreDeviceError 4016`（设备锁屏）。
+> 3.6 / 3.7 / 3.8 三版待一并安装。
+>
+> 🔴 **另外：签名 profile 2026-10-31 过期**（免费个人团队 7 天有效期），
+> 过期后 App 无法启动，必须重新签名安装。
+
+---
+
+## v3.7（2026-10-29）—— 「查询车端名册」不再被禁用 + CIDPU 标注
+
+### 一、「已登记手机」为什么必须手动查询
+
+这一项**不是懒加载，是协议决定的**：它没有任何广播或连接时的自动下发。
+
+依据（反汇编 + 日志双证）：
+
+```
+-[IBVehicle requestPairedDevicesNames] @0xa30c
+  → openConnexionForCommand:0x0D
+    → 走完整鉴权 01 → 02 → 03
+      03 帧末尾 command = 0x0D
+    → 车端回 0x04（受理）+ 0x0F（名册）
+```
+
+`0x0F` 的负载是 **101 字节**：
+
+```
+0F | 5 个 20 字节槽位 = 100 字节
+     非空槽 = 名字 UTF-8 + 0x00 补齐（实测 "iPhone"）
+     空槽   = 全部 0xFF
+```
+
+原 App 25 天日志里 `0x0d` 只出现 **1 次**、`0x0F` 也只出现 **1 次** ——
+说明原 App 同样只在用户主动点「查询」时才发。
+
+**所以「未知（点下方「查询」）」是正确状态**，不是 bug。
+
+### 二、修掉「未连接时按钮变灰点不了」
+
+```swift
+// 旧
+.disabled(!model.ble.isWriteReady)
+```
+
+查询命令要走完整鉴权链，未连接时自然发不出去 —— 但这个 `disabled`
+让用户必须先随便控一次车把链路拉起来才能查询，属于「点了没反应」的同类问题。
+
+改为：只判蓝牙是否可用，其余交给 `AppModel.perform` 自动连接后补发
+（与主界面控车按钮同一套逻辑，v3.4/v3.5 已实现）。
+
+同时：
+- 新增 `MeasuredSession.isQueryingDeviceNames`（`pendingAction == .requestPairedDevices`），
+  查询期间按钮文案显示「正在查询…」
+- **不加 `.disabled`**：`pendingAction` 在「未收到 0x0F 就断开」的路径下可能残留，
+  一旦用它做 disabled 会让按钮永久变灰。重复点只是重发幂等查询，无副作用
+
+### 三、CIDPU 标注改为「后 8 位」
+
+详情页原来写「车辆 ID (CIDPU)」但只显示 `suffix(8)`，容易被当成完整 ID。
+改为「CIDPU（后 8 位）」，与 `KeyStore.cidpuDisplayHex` 的实际行为一致。
+
+### 版本
+
+**3.7 / build 37**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 安装仍被锁屏挡住（`CoreDeviceError 4016`），解锁后补装。
+
+---
+
+## v3.6（2026-10-29）—— 修按钮高亮描边与玻璃边缘错位
+
+### 现象
+
+主按钮（解锁 / 闭锁）的绿色高亮描边与按钮玻璃边缘对不上，
+四个角错位最明显。
+
+### 根因（两个叠加）
+
+**① 圆角风格不同**
+
+```swift
+// 旧代码
+.buttonStyle(.glass)
+.overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(...))
+```
+
+`RoundedRectangle(cornerRadius:)` **默认是 `.circular`（正圆弧）**，
+而 iOS 26+ 的玻璃按钮用的是 **continuous（超椭圆）** 圆角。
+同样 22pt 半径下，两者只在直边中点重合，往四个角走曲率差异越来越大 ——
+这正是「四个角最歪」的原因。
+
+**② `.glass` buttonStyle 在 label frame 内还有一圈 rim**
+
+系统玻璃背景不是严格贴在 label 的 frame 上，而是有内缩。
+描边贴着 frame 画，就浮在玻璃外面，形成一圈「双线」。
+
+### 解法：玻璃和描边共用同一个 shape
+
+不再用 `.buttonStyle(.glass)` 让系统去定形状，改为自绘：
+
+```swift
+let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
+Button { ... } label: {
+    VStack { ... }
+        .frame(maxWidth: .infinity, minHeight: 76)
+        .padding(.vertical, 8)
+        .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: shape)
+        .overlay {
+            shape.strokeBorder(isCurrentState ? tint : .clear, lineWidth: 2)
+        }
+}
+.buttonStyle(.plain)
+```
+
+- `glassEffect(_:in:)` 的 shape 参数与 `strokeBorder` 的 shape 是**同一个变量**，
+  即同一个 path，物理上不可能错开
+- `strokeBorder` 是**向内**描边，不会把描边画到玻璃外面
+- `.interactive()` 保留按压缩放反馈，`.plain` 保留按钮语义
+
+### 附带
+
+- 主按钮的 `minHeight: 76` + `padding(.vertical, 8)` 让玻璃留出呼吸区，
+  高度与原 `.glass` 观感接近
+- 次按钮（关窗 / 开窗 / 寻车）圆角仍由系统 `.glass` 决定；
+  它们没有描边，不存在对齐问题
+
+### 版本
+
+**3.6 / build 36**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 安装仍被锁屏挡住（`CoreDeviceError 4016`），解锁后补装。
+
+---
+
+## v3.5（2026-10-29）—— 控车链路首次跑通 + 缩短「点按钮后的等待」
+
+### 🎉 首次真机成功
+
+2026-10-29 12:39 / 12:40 实机验证：
+
+```
+12:39:47.307  → 01（明文 sd|ed|RndTRx|RND1|rights，RND1=F1 47 5E 28）
+12:39:47.480  ← 02（16B 挑战）
+12:39:47.480  ✅ 挑战自校验通过（D9 79 AB 6C 8A 5A 14 == 同值）
+12:39:47.481  → 03（控制码 0x02 解锁）
+12:39:47.569  ← 04 结果：成功（00）
+12:39:54     车辆状态更新：未锁
+12:40:04     锁车 → 04 00 → 状态更新：已锁
+```
+
+**这意味着整条链路（连接 → 订阅 → 鉴权 → 控车）全部正确。**
+内置钥匙方案成立，`0x01`/`0x03` 算法与车端完全一致。
+
+### 「点指令后断联几秒」的原因
+
+三层原因叠加，**都不是 bug**：
+
+**① 车端主动断开**（主因）
+
+车端在每条命令执行完就释放链路。原 App 日志同样如此：
+
+```text
+17:46:07.107  Data received 22B (0x05)
+17:46:07.208  device is disconnected     ← 0.1 秒后
+```
+
+这是车端设计，我们无法保持长连接。
+
+**② v3.4 加的 15 秒连接冷却**
+
+为防止「连→断→扫→连」死循环，断开后 15 秒内不自动重连。
+
+**③ 点按钮时要等下一次扫描广播**
+
+`AllowDuplicates = YES` 下广播间隔 1–2 秒，拿到 `didDiscover` 才能 `connect`，
+再加连接握手 0.5 秒 + 订阅 0.05 秒。
+
+### 本版优化：直接连已知设备，不等广播
+
+新增 `BLECentral.connectRemembered()`：
+
+```swift
+let p = peripheralCache[id]
+    ?? central.retrievePeripherals(withIdentifiers: [id]).first
+connect(p)      // 不需要扫描
+```
+
+`retrievePeripherals(withIdentifiers:)` **不扫描**就能拿到已绑定外设的
+`CBPeripheral`，拿到即可 `connect`。
+
+`AppModel.perform` 在未连接时优先走这条路径：
+
+```
+点按钮 → connectRemembered() 立即发起连接（~0.5s）
+       → 链路 ready → 自动执行（v3.4 的 pendingActionAfterConnect）
+```
+
+**省掉 1–2 秒的广播等待**，总延迟从 1.5–2.5 秒降到约 0.7 秒。
+
+没有已知设备时（首次使用 / 系统缓存被 LRU 淘汰）自动回退到扫描。
+
+### 顺带
+
+- `RSSI 未标定（calibration/leaveOffset 缺失）` 的警告是准确的：
+  被动进入 / 无感进入依赖标定值，**未标定时不会自动启动**。
+  需要走「开发者 → 点火位置验证 → 开始标定」（手机平放扶手箱，90 次采样）。
+
+### 版本
+
+**3.5 / build 35**，`xcodebuild` **0 error 0 warning**。
+
+> ⚠️ 安装时设备锁屏，`devicectl` 报 `error 4016`，待解锁后补装。
+
+---
+
+## v3.4（2026-10-29）—— 补一个致命 bug + 用真实日志验证算法
+
+本版是第一次**用原 App 的真机报文离线验证鉴权算法**，结论：算法全对，
+但发现一处会让鉴权「必然失败」的长度判断错误。
+
+### 一、致命 bug：`0x02` 挑战长度判断差一个字节
+
+```swift
+// v3.3 及之前（错）
+guard payload.count > 16 else { /* Wrong challenge */ }
+```
+
+`MeasuredFrame.decode` 返回的 `payload` 是 `bytes.dropFirst()`，所以
+17 字节的 `0x02` 帧解出来 `payload.count == 16` → `16 > 16` 为 **false**
+→ 每一帧挑战都被判成 `Wrong challenge（0x278）`，鉴权链直接断在第一步。
+
+反汇编 `responseMessageWithData:` @`0x104b4` 判断的是**整帧**长度
+（`if ([data length] <= 0x10)`，随后取 `[1,16]`），整帧是 17 字节 → 通过。
+
+```swift
+// v3.4（对）
+guard bytes.count > 16 else { /* Wrong challenge */ }
+```
+
+**为什么一直没被发现**：配对走的是 `0x0D → 0x0E`，完全不经过 `0x02`。
+只有真正发 `0x01` 鉴权才会踩到。
+
+### 二、用真实报文验证算法（4/4 通过）
+
+方法：从 `xiaoka_vcc.log` 里取 `01 → 02 → 03` 三元组，反推出当时的 `RND1`，
+再用 `Dk1` 重建 `enc1`，然后做两件事验证：
+
+1. **用 `enc1` 解密真实的 `0x03` 帧**，看明文结构是否成立
+2. **自校验**：`computed == expected`
+
+`0x01` 帧在日志里被截断（声明 33B，NSData 描述只打 16B），
+但段 1 只缺最后 1 字节，用已知的 `sd = 9742355f` 暴力补全 256 种即可复原。
+
+**关键坑**：`Dk1` 在 10-25、10-28 都被重新配对覆盖过，所以必须拿
+**10-28 21:12:48 之后**的会话才有意义。我第一次用了 10-04 的会话配
+10-28 的 `Dk1`，全部失败，差点误判成「算法错了」。
+
+结果：
+
+| 时间（UTC） | 自校验 | 03 明文结构 |
+|---|---|---|
+| 2026-10-28 21:13:02 | ✅ | part9 ✓ / 末字节=cmd ✓ / not(part9[0:6]) ✓ |
+| 2026-10-28 21:13:32 | ✅ | 同上 |
+| 2026-10-28 21:14:02 | ✅ | 同上 |
+| 2026-10-29 06:14:38 | ✅ | 同上（末字节 = 0x02 = 解锁） |
+
+**4/4 全过**。同时证实：
+
+- `RndTRx` 在 `0x01` 明文里位于 `[8:11]`，10-28 之后恒为 `0dc312`
+  **与 Keychain 里存的值一致** → 我们的「从密钥读 RndTRx」是对的
+- `RND1` 在 `[11:15]`，每次随机
+- `buf1` 的切片排列（`rev + rev[1:4] + rev[0:1] + rev[2:4] + rev[0:2] + rev[3:4] + rev[0:3]`）正确
+- `enc1 = AES-CBC(零IV, key=Dk1)` 正确
+- `buf2 = part9 || NOT(part9[0:7])`、`computed = enc2[2:9]` 正确
+- `buf3 = part9 || NOT(part9[0:6]) || command` 正确
+
+### 三、连接冷却（防「连→断→扫→连」死循环）
+
+v3.1 加了扫描常开，而 `didDiscover` 里是「命中本车就无条件 connect」。
+两者叠加：车端执行完命令主动断开 → 重扫 → 扫到立刻又连 → 又断……
+
+原 App 不是这样：日志里「断开 → Stopping scan → Request for connection」
+之间隔 6 秒，且由用户操作触发，**不会扫到就连**。
+
+- 新增 `lastDisconnectAt` + `autoConnectCooldownSeconds = 15`
+- 冷却期内只扫描、不自动重连
+- `forceConnectOnce` 可无视冷却（用户操作时置位）
+- 原有的「3 秒内断开 5 次暂停重扫 30 秒」保留作兜底
+
+### 四、点按钮时未连接 → 自动连接并执行
+
+原来 `perform()` 在 `!ble.isWriteReady` 时只弹提示。现在：
+
+```
+记住动作 → forceConnectOnce（无视冷却）→ 链路 ready 后自动执行
+```
+
+配合「扫描常开」，点一下按钮就能完成「扫到 → 连接 → 订阅 → 鉴权 → 执行」。
+
+### 版本
+
+**3.4 / build 34**，`xcodebuild` **0 error 0 warning**，已安装到 iPhone 17 Pro。
+
+---
+
+## v3.3（2026-10-29）—— 修 v3.2 两个 bug：「显示非内置」与「少三项」
+
+用户反馈：点了「重新应用内置钥匙」，按钮提示成功，但仍显示
+**「当前生效：非内置钥匙」**，且密钥列表**少了三项**。
+
+两个都是 v3.2 的实现错误。
+
+### Bug ① `isActive` 用错了读取方法
+
+```swift
+// v3.2（错）
+KeyStore.shared.getString(.dk1)?.lowercased() == expectedDk1Hex
+```
+
+`getString` 的实现是 `String(data: $0, encoding: .utf8)` —— 拿 **16 字节
+二进制密钥**去做 UTF-8 解码，几乎必然返回 `nil`。所以 `isActive`
+**永远是 false**，无论密钥写没写进去。
+
+```swift
+// v3.3（对）
+guard let d = KeyStore.shared.get(.dk1), !d.isEmpty else { return false }
+return d.map { String(format: "%02x", $0) }.joined() == dk1Hex
+```
+
+### Bug ② 少写了 2 个字段，但界面上表现为「少三项」
+
+v3.2 用 `importBackup(backupString)` 写入，那个 base64 串里只有 9 项。
+而 `KeyStore.Key.allCases` 有 13 项，`KeyInspectorView` 是**全量列出**的，
+所以缺的显示成 `—`。
+
+| 缺的字段 | 是否必需 | 说明 |
+|---|---|---|
+| `communicationKey` | **必需** | `saveKeys` 里它是 `ckTRxSP` 的兼容别名（双写）；缺了 `verifyKeyIntegrity` 直接报「缺少 communicationKey」 |
+| `core` | 否（无代码读） | 原 App 的遗留键，存完整 `0x0E` 帧 62B |
+| `idfv` | 否 | 之前 App 已写过，通常不会缺 |
+
+v3.3 改成**结构化逐项写入**（不再依赖 base64 串），共 11 项：
+
+```swift
+(.dk1, dk1Hex), (.sd, sdHex), (.ed, edHex), (.rndTRx, rndTRxHex),
+(.rights1, rightsHex), (.keyType, keyTypeHex), (.ckTRxSP, ckTRxSPHex),
+(.communicationKey, ckTRxSPHex),      // ← v3.2 漏的
+(.keyTail, cidpuHex),
+// 另加 string 型 pairedCIDPU、二进制 core（合成 62B 0x0E 帧）
+```
+
+`core` 用 `composeKeyFrame()` 合成：
+`0E | Dk1(16) | sd(4) | ed(4) | RndTRx(3) | rights(1) | keyType(1) | CkTRxSP(16) | tail(16)` = **62B**，
+与 `0x0E` 帧布局完全一致。
+
+### 附带修掉的两个隐患
+
+**① 标记改成版本串，让 v3.2 的残留能自愈**
+
+v3.2 写完就把 `UserDefaults` 标记置成 `true`。如果只判 Bool，
+升级到修复版后 `applyIfNeeded()` 会继续跳过 → **缺的字段永远补不上**。
+
+改成存版本串 `"v2"`：
+- v3.2 留下的 `true` → `string(forKey:)` 读成 nil ≠ `"v2"` → 自动重写一次
+- 之后写入 `"v2"` → 不再重复
+- **解绑车辆不会清标记**，解绑后是自己配对，不会被内置钥匙干扰
+
+**② `apply()` 的成功判定改成「读回比对」**
+
+v3.2 是 `n > 0` 就算成功（`importBackup` 的写入条数）。
+现在改成写完 `guard isActive` —— 按钮提示不会再说「成功了」但其实没写进去。
+
+### 界面
+
+「内置钥匙」卡片增加 `字段不全` 橙色标记（`BuiltInKeys.isComplete`），
+一眼能看出 Keychain 里是不是 11 项齐全。
+
+### 版本
+
+**3.3 / build 33**，`xcodebuild` **0 error 0 warning**，已安装到 iPhone 17 Pro。
+
+---
+
+## v3.2（2026-10-29）—— 内置原 App 的有效钥匙
+
+> 前置：加密备份里的 `IBSavedKeys` 已成功解出（方法见
+> `tools/decrypt_keychain.py` 与桌面记录 14.3）。
+
+### 一、内置钥匙 `Sources/Keychain/BuiltInKeys.swift`
+
+把原 App 最后一次配对成功（`cdat = 2026-10-28 13:12:48Z` = 北京 21:12:48）
+拿到的 7 字段 + cidpu + keyTail 内置进 App：
+
+| 字段 | 值（已脱敏） |
+|---|---|
+| `cidpu` | `01918d11…6ac89ad4` |
+| `Dk1` | `3c71e819…c1b077` |
+| `sd` / `ed` | `9742355f`（车端级常量） |
+| `RndTRx` | `0dc312` |
+| `rights` | `f0` |
+| `keyType` | `00` |
+| `CkTRxSP` | `7156d3cd…17466e` |
+
+> ⚠️ **真实值不写进仓库**：从 v4.3 起凭据移到
+> `Resources/builtin-keys.txt`（被 `.gitignore` 排除），
+> 仓库里只保留 `builtin-keys.example.txt` 模板。
+> 原因：`Dk1` / `CkTRxSP` 是车端认可的真实凭据，
+> 一旦提交会永久留在 Git 历史里。
+
+### 二、写入时机
+
+`AppModel.init()` 开头调 `BuiltInKeys.applyIfNeeded()`，成功后
+`measured.reloadKeys()`。
+
+**为什么必须显式 reload**：`measured` 是属性初始化器，
+`MeasuredSession.init()` 里已经读过一次 Keychain
+（`loadKeysFromStore()`）。不 reload 的话 `measured.keys` 还是旧值，
+主界面会继续显示「尚未绑定车辆」。
+
+### 三、只写一次（不会覆盖你以后自己配的钥匙）
+
+`UserDefaults` 标记 `builtInKeys.applied.20261029`。首次启动写入后置位，
+之后不再自动覆盖。
+
+需要重新应用时：**开发者 → 密钥管理 → 内置钥匙 → 重新应用内置钥匙**
+（该按钮不受标记限制，随时可强制覆盖）。
+
+**解绑车辆不清除这个标记** —— 解绑后是干净的无密钥状态，可以直接自己配对；
+想改回内置钥匙就点上面那个按钮。
+
+### 四、这把钥匙解决了什么
+
+本机 Keychain 里原有的是 **2026-10-04** 那把（`Dk1 = 94a1d624…`），
+车端从未真正写入槽位（诊断仪判「配对失败」）。所以：
+
+- `CkTRxSP` 与有效钥匙**相同** → `0x01` 帧能构造、能发出去
+- `Dk1` **不同** → 车端验不过 → 拒绝 → 断链（「连上秒断」的物证）
+
+内置的这把 `Dk1 = 3c71e819…` 是车端确认有效的（原 App 现在能正常控车），
+用它可以把「协议实现是否正确」和「配对环节」彻底分开验证。
+
+### 安全边界
+
+- 这是本车真实凭据，**不要把 App 分发给任何人**
+- **与原 App 是同一把钥匙**，使用时把原 App 彻底划掉，否则两边同时往
+  FF11 写帧，车端收到的字节流会混
+
+### 版本
+
+**3.2 / build 32**，`xcodebuild` **0 error 0 warning**，已安装到 iPhone 17 Pro。
+
+---
+
+## v3.1（2026-10-29）—— 补齐三处流程层差异
+
+> v3.0 把协议层对齐完了，但「流程编排」还有三处没对上。本版补完。
+> 三项依据都是 `Docs/evidence/xiaoka_vcc.log` 的时间序列 + 反汇编。
+
+### 一、扫描常开（影响最大）
+
+原 App 的扫描是**常开**的，不是"用到才扫"：
+
+```text
+17:46:06.988  Start scan
+17:46:07.107  Data received 22B (0x05)
+17:46:07.208  device is disconnected      ← 断开时扫描已经在跑
+17:46:07.311  Stopping scan
+17:46:07.313  Request for connection      ← 车端一广播就 2ms 内连上
+```
+
+我们原来：连接成功即 `stopScan()`，断开后停着不动，只能等
+`autoConnect()`（启动/回前台）或用户手动操作。后果两个：
+
+1. **无感进入的 RSSI 采样断流**（那条链路依赖持续扫描）
+2. 点按钮要等 1–2 秒扫描 + 连接，原 App 是 0.1 秒
+
+现在 `didDisconnectPeripheral` 末尾调用 `resumeScanAfterDisconnect()` 自动重扫。
+
+**防抖**（我们自加的，原 App 没有）：3 秒内断开累计 5 次就暂停 30 秒。
+正常使用（每条命令一次连接、车端执行完主动断开）永远触发不到；
+只有在车端异常疯狂断连时才会生效，避免「连→断→扫→再连」死循环耗电。
+
+手动断开（`disconnect()` / `cancelConnection()`）走 `suppressAutoReconnect`，不受影响。
+
+### 二、配对改成广播驱动
+
+原 App **没有「点绑定」这个动作**：`keys = 0` 时扫到本车广播，
+内部判定 `isUnpairedDevice` 后自动停扫描、连接、发 `0x0D`。
+
+我们原来必须用户点「绑定车辆」才动。
+
+现在 `autoConnect()` 里加：本地 `measured.keys == nil` 且尚未 armed 时，
+自动置 `pairingArmed = true`。连接仍由扫描回调里的**归属校验通过**触发
+（`cryptedID` 用本机 cidpu 验算），不会误连别人的车。
+
+### 三、预认证周期：6.5 秒 → 29 秒（原来快 4.5 倍）
+
+**先纠正一个误读**。`-[IBVehicle didPassiveStartCompletedWithError:]` @`0xb6cc`：
+
+```asm
+0xb710: mov  x20, x0                  ; x20 = self
+0xb7d0: ldr  x1, @selector(setTimeBetweenPassiveStart:)
+0xb7d4: cbz  x20, #0xb7e0             ; self == nil → 29.0
+0xb7d8: fmov d0, #6.5                 ; self != nil → 固定 6.5
+```
+
+`cbz x20` 判的是 **self 是否为 nil**（编译器为 weak self 生成的判空），
+**不是 error**。`6.5` 是固定值，`29.0` 是走不到的占位。
+此前把它读成「成功 6.5 / 失败 29」是错的。
+
+**但日志实测的节奏是 30 秒**（339 次 `0x01` 的间隔分布）：
+
+```text
+29.9s ×110   30.0s ×99   30.1s ×36   30.2s ×17   30.3s ×6 …
+6.4–7.1s 合计只有 ~6 次
+```
+
+说明 6.5 秒之后还有别的门槛（RSSI 滑窗满 10 个值 / 区域判定）把节奏拉到了 30 秒。
+
+我们的实现没有那套前置条件，若按 6.5 秒跑会**比原 App 快 4.5 倍** ——
+而车端在 7 秒内不接受第二次加密重连（2026-10-29 06:14:38 成功、06:14:45 加密超时）。
+
+所以改成统一 `retryInterval = 29.0`（29 秒等待 + 约 1 秒执行 ≈ 实测 30 秒），
+`didComplete()` 去掉 `success` 参数。`disassemblyInterval = 6.5` 保留作记录，不参与调度。
+
+### 版本
+
+**3.1 / build 31**，`xcodebuild` **0 error 0 warning**，已安装到 iPhone 17 Pro。
+
+---
+
+## v3.0（2026-10-29）—— 原 App 日志全量挖掘后的四项落地
+
+> 前置：加密备份解密成功，取出原 App 25 天完整日志
+> （`Docs/evidence/xiaoka_gl.log` 420 KB / `xiaoka_vcc.log` 813 KB）。
+> 以下改动全部由日志 + 反汇编双证支撑，无一条来自推断。
+
+### 一、命令超时改成两档（原来统一 30 秒，是错的）
+
+反汇编 `-[IBManager init]` @`0xed40`：
+
+```asm
+0xed44: mov x9, #0x4010000000000000   ; IEEE-754 double = 4.0
+0xed48: str x9, [x19, x8]             ; _OBJC_IVAR_$_IBManager._commandTimeout
+```
+
+`openConnexionForCommand:` @`0x4a84` 再按命令号分档：
+
+```asm
+0x4a84: cmp  w21, #0x55        ; 配对
+0x4a88: b.ne #0x4b0c           ; 否则取 commandTimeout
+0x4a9c: fmov d0, #30.0         ; 配对 30 秒
+```
+
+日志实证：5 次 `Command failed. Code : 690` 全部约 **4.09 秒**。
+
+- 新增 `AppModel.commandTimeoutSeconds = 4.0` / `pairingTimeoutSeconds = 30.0`
+- 鉴权、控车、无感切换走 4 秒；只有配对 `0x0D` 走 30 秒
+- 失败更快，用户不必干等半分钟
+
+### 二、订阅耗时监控 —— bonding 状态的量化判据
+
+原 App 日志里 344 次订阅的耗时分布：
+
+| 耗时 | 次数 | 含义 |
+|---|---|---|
+| **< 0.3s** | **338** | bonding 已建立，iOS 直接复用 LTK（**中位数 0.056s**） |
+| 5–15s | 5 | 这 5 次正是配对，在等用户输 PASSKEY |
+| 2.95s 后失败 | 1 | `CBATTErrorDomain Code=15 "Encryption is insufficient."` |
+
+`BLECentral` 现在记录「请求订阅 → 订阅回调」的耗时并据此判读：
+
+- `< 0.3s` 成功 → `bonding 已复用，链路已加密`
+- `≥ 0.3s` 成功 → 警告（正常应 <0.3s）
+- `≥ 5s` 成功 → 说明这次刚弹 PASSKEY 建立了 bonding
+- **1–6s 失败** → 直接给出处置建议（车端 LTK 与手机不匹配）
+
+这比 `error.localizedDescription` 可靠：同样的失败，iOS 有时报
+`Encryption is insufficient`，有时报 `Failed to encrypt the connection`。
+
+### 三、配对前置检查 —— 修掉「零响应」的真正原因
+
+日志里 `didFoundVehicleRequestPairing` 出现 **9 次，全部 `keys = 0`**；
+`keys = 1` 时只有 `didShowVehicle`（解析状态），**绝不触发配对**。
+
+反汇编 `-[IBVehicleManager updateVehicleWithDevice:]` @`0xd220`：
+
+```asm
+0xd300: initWithDevice:cidpu:   ; 内部 checkCryptedID: 校验广播归属
+0xd318: cbz x0, #0xd3b8         ; 不是本车 → 丢弃
+0xd320: isUnpairedDevice
+0xd32c: cbz w0, #0xd3b8         ; 已配对 → 丢弃
+0xd368: initWithoutKey          ; 仅未配对时创建"无密钥车辆"
+```
+
+**结论**：`0x0D` 只在「本地无密钥」时才该发。我们之前本地留着上次失败的旧密钥，
+照样发 `0x0D` → 车端不受理 → 零响应 → 30 秒超时。
+
+- `startFullPairing(force:)` 检测到 `measured.keys != nil` 时**主动阻止**并说明原因
+- `PairingView` 弹出说明（含「先去解绑」的路径），不再表现为"点了没反应"
+
+### 四、错误码表补传输层
+
+原 App 日志里只有两种失败码，均来自
+`callDidSendCommandFailedWithMessage:code:` 的透传：
+
+| code | 次数 | 含义 |
+|---|---|---|
+| `690` | 5 | 命令超时（4 秒） |
+| `310` | 1 | 加密超时（`CBError.code 15` 透传）—— 车端 LTK 不匹配 |
+
+新增 `ErrorCodeTable.transportErrors`，`message(for:)` 优先查它。
+
+### 其它已确认无差异的项
+
+- **MTU**：原 App `The MTU is : 182`，来源是
+  `-[VCBTransportProtocolManager sendData:]` @`0xd744` 调用
+  `maximumWriteValueLengthForType:` —— 与本 App 的
+  `p.maximumWriteValueLength(for: .withoutResponse)` 完全一致
+- **命令码表**：`01` lock / `02` unlock / `03` trunk / `04` windowUp /
+  `05` windowDown / `06` panic（寻车）/ `0C` passiveStart（`0x03` 帧的
+  command）/ `0D` requestPairedDevicesNames / `11` enablePassiveEntry /
+  `12` disablePassiveEntry / `55` pairing —— 与本 App 一致
+- **`0x0F` 设备列表**：101 字节 = 1 字节命令 + **5 个 20 字节槽位**
+  （`69 50 68 6f 6e 65 00…` = "iPhone" 补零，空槽 `ff ff ff`）—— 一致
+- **原 App 每条命令都是「连接 → 鉴权 → 执行 → 车端断开」**，单次约 1.2 秒；
+  `0x05` 状态帧到达后 0.2 秒车端主动断开 —— 与本 App 行为一致
+
+### 未确认项（不猜）
+
+- **`0x10` 命令**：25 天日志里只出现 1 次
+  （`2026-10-04 17:46:06`，`03 …10` 18 字节，车端回 `04 00` 成功）。
+  该时段 `gl.log` 已轮转，无法确定用户当时点了什么。语义未知。
+
+### 版本
+
+**3.0 / build 30**，`xcodebuild` **0 error 0 warning**，已安装到 iPhone 17 Pro。
+
+---
+
+## v2.9（2026-10-29）
+
+### 交互审查：修掉「点击无反应」，清理无用入口
+
+#### 1. 8 处静默禁用 → 改为可点击 + 明确提示
+
+原先控车按钮直接 `.disabled(!isWriteReady)`：未连接时按钮变灰、**点了毫无反馈**，
+用户分不清是"没连上"还是"App 坏了"。
+
+| 位置 | 改动 |
+|---|---|
+| 解锁 / 闭锁（主按钮） | 去掉 `.disabled`，未连接时点击弹「车辆尚未连接，指令发不出去…」+「去连接」按钮 |
+| 后备箱 / 关窗 / 开窗 / 寻车 | 同上 |
+| 「开始标定」 | 同上，弹「标定需要连接车辆后才能开始」 |
+| 配对页状态条 | 三种情况分别回应：已绑定 → 提示先解绑；配对中 → 提示确认诊断仪窗口；未绑定 → 重新发起 |
+
+视觉上用 `.opacity(0.55)` 表示「当前不可执行」，但仍可点——**任何一次点击都有回应**。
+
+#### 2. 清理无用入口
+
+| 项 | 处理 | 理由 |
+|---|---|---|
+| 「关于」页 | 删除入口，版本号并入开发者页底部（`2.9 (29)`） | 只显示版本号，多一次跳转无意义 |
+| 「校验密钥完整性」 | 删除入口 | 与诊断页「运行自检」重复；启动时仍会自动校验一次 |
+| 「实时日志浮窗」开关 | **保留** | 排障必需（悬浮实时日志），删了会削弱诊断能力 |
+| 「运行自检」 | **保留** | 诊断页核心工具，认证/时间量向量都靠它 |
+
+`AboutView.swift` 保留但标注「当前无入口」，避免删掉后将来重写。
+
+#### 3. 修掉一处死描述
+
+「密钥管理」副标题原为「检视 / 备份 / 恢复 / **导入**」——**从原 App 导入密钥的功能
+早在 2026-10-25 就移除了**（`KeyInspectorView` 顶部注释明确说明），
+留着"导入"会让人去找不存在的能力。已改为「检视 / 备份 / 恢复」。
+
+### 版本
+- **2.9 / build 29**，`xcodebuild` **0 error 0 warning**
+- 未安装：`devicectl` `error 4016`（设备锁屏）
+
+---
+
+## v2.8（2026-10-29）
+
+### 剩余 6 项缺口全部对齐
+
+| # | 缺口 | 结论 | 动作 |
+|---|---|---|---|
+| 1 | `writeValue` 的 type | **确认 = `withoutResponse`** | 无需改，本来正确 |
+| 2 | 缺 4 个分门「锁」状态 | 确实缺（bit4~bit7） | 补齐 |
+| 3 | 缺出范围状态机 | 确实缺（9 秒） | 补齐 |
+| 4 | 无 peripheral→device 映射 | 语义差异 | 补齐校验 |
+| 5 | 缺 `didRequestWelcome` | **只是 getter（读 ivar），不是功能** | 无需实现 |
+| 6 | 缺 `didNotReceiveDataWithError:` | 由 #3 的 9 秒超时覆盖 | 无需单独实现 |
+
+#### 1. `writeValue` type 确定 = `withoutResponse`
+
+之前的困惑源于参数位置数错了。`-[VCBDevice sendData:]` @`0x99c4`：
+
+```asm
+0x9bf4: bl  objc_msgSend        ; [self writeCharacteristic] → 返回 CBCharacteristic
+0x9c00: mov x23, x0             ; x23 = characteristic（不是 type）
+0x9c04: mov w4, #1              ; ★ x4 = 1 → CBCharacteristicWriteWithoutResponse
+0x9c08: mov x0, x22             ; receiver = peripheral
+0x9c0c: mov x1, x24             ; @selector(writeValue:forCharacteristic:type:)
+0x9c10: mov x2, x27             ; data
+0x9c14: mov x3, x23             ; characteristic
+0x9c18: bl  objc_msgSend
+```
+
+`writeValue:forCharacteristic:type:` 的参数是 **x2=data / x3=characteristic / x4=type**。
+`mov w4, #1` = Write Command。**结论：本 App 的 `.withoutResponse` 正确，无需改动。**
+
+> 说明：此前代码注释里引用过一条「2026-10-04 HCI 抓包」的说法，**该结论已作废**，
+> 现已删除，改以纯反汇编为依据。
+
+#### 2. 分门「锁」状态补齐（`parseDoorsStatus:` 8 位全解析）
+
+反汇编里 `substringWithRange:` 的起始位依次是 `7,6,5,4,3,2,1,0`，
+而 `hexToBinary:` 高位在前 → **第 7 个字符 = bit0**。所以：
+
+| 位 | 字段 |
+|---|---|
+| bit0~bit3 | FL / FR / RL / RR **门关闭**（原有）|
+| bit4~bit7 | FL / FR / RL / RR **门已锁**（本次补）|
+
+对应 `-[IBVehicle isFLDoorLocked]` 等 4 个属性。
+
+#### 3. 出范围机制补齐（9 秒）
+
+`-[VCBDevice resetWithTimeout]` @`0x9fb4`：
+
+```objc
+[self cancelTimeout];
+[self performSelector:@selector(deviceWhentOutOfRange) withObject:nil afterDelay:9.0];  // fmov d0, #9.0
+```
+
+即**每收到一帧就重置 9 秒计时，超时判定设备已远离**，进而触发
+`-[IBVehicle vehicleWentOutOfRange]` @`0xa800`。
+
+实现：`BLECentral.resetRangeTimeout()`（收到数据即重置）+ `isInRange` +
+`onWentOutOfRange` 回调；`AppModel` 收到后调 `preAuth.resetEdge()`。
+断连时 `cancelRangeTimeout()`。
+
+**修复的实际问题**：原先只在「断连」时复位被动进入边沿，
+**「连着但走远」不会复位**，回来时不再触发一次被动进入。
+
+#### 4. peripheral → device 映射校验
+
+原 App 在 `peripheral:didDiscoverCharacteristics...` 开头用
+`sharedManager` + `deviceWithIdentifier:` 找设备，找不到就回调
+`device:didNotReadyToExchangeDataWithError:` 并报
+`"The device is nil. The SDK don't know this peripheral."`
+
+我们是单设备模型，等价校验：**特征发现回调必须来自当前跟踪的外设**，
+否则 `linkState = .failed` 并记日志。
+
+---
+
+## v2.7（2026-10-29）
+
+### 补齐 `[IBVehicle isValid]` 前置校验
+
+**反汇编依据**（`-[IBVehicle isValid]` @`0x9cb4`）：
+
+```objc
+- (BOOL)isValid {
+    if ([IBNSString isNullOrEmpty:self.key])   return NO;
+    if ([IBNSString isNullOrEmpty:self.cidpu]) return NO;
+    return [self.cidpu length] == 0x20;   // 32 个 hex 字符 = 16 字节
+}
+```
+
+其中 `key` 是 `createANewKeyWithCidpu:` 由 cidpu 派生的车辆对象，**不是配对密钥**，
+所以「还没配过」不影响这项校验通过。
+
+**改动**：
+
+| 位置 | 内容 |
+|---|---|
+| `MeasuredSession.isVehicleValid` | 新增计算属性，判定 `cidpuFullHex` 非空且长度 == 32 |
+| `MeasuredSession.buildAuth1()` | 开头加闸；不通过直接返回，日志写明 `Vehicle is not valid` |
+| `AppModel.beginMeasuredAuthPairing()` | 同上（配对走同一条 `openConnexionForCommand:0x55`） |
+
+**为什么要补**：原 App 在 `openConnexionForCommand:` 第一行就查它，不通过则**一帧都不发**。
+我们之前没有这道闸，cidpu 缺失/格式错时会照发帧、然后干等 30 秒超时 ——
+表现为「一律 code 690」，掩盖了真实原因。
+
+### 连接层两处补齐（严格照 Valeo 反汇编）
+
+| 项 | 原 App | 之前 | 现在 |
+|---|---|---|---|
+| FF12 特征角色 | `setReadCharacteristic:` + `setNotifyValue:`（@`0xa8d4`） | 只登记 notify | 补 `readChar` |
+| 置 ready 时机 | 特征发现末尾 `setState:` + `deviceDidReadyToExchangeData:`（@`0xaa88`/`0xaac0`） | 等订阅回调 | 补 `characteristicsReady` |
+
+注意：`characteristicsReady` 只是「可交换数据」的状态标记，**发送时机仍以订阅成功为准**
+（原 App 的 `deviceDidSubscriptionDoneWithSuccess:` → `sendData`），避免打乱已验证的路径。
+
+### 新增 `Docs/BIZ_AUDIT_v2.md`
+
+按 `InBlue` 全部业务方法（IBVehicle 103 / IBDevice 74 / IBManager 22 / IBVehicleManager 18 /
+IBMessageManager 23 / VCLSManager 19 / IBKey 14）逐域对照本 App 实现，输出对齐度矩阵与缺口清单。
+
+**确认的缺口**（6 项）：
+
+1. `writeValue` 的 type 无确定证据（现用 `.withoutResponse`，依据是一条无法核实的注释）
+2. 缺 `device:didNotReceiveDataWithError:`（接收侧超时/失败）
+3. 缺 `isInRange` / `vehicleWentOutOfRange` 出范围状态机
+4. 缺 4 个分门「锁」状态（`isFLDoorLocked` 等）
+5. 缺 `didRequestWelcome`（迎宾）
+6. 无 peripheral → device 映射表（单设备场景无实际差异）
+
+### 版本号修正
+
+v2.5（尝试改 bundle id 为 `cn.com.ecarx.*` 以共享 IDFV）**未产生可用构建**：
+本机只有 explicit App ID 的 profile，Xcode 未登录账号，换包名无法签名。已回滚。
+
+---
+
+## v2.4（2026-10-29）
+
+### 车辆状态加时效标记
+
+**问题**：状态芯片（已锁 / 门关 / 后备箱 / 未启动 / ACC）与 RSSI 同源 ——
+都来自广播解密，都**没有时效标记**。人离开车辆后界面照样稳稳显示「已锁」，
+存在「显示已锁、实际已解锁」的误导风险。
+
+**前提认知修正**：车机广播**不是实时流**。日志实测间隔为
+`10s / 22s / 28s / 31s / 77s`，最长到 **17 分钟**（车静止时系统限流）。
+所以「实时刷新」在物理上做不到，只能做到「最后快照 + 明确告知新鲜度」。
+
+**改动**：
+
+| 位置 | 内容 |
+|---|---|
+| `MeasuredSession` | 新增 `statusUpdatedAt`，在 `updateVehicleStatus` 里刷新，`reset()` 时清空 |
+| `RootView.statusChips` | 芯片下方加一行「X 秒/分钟/小时前更新」 |
+| 过期阈值 | `statusStaleSeconds = 120`；超过则图标换成警告三角、文字变橙「可能已不是当前状态」 |
+| 刷新机制 | `TimelineView(.periodic(by: 1))` 每秒重算，不依赖业务事件 |
+
+### RSSI 有效期修正 10s → 120s
+
+v2.3 把 `rssiStaleSeconds` 设为 10 秒，依据是「车机广播间隔 1–2 秒」——
+**这个假设是错的**。实测间隔最长 17 分钟，10 秒会造成正常扫描中 RSSI 反复消失。
+改为 120 秒：既能清掉「已离开范围」的假值，又不误伤正常的稀疏广播。
+
+---
+
+## v2.3（2026-10-29）
+
+### 修复：RSSI 显示值永久冻结（假信号）
+
+**现象**：人已离开车辆十公里，界面顶部仍稳定显示 `-88 dBm`。
+
+**根因**：`BLECentral` 里只有一处赋值 —— `if hit { rssi = rssiValue }`
+（扫描命中本车广播时）。**从来没有清空逻辑**，所以一旦扫到过一次，
+这个值就永久留在内存里，与当前是否在覆盖范围内完全脱钩。
+
+`RootView` 的注释还写着「RSSI 信号值（连接后显示）」，但实际判断是
+`if let r = model.ble.rssi` —— 只要有值就显示，注释与实现不符。
+
+**物理上不可能**：BLE 普通 1M PHY 空旷约 50–150 米，Coded PHY 也就几百米。
+十公里绝不可能是真实信号，纯属缓存出来的假值。
+
+**修复**：
+
+| 改动 | 内容 |
+|---|---|
+| 新增 `rssiUpdatedAt` | 记录最后一次刷新时刻 |
+| 新增 `rssiStaleSeconds = 10` | 有效期；车机广播间隔通常 1–2s，10s 收不到即视为离开 |
+| 新增 `armRSSIWatchdog()` | 每次收到新值重置看门狗，超时清空 `rssi` / `rssiUpdatedAt` |
+| `stopScan()` 调用 `clearRSSI()` | 停止扫描后立刻清空，不再有来源就不该显示 |
+| `RootView` 注释修正 | 说明「扫描中 + 10 秒内收到过广播」才显示 |
+
+**设计取舍**：连接后不做周期 `readRSSI()`（原 App 同样不做，会干扰 bonding 协商），
+因此连接状态下没有 RSSI 来源，显示值会在 10 秒后自然消失 —— 这比挂一个
+永不更新的假值更诚实。
+
+### 已知同源问题（未修，待确认）
+
+车辆状态（已锁 / 门关 / 后备箱 / 未启动 / ACC）同样来自广播解密，
+且没有时效标记，离开覆盖范围后也是「最后一次收到的状态」。
+理论上存在「显示已锁、实际已解锁」的误导风险，与 RSSI 假值同性质。
+是否加时效标记待定。
+
+---
+
+## v2.2（2026-10-28）
+
+### 补全连接链路日志（关键排障缺口）
+
+真机日志暴露了一个严重盲区：**连接 / 服务发现 / 特征发现 / 订阅这四步
+原先只写界面文案（`lastMessage`），完全没有落盘**。导致配对失败后
+日志里只有「已发 0x0D」和「30s 超时」，看不到中间发生了什么。
+
+新增 `BLECentral.note(_:level:)`，同时更新 `lastMessage` 与日志文件，
+并把下列步骤全部接入（`module = "链路"`）：
+
+| 步骤 | 落盘内容 |
+|---|---|
+| 发起连接 | `正在连接 <name>` |
+| 已连接 | `已连接，发现服务中` |
+| 服务发现 | `已找到目标服务 F000FF10` / 失败原因（含现有 UUID 列表） |
+| 特征发现 | `特征就绪：write=FF11 / notify=FF12，已请求订阅` / 特征不完整 |
+| **订阅回调** | **`链路就绪：订阅成功（Notification updated）= BLE 链路应已加密 / bonding 已建立`** |
+| 订阅失败 | `订阅失败（bonding 未建立）：<error>` |
+| 断连 | `已断开：<reason>` |
+
+**为什么订阅这一行最关键**：它是 BLE bonding（SMP 加密）是否建立的唯一可见证据，
+对应原 App 的 `Notification updated for %@ device.`。原 App 在
+`didSubcriptionFailedWithError:` 分支下**根本不会发 0x0D**；车端也只在加密链路上
+受理业务帧。所以「有没有这一行」直接决定成败归因。
+
+### 真机验证得到的确切失败点（v2.1 实测）
+
+2026-10-28 21:15 在 iPhone 17 Pro + 该车机实测：
+
+```
+21:15:32.238  [配对] 配对请求：sidpu=628f…8d2f92 名=iPhone（6字）→ 共 37 字节
+21:15:32.239  [TX]   → 0D 62 8F 07 31 14 EC 49 C7 80 97 E1 89 CE 8D 2F 92 69 50 68 6F 6E 65 00…
+21:16:44.558  [ERROR] ❌ 命令超时（30s）：Timeout to send command is reached. code 690
+```
+
+**车端零响应**：整段日志里没有任何 `RX` 记录（`← xx`）。
+0x0D 帧结构本身已核对无误（命令码 + sidpu 16B + 设备名 20B = 37B），
+所以排除「帧构造错误」，指向**链路未加密（bonding 未完成）**或
+**车端只在配对模式下受理**。
+
+---
+
+## v2.1（2026-10-25）
+
+### 完整分级日志系统
+
+把原先「单文件 + 单一级别」的 `FileLogger` 重写为分级日志系统（`Docs/LOGGING.md`）：
+
+1. **四级日志**：`debug / info / warning / error`，低于阈值**入队前**丢弃（不拼串、不排队）。
+2. **统一格式**：`时间戳 [级别] [模块] 消息 ctx{k=v}`，error 自动附调用栈（最多 10 帧）。
+3. **级别过滤**：`config.minimumLevel`；运行时可在「日志」页分段控件切换，写入
+   `gkuiblekey.log.level` 持久化。
+4. **轮转与持久化**：`Documents/Logs/gkuiblekey.log` → `.1` → `.2`…，最多 `maxFiles` 份；
+   超 `maxFileBytes`（默认 2MB）轮转，按 `retentionDays`（默认 7 天）每小时清理。
+5. **线程安全**：文件/内存写入单串行队列；`config` 用 `NSLock`；类标 `@unchecked Sendable`，
+   可从任意线程/actor 调用。
+6. **脱敏**：`Dk1/sd/ed/RndTRx/rights/keyType/CkTRxSP` 字段值与敏感上下文 key 掩码为
+   `前4…后4(len=N)`；**裸帧字节不打码**（排障必需且不含长期密钥）。
+7. **兼容**：原 `append(_:tag:)` 保留为 `info(module:)` 别名。
+
+### 调用点分级落地
+- `BLECentral` 的 TX/RX/广播/匹配/状态 → `debug`
+- `CarModelView` 资源加载失败 → `warning`
+- `MeasuredSession` / `InBluePairing` 的日志按内容自动分级（`❌`→error、`⚠️`→warning、其余→info）
+
+### UI
+- 「日志」页新增 **落盘级别** 分段控件（即时生效 + 持久化）
+- 新增 **导出** 按钮（`ShareLink`，拼接全部轮转文件）
+
+### 验证
+- `xcodebuild build`：**0 error / 0 warning**
+- 版本号 2.0→2.1；构建号 20→21
+
+---
+
+## v2.0（2026-10-25）
+
+### 逻辑一致性全量修复（14 处全部按原 App 对齐）
+
+依据 `Docs/LOGIC_DIFF_AUDIT.md` 发现的 14 处不一致，逐项按反汇编行为修复。
+
+#### 高影响
+1. **补 30 秒命令超时**（`startCommandTimeout`）
+   反汇编 `openConnexionForCommand:` @`0x4988` 的 `scheduledTimerWithTimeInterval:30.0`；
+   超时走 `closeConnexionForCommand` @`0x62dc` 的 `didNeedReconnect == NO` 分支
+   （全库无 `setDidNeedReconnect:YES`）——**只回报 `Timeout to send command is reached.`
+   （code 690），不断开、不重连**。同时删除此前自创的「鉴权1 2.5s 提示」。
+2. **补消息序号单调状态机 + 命令白名单**（`lastPacket` / `resetPacketCounter`）
+   照 `analyzeMessage:` @`0xfc64`：非白名单命令或 `cmd ≤ lastPacket` 一律判
+   `Protocol failed`（code 0x2BB）；每轮命令前清零。
+3. **补 `02` 挑战长度校验**
+   照 `responseMessageWithData:` @`0x104b4`：`payload.count ≤ 16` 直接判
+   `Wrong challenge`（code 0x278），不再进入响应计算。
+
+#### 中影响
+4. **`0x0E` 补配对成功语义**：新增 `ActionResult.paired`，`saveKeysData` 后 `phase = .verified`
+   （对应 `callDidPairingSuccess` @`0x6d6c`）。
+5. **`reset()` 拆分为 `resetCommandOnly()`**：配对收尾只清命令态，保留刚收到的密钥帧/车辆状态
+   （原 App `resetCommandTimeout` @`0x64f4` 只 invalidate 定时器）。
+6. **去掉退避自动重连**：VCB `didDisconnectPeripheral` @`0x69fc` 只 `setState:0` + 回调，
+   **无任何 connect 重试**；重连交给上层 `autoConnect()`。
+7. **`0x0F` 标记动作成功**（对应 `parseDeviceNames:` → `callDidSendCommandSuccess`）。
+
+#### 低影响
+8. `04` 失败码统一为原 App 的 `0x2BB`（699），`ActionResult.refused` 改 `UInt16`
+9. 未知命令按 `default: callDidSendCommandFailed("Invalid Message type", 699)` 处理
+10. `connect` 增加 `state != .disconnected` 前置检查（`VCBDevice connect` @`0x8de4`）
+11. `didDiscoverServices` 严格要求 `F000FF10`，去掉「第一个服务」兜底
+12. `didDiscoverCharacteristics` 补 `error` 检查
+13. 订阅成功沿用 Combine，但语义对齐 `deviceDidSubscriptionDoneWithSuccess:`
+14. `IBCommand` 补 `0x00`（白名单 `0x4007` 含 bit0）
+
+#### 顺带清理
+- 删除死代码：`reconnectAttempt`、`maxReconnectAttempts`（重连循环移除后无引用）
+
+### 验证
+- `xcodebuild build`：**0 error / 0 warning**，BUILD SUCCEEDED
+- 版本号 1.9→2.0；构建号 19→20
+
+---
+
+## v1.9（2026-10-25）
+
+### 分包与 Keychain 格式对齐原 App + 全量协议规格文档
+
+对 `InBlue` / `ValeoCoreCommunication` 做了系统反汇编，覆盖 10 类运行时数据的
+**格式与实现**（帧/广播/连接时序/Bonding/业务方法/Keychain/UserDefaults/RSSI/日志/网络），
+并据此补两处实现：
+
+1. **写入分包（真实缺陷修复）**
+   原先 `BLECentral.send()` 整帧直发、不分包。反汇编
+   `-[VCBTransportProtocolManager splitData:withMTU:]` @`0xdcac` 显示原 App 必定分包：
+   - 包数 = `ceil((len + 4) / mtu)`
+   - **每包数据量 = MTU − 4**（`sub x8,x20,#4`）
+   - 首包前置 **4 字节头 = 包数（小端 uint32）**
+   现改为：`len ≤ MTU−4` 时保持整帧直发（实测 MTU=182，已验证车端可正常回 0x0E，
+   不引入额外字节）；`len > MTU−4` 时按上述规则分包并打日志。
+
+2. **Keychain 对齐 `IBSavedKeys`（双写）**
+   反汇编 `-[VCLSManager saveKeysData:]` @`0x12660` 末尾调用
+   `storeDictionary:toKeychainWithKey:@"IBSavedKeys"`；`+[IBKeyChainManager storeDictionary:toKeychainWithKey:]`
+   @`0x131b4` 的实现是 **`NSKeyedArchiver` 归档整个字典 → 先 delete 再 `SecItemAdd`**。
+   新增 `KeyStore.setIBSavedKeysArchive(_:)` / `getIBSavedKeysArchive()`，
+   在 `saveKeyData` 里**双写**：保留原有「一字段一项」主存储，同时写一份与原 App
+   完全同构的 `IBSavedKeys` 归档（结构 `{ <cidpu32hex> : {7 个 hex 字符串字段} }`）。
+
+3. **新增 `Docs/INBLUE_PROTOCOL_SPEC.md`**
+   10 类数据的反汇编权威规格（含全部偏移/常量/时序/日志判据），作为后续实现与排障的唯一依据。
+
+### 本轮反汇编的关键纠正
+- **配对命令是 `0x55`**，`0x0D` 只是 `pairingMessage` 的 payload 首字节；两者不是一回事。
+- **`0x55` 配对明确跳过 cidpu 检查**（`formatCommand:toDevice:` @`0xfb48` 的
+  `cmp w21,#0x55 ; b.eq`），只有非 0x55 命令才会报 `CIDPU is nil.`（0x276）。
+- **`-[IBDevice disconnect]` @`0x6588` 名不副实**：只做 `resetCommandTimeout + startScan`，
+  **不断开 BLE**；配对成功后不回任何帧。
+- **`isValidCodeString:` @`0x125cc` 是死代码**（InBlue 内无任何 selref 引用，主 App 也无相关字符串）；
+  用户所说的「6 位配对码」= **iOS 系统级 BLE SMP Passkey 弹窗**，App 代码不参与。
+- 原 App 日志统计：`didFoundVehicleRequestPairing`=1、`Pairing failed`=1（Code 690 超时）、
+  `Pairing success`=0、`Key received`=0 —— **原 App 在该车机上从未配对成功过**，
+  因此没有成功样本可参照，排障须以 `vcc.log` 的 bonding/Key received 判据为准。
+
+### 验证
+- `xcodebuild build`：**0 error / 0 warning**，BUILD SUCCEEDED
+- 版本号 1.8→1.9；构建号 18→19
+
+---
+
+## v1.8（2026-10-25）
+
+### 修复配对连接竞态（深挖原 App 配对流程后的反汇编对齐）
+
+深挖原 App 配对全链路（`startPairing` → `openConnexionForCommand:0x55` → `connect` →
+`deviceDidConnectedWithSuccess` → `subscriptionToNotification` → `setNotifyValue` 触发 6 位码
+→ `deviceDidSubscriptionDoneWithSuccess` → `sendData` 发 0D → 收 0E），确认**配对帧字节级正确**，
+同时发现并修复两处真实的连接竞态：
+
+1. **`didDisconnectPeripheral` 的 linkState 覆盖竞态** —— `startFullPairing` 会
+   `cancelConnection` 旧连接后立即 `startScan → connect` 新连接，旧连接的**异步**断开回调
+   可能在新连接建立后才触发，把新连接的 `.scanning/.discovering/.ready` 覆盖成 `.disconnected`，
+   破坏「首次连接 → 触发 6 位码配对」时序（表现为首次不弹码、要退出重进才弹）。
+   修复：`didDisconnectPeripheral` 只处理「当前连接」（`peripheral === self.peripheral`）的断开。
+2. **`suppressAutoReconnect` 残留** —— 旧连接断开回调被忽略后该标志残留，会抑制「配对成功后
+   车端断开」的自动重连。修复：`prepareForPairingScan` 里复位该标志。
+
+### 反汇编关键发现（记录备查）
+
+- `VCBDevice.connect` @0x8de4 要求 `state == 0`（断开态）才连接，否则报「The device is not
+  disconnected」——印证「配对前必须确保旧连接已断开」。
+- `deviceDidSubscriptionDoneWithSuccess` @0x6138 = 取 `messageTosend` → `sendData`，证明
+  **发 0D 严格在 6 位码 bonding 完成（订阅成功）之后**。
+- 配对成功后 `disconnect` @0x6588 = `resetCommandTimeout + startScan`，**不断开 BLE**；
+  `didNeedReconnect` 机制在「配对后第一次控车」时触发断开重连。
+
+---
+
+## v1.7（2026-10-25）
+
+### 冗余代码清理（对齐原 App 核心逻辑）
+
+删除不属于原 App 核心逻辑的遗留/调试/废弃代码，共移除 1 个文件、净减约 224 行：
+
+1. **`TboxBroadcastCode.swift`（整个文件）** —— 废弃的 Tbox 广播码解析模块；其产出的
+   `broadcastRandom` 已确认不参与 `01` 帧（`01` 帧是 AES 两段结构，不含该字段）。
+2. **`debugTboxBroadcastCode` 调试开关 + `broadcastCode`/`broadcastCodeRandom`/`onBroadcastCode`**
+   —— Tbox 解析结果与回调，均已从主链路移除。
+3. **`svcDataPairs`（Service 数据解析）+ Service 数据日志** —— 仅用于「Tbox 广播码补齐」的
+   遗留假设；Service 数据在 Valeo 数字钥匙里无用（匹配与解密都走厂商数据）。
+4. **`MeasuredSession.broadcastRandom` + `updateBroadcastRandom`** —— 广播随机数兼容字段，
+   注释已自认「不参与 01 帧」。
+5. **`lastManufacturerData`** —— 只写不读的冗余字段（广播解密实际用 `adv.broadcastData`）。
+6. **`onRawData` + `handleRawData`** —— 「裸数据」重复回调：`onFrame` 已无条件回调所有接收
+   字节、`didUpdateValueFor` 也已记录 RX 日志；其历史用途（喂 01 帧广播随机数）已被推翻。
+7. **`mobileID()` / `isPaired` / `authKey` / `idKey` / `identityKey`** —— GLBLEAuthSDK
+   国密版遗留（主 App 未调用，InBlue 密钥体系不用这些键）。
+8. **`ConnectTiming` 时序埋点**（结构体 + `timing` 属性 + DiagnosticsView 时序 section）——
+   为诊断「点很多次才打着火」临时加的调试埋点，不属于原 App 逻辑。
+9. **`maxWriteLength`** —— 记录了 MTU 上限但 `send()` 从未用它分包（帧最大 37B，iOS 自动
+   协商 MTU 到 185B+），是「预留但没实现」的冗余。
+
+### 结果
+
+typecheck 0 error 0 warning；BUILD SUCCEEDED。
+
+---
+
+## v1.6（2026-10-25）
+
+### ★ 配对根因修复（诊断仪「配对手机蓝牙钥匙失败」+ 手动点才弹 6 位码）
+
+两个根因，都已定位并修复：
+
+**根因 1：扫描竞态 → 不自动连接 → 要手动点才弹 6 位码**
+
+- `startFullPairing` 里 `cancelConnection`（断开旧连接）是**异步**的，它的
+  `didDisconnectPeripheral` 回调把 `linkState` 从 `.scanning` 覆盖成 `.disconnected`，
+  导致 `didDiscover` 里 `linkState == .scanning` 判断永远失败 → 扫描到了设备却不自动连接。
+- 修复：`didDiscover` 去掉 `linkState == .scanning` 条件，配对等待中无条件连第一个发现的设备。
+
+**根因 2：连接后 readRSSI 轮询干扰 6 位码协商 → 诊断仪判失败**
+
+- 反汇编证据：原 App `didConnectPeripheral` @0x640c 连接成功后**直接 `discoverServices`，
+  从不 readRSSI**（`nm`/`strings` 证实 InBlue / ValeoCoreCommunication 里完全没有 readRSSI，
+  readRSSI 只在主 App 层的 `readRSSITimer`）。6 位码配对（Passkey Entry）期间，周期 readRSSI
+  会干扰 iOS 与车端的协商 → 诊断仪「配对失败」。
+- 修复：**彻底移除**连接后的 readRSSI 轮询（`startRSSIPolling` / `stopRSSIPolling` /
+  `rssiTask` / `didReadRSSI`），`rssi` 改为从广播回调更新；同时删除已无用的
+  `quietMode` / `pendingPairingReconnect` / `exitQuietMode` / `scheduleQuietModeExit`。
+
+---
+
+## v1.5（2026-10-25）
+
+### ★ 配对闭环补全：配对成功后断开重连（诊断仪判失败根因）
+
+- 反汇编发现：`callDidPairingSuccess` @0x6d6c 末尾调用 `disconnect` @0x6588
+  （`resetCommandTimeout` + 断开 + `startScan` 重扫）。
+  **断开是车端判定「配对完成」的关键信号**——之前 App 收到 0x0E 就停住，
+  没断开，车端一直等待 → 诊断仪超时判「配对失败」。
+- 修复：收到 0x0E 保存密钥后，`finishPairingWithReconnect()` 断开 + 0.5s 后重扫，
+  用新密钥重连完成「配对 → 验证新密钥」闭环。
+
+---
+
+## v1.4（2026-10-25）
+
+### ★ 配对根因修复（重大）
+
+- **纠正配对流程**：原 App 配对**不是**「01→02→03 鉴权链」，而是**直发 0x0D 登记帧**
+  → 等车端回 0x0E 密钥，**没有挑战-响应**。
+- 反汇编 `+[IBMessageFactory pairingMessage]` @0x13afc 还原真实格式：
+  `0x0D + sidpu(16B 常量 628f073114ec49c78097e189ce8d2f92) + 设备名(20B UTF8+零填充)` = 37B
+- 修正 `InBluePairing.buildPairingMessage`（此前用「15B 随机 nonce + 字符数」，错误）
+- 修正 `beginMeasuredAuthPairing`（此前发 01 全零占位鉴权帧 → 03 自校验必失败；
+  现改为直发 0x0D 登记帧）
+- **清理旧错误路线死代码**：`preparePairing`、`isPairing` 属性、
+  `buildAuth1`/`buildAuth3` 的 isPairing 分支、`buildPairingFirstMessage`
+- 新增 `Docs/PAIRING_CLOSURE.md`：配对流程权威闭环（反汇编逐行还原）
+
+---
+
+## v1.3（2026-10-25）
+
+### 浮窗触摸穿透修复
+
+- 根因：全屏透明 `Color.clear` 容器导致 `hitTest` 命中 hosting 根视图而非窗口自身，
+  透明区无法穿透，除浮窗外所有触摸被拦截
+- 修复：去掉全屏透明容器，`hosting.view` 直接定位为顶部 300×260 固定区域，
+  窗口其余透明区 `hitTest` 命中窗口自身 → 穿透
+- 折叠时浮窗框保持固定高度（日志区隐藏、留半透明占位），避免 hosting 高度变化
+  导致的触摸区域错乱
+
+---
+
+## v1.2（2026-10-25）
+
+### 浮窗位置修正
+
+- 去除 `.ignoresSafeArea()`，浮窗自动避开顶部安全区（刘海/灵动岛）
+- 改用 `.topLeading` 对齐 + 宽度收窄到 300，靠左放置，避免遮挡右上角菜单按钮
+
+---
+
+## v1.1（2026-10-25）
+
+### 实时日志浮窗：改为固定位置
+
+- **移除拖动**：拖动与折叠手势冲突、且易拖出屏幕，改为固定顶部居中
+- **触摸穿透修正**：透明区用 `.allowsHitTesting(false)`，`FloatingWindow.hitTest` 简化为
+  「命中窗口自身才穿透」，避免之前 root view 判断失效导致的触摸拦截问题
+- 保留折叠功能（点击标题栏折叠/展开）与自动滚动
+
+---
+
+## v1.0（2026-10-25）
+
+### 低优先级问题集中修复 + 死代码清理
+
+**修复：**
+- `discoverCount` 重复自增（诊断指标虚高）
+- Gen02 `antennaNumber` 恒 nil（`setAntennaGen2WithData` 也是取 `raw[3]`，修正 antenna 解析）
+- `deleteVehicle` 复位不完整（补清 rememberedPeripheralID、锁定态、pendingAction 等）
+- 浮窗拖动无边界（加 clamp 到屏幕内，用 GeometryReader 避免 UIScreen.main 弃用）
+- 配对页进度圈与「可点击重试」矛盾（isWorking 改为 pairingArmed || isWriteReady）
+- KeyInspectorView 用 `.id(refreshTick)` 整页重建丢焦点（改为只重建密钥列表）
+
+**死代码清理（本项目自造、零引用）：**
+- `AppModel.settle(_:)`、`AppInfo.fullVersion`
+- `CryptoBox` 的 `sha256(Data)`/`hmacSHA256(Data:)` 重载、`AESMode.ecbPKCS7`、`CryptoError.badKeyLength/notImplemented`
+- `KeyStore.setUInt32/getUInt32`（getUInt32 还有未对齐 load 隐患）
+- `FileLogger.path/readAll/clear`
+- `InBlueAuth.firstFrameLength/responseFrameLength`、`PlainOrder` 枚举
+- `MeasuredSession.byteCount`、`MeasuredFrame.encode`
+- `ProtocolConstants.isUserAction/symbolName`
+- `TboxBroadcastCode.describeCandidates`
+
+**过时注释修正：**
+- `CryptoBox.randomBytes`（arc4random → UInt8.random）
+- `MeasuredSession.hexDescription`（19 字节 → 载荷不含命令号）
+- `InBlueAuth` 顺序注释（PlainOrder 引用 → 反汇编栈布局）
+
+---
+
+## v0.9（2026-10-25）
+
+### 全面代码审查后修复的实质 bug
+
+- **点火位置验证 29s 门控错误**：`PassiveStart.check` 误用 `timeBetweenPassiveStart`
+  （预认证命令重发间隔）当采样节流，导致区域判定最多 29s 才刷新、密集采样求均值
+  分支永远不可达。已删除该门控（反汇编 `checkRssiForPassiveStart` 无此层）。
+- **手动断开仍自动重连**：`disconnect`/`cancelConnection` 未抑制 `autoReconnect`，
+  导致点「断开」/「解绑」/「配对重置」后链路被立即重连回来。新增 `suppressAutoReconnect`
+  标志，并在 `didDisconnectPeripheral` 里消费。
+- **Keychain 覆盖写入失败**：`KeyStore.set` 的 `SecItemDelete`/`SecItemUpdate` 缺
+  `kSecAttrSynchronizableAny`，导致旧的非同步项删不掉/更新不了，覆盖写密钥会失败。
+  已补上，并修正重连 Task 用入参而非 `self.peripheral` 的问题。
+- **无感进入切换被拒卡死**：`settlePassiveEntryToggle` 依赖 `lastSucceededAction`
+  （仅成功时设置），被车端拒绝时 `passiveEntrySwitching` 卡住、开关一直转圈。
+  改用 `pendingPassiveEntryValue != nil` 判断。
+- **配对日志不刷新**：`objectWillChange` 只转发 `measured`，补转发 `pairing`/`preAuth`。
+- **浮窗内存泄漏**：`FloatingWindowController.hide` 置 nil 但 UIWindowScene 强持有窗口，
+  反复开关累积隐藏窗口。改为复用单例窗口、仅切换 `isHidden`。
+
+### 清理过时/自相矛盾注释
+
+- `handlePairingFrame` 双段矛盾注释、`didConnect` 的 quietMode 矛盾注释。
+
+### 新增文档
+
+- `Docs/CODE_AUDIT.md`：全源码审查报告（死代码清单 + 逻辑问题 + 注释问题）。
+
+---
+
+## v0.8（2026-10-25）
+
+### 实时日志浮窗：改为全局悬浮 + 真半透明
+
+- **悬浮在所有界面之上**：改用独立 `UIWindow`（`windowLevel = alert + 1`）承载，
+  覆盖 sheet/导航等所有界面（此前放 RootView overlay 会被 sheet 盖住）
+- **真半透明**：背景改为深色 `black.opacity(0.62)`，非毛玻璃；文字用亮色
+- 触摸穿透：浮窗矩形外区域 `hitTest` 返回 nil，不挡下层操作
+- 新增 `FloatingWindowController`（@MainActor 单例 + 自定义 FloatingWindow）
+
+---
+
+## v0.7（2026-10-25）
+
+### 新增：实时日志浮窗
+
+- 主页面悬浮显示实时日志（最近 200 行），半透明毛玻璃材质，可拖动、可折叠
+- 开发者菜单「调试」区加开关，UserDefaults 持久化
+- 日志按类型着色：发送（→）青色 / 接收（←）绿色 / 错误（❌）红色 / 警告（⚠️）橙色
+- `FileLogger` 新增内存环形缓冲区 + `onNewLine` 回调，`AppModel.liveLogLines` 驱动浮窗
+- 自动滚动到底部，始终显示最新日志
+
+---
+
+## v0.6（2026-10-25）
+
+### 修复：后台蓝牙权限补全（靠近解锁）
+
+- **补 `UIBackgroundModes: location`**：原 App 声明了 `bluetooth-central` + `location` +
+  `audio` + `fetch` + `remote-notification`，本 App 此前只有 `bluetooth-central`，
+  缺 `location` 后台模式导致 App 退后台后无法扫描发现靠近的车。
+- **定位权限升级支持**：`requestLocationPermission` 增加 WhenInUse → Always 升级；
+  init 里设置 `allowsBackgroundLocationUpdates = true` + `pausesLocationUpdatesAutomatically = false`。
+- 说明：state restoration（`RestoreIdentifier` + `willRestoreState`）此前已实现，
+  本次补齐的是「后台主动扫描」所需的后台定位能力。
+
+---
+
+## v0.5（2026-10-25）
+
+### 新增：标定流程（点火位置验证可用化）
+
+- **逆向还原标定链路**（纠正「标定值车端下发」的误判）：
+  - 标定值是 App 本地用双天线 RSSI 采样算的，非车端下发
+  - `startCalibration` → `openConnexionForCommand:0x0D` 触发
+  - `addRSSI:` @0x801c：按广播 antenna 字段高 4 位分路（0x80=天线1/0x40=天线2）
+  - `averageForCalibration` = `10×√((rssi1/10)²+(rssi2/10)²)`
+  - 采满 90 次 → `averageOfRSSIArray`（∑/count）→ 写 `<cidpu>_CALIBRATION`
+- 实现：
+  - `ValeoAdvMatch.Advertisement.antennaNumber`（高 4 位解析天线编号）
+  - `PassiveStartJudge` 标定状态机（startCalibration/addCalibrationSample/cancelCalibration）
+  - `BLECentral.onDualRSSI`（广播回调分路 RSSI）
+  - `AppModel.handleDualRSSI` / `startCalibration` / `finishCalibration`
+  - 点火位置验证页加「开始标定」按钮 + 进度条
+
+### 说明
+
+- 标定是本地纯算法，无新车端协议；`antenna` 高 4 位语义已反汇编确定
+- 需真机验证 antenna 字段随天线切换的实际行为
+
+### 补充
+
+- 新增「解绑车辆」：`AppModel.deleteVehicle`（清密钥 + 清标定 + 复位，对应 `deleteVehicleWithCidpu:`）
+- 新增 `Docs/FUNCTION_AUDIT.md`：原 App 全功能盘点与实现状态（诚实版）
+
+---
+
+## v0.4（2026-10-25）
+
+### 移除
+
+- **移除「手动导入（从原 App 导出）」**：iOS 原版 XiaoKa 没有任何导出密钥的界面，
+  密钥无法从原 App 迁移，该功能前提不成立（此前误判可以）。同时降低误写入错误
+  密钥污染 Keychain 的风险。
+- `auth.key` 等原 App 遗留键名仍保留在 Keychain 枚举中（兼容展示），但 InBlue
+  链路不使用（GLBLEAuthSDK 的 SM4 五步协议才用，主 App 未调用该 framework）。
+
+### 保留
+
+- 「备份 / 恢复」功能不变：导出/导入的是**本 App 自己的**密钥（升级/换机兜底）。
+
+---
+
+## v0.3（2026-10-25）
+
+### 配对流程关键修复（真车实测发现）
+
+- **修复配对后秒断、密钥不存的根因**：配对 01 帧占位 RND1 错位 2 字节。
+  - 原 App `stringToData:` 每 2 字符 `strtoul`，nil 字段 `"(null)"`(6 字符) = 3 个 `0x00`（非 4 个）
+  - 真实占位布局：`9 零 + RND1@[9,13) + 3 零`（旧代码错写成 RND1@[11,15)）
+  - 导致 enc1 派生错误 → 03 帧自校验失败 → 车端拒绝并断连
+- **修复绑定页收不到配对**：配对兜底自动连接条件过严（要求广播名非空且排在 hit 判定后），
+  配对模式下车端广播名空/无 EE01 魔数时永远不自动连。改为配对等待中无条件连第一个设备。
+- **修复 `startFullPairing` 分叉漏判**：统一走确定性路径
+  `stopScan → cancel → prepareForPairingScan → startScan`。
+- **修复配对页状态条「点击」无反应**：死文案未绑动作，加 `onTapGesture` 重试。
+- **修复主页不显示「已绑定」**：`measured` 非 `@Published`，UI 不刷新。
+  改为订阅 `measured.objectWillChange` 转发到 AppModel。
+
+### 功能新增
+
+- 无感进入（Passive Entry）开关：`enablePassiveEntry`(0x11)/`disablePassiveEntry`(0x12)，
+  主界面开关卡片，状态持久化按 cidpu 区分。
+- 关于页面：版本号、车型、项目说明。
+- 版本号展示：开发者菜单「关于」入口。
+
+### 语义纠正
+
+- 无感进入语义纠正为「靠近车辆拉门把手解锁」单方向，删除无证据的「远离闭锁」。
+
+---
+
+## v0.2（2026-10-25）
+
+- 版本号起步 0.1 → 0.2，建立 0.1 步进约定。
+- 引入版本号读取工具 `AppInfo`。
+- 修正两处过时注释（CIDPU 长度 16B、AES 模式 CBC 无 padding）。
+
+---
+
+## v0.1（2026-10-24 及更早）
+
+- 初始版本：完整还原原 App InBlue 协议栈（配对、鉴权、控车、广播、车辆状态）。
+- 见 `Docs/CLOSURE_FINAL.md`、`Docs/PAIRING_REFACTOR.md` 等历史文档。

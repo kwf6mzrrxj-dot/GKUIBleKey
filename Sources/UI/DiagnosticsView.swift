@@ -18,7 +18,6 @@ struct DiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     bleStatusSection
                     selfTestSection
-                    timingSection
                     streamSection
                     logSection
                     linkParamsSection
@@ -101,37 +100,6 @@ struct DiagnosticsView: View {
                         .font(.caption2).foregroundStyle(.cyan.opacity(0.8))
                 }
             }
-        }
-    }
-
-    // MARK: - 时序
-
-    private var timingSection: some View {
-        card("连接时序（关键）") {
-            let t = model.ble.timing
-            VStack(alignment: .leading, spacing: 6) {
-                row("connect → didConnect", t.connectDuration)
-                row("didConnect → 服务发现", t.serviceDiscoveryDuration)
-                row("服务发现 → 特征发现", t.characteristicDiscoveryDuration)
-                row("特征发现 → 订阅完成", t.subscribeDuration)
-                Divider()
-                row("★ 链路就绪总计", t.linkReadyDuration, highlight: true)
-                Text("红线：链路就绪应远小于 2000ms。超过约 1500ms 时，2 秒窗口会被挤压，"
-                     + "车端将回 0x6f00（2s 内未发送确认码），从而出现「点很多次才成功」。")
-                    .font(.caption2)
-                    .foregroundStyle(.orange.opacity(0.9))
-                    .padding(.top, 4)
-            }
-        }
-    }
-
-    private func row(_ title: String, _ v: TimeInterval?, highlight: Bool = false) -> some View {
-        HStack {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Text(v.map { String(format: "%.0f ms", $0 * 1000) } ?? "—")
-                .font(.caption.monospacedDigit().weight(highlight ? .bold : .regular))
-                .foregroundStyle(highlight ? Color.cyan : Color.primary)
         }
     }
 

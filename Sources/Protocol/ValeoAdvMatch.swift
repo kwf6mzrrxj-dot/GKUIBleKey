@@ -78,6 +78,29 @@ public enum ValeoAdvMatch {
         public var oemID: UInt8?
 
         public var genLabel: String { gen == .gen02 ? "Gen02" : "Gen03" }
+
+        /// ★ 天线编号（1 或 2）—— 从 `antenna` 字段高 4 位解析。
+        ///
+        /// 反汇编 `VCBAdvertisingData setAntennaGen3WithData:` @0xbecc：
+        /// ```asm
+        /// 0xbf10: ldrb w8, [x20]          ; antenna 字节
+        /// 0xbf14: and  w8, w8, #0xf0      ; 高 4 位
+        /// 0xbf18: cmp  w8, #0x40
+        /// 0xbf1c: b.eq → _antenna = 2
+        /// 0xbf20: cmp  w8, #0x80
+        /// 0xbf24: b.ne → 无
+        ///          → _antenna = 1        ; 0x80 → 天线1
+        /// ```
+        /// 即 **高 4 位 0x80 = 天线1，0x40 = 天线2**（`addRSSI:` @0x801c 据此分路存 RSSI）。
+        /// 低 4 位是 channel（`_channel`）。
+        public var antennaNumber: Int? {
+            guard let b = antenna.first else { return nil }
+            switch b & 0xF0 {
+            case 0x80: return 1
+            case 0x40: return 2
+            default:   return nil
+            }
+        }
     }
 
     /// 设备与本车的关系 —— 对应原 App 的两级判定结果。
@@ -126,7 +149,9 @@ public enum ValeoAdvMatch {
         if version == gen02Version {
             guard manufacturer.count >= gen02MinLength else { return nil }
             adv.gen = .gen02
-            adv.antenna = manufacturer                     // setAntennaGen2WithData: 传整段
+            // ★ Gen02 的 antenna 也是 raw[3]（1 字节）：反汇编 setAntennaGen2WithData:
+            //   内部 `subdataWithRange:(3,1)` 切出同一位置，与 Gen03 一致。
+            adv.antenna = Array(manufacturer[3..<4])
             adv.reSynchro = Array(manufacturer[4..<6])
             adv.broadcastData = Array(manufacturer[6..<7])
             adv.cryptedID = Array(manufacturer[7..<23])
@@ -171,7 +196,7 @@ public enum ValeoAdvMatch {
     ///
     /// - Parameters:
     ///   - cryptedID: 解析出的 `cryptedID`（Gen02 16B / Gen03 12B）
-    ///   - cidpu: 本车 `cidpu` 的 hex 字符串（`saveKeysData:` 存的 4 字节 CIDPU）
+    ///   - cidpu: 本车 `cidpu` 的 hex 字符串（`saveKeysData:` 存的 16 字节 → 32 hex）
     public static func isOwnVehicle(cryptedID: [UInt8], cidpuHex: String) -> Bool {
         guard cryptedID.count >= cryptedIDMinLength else { return false }
         let head8 = Array(cryptedID[0..<8])
@@ -197,8 +222,11 @@ public enum ValeoAdvMatch {
     ///
     /// `+[VSSecurity checkCryptedID:withCidpu:random:]` 直接用
     /// `dataFromHex(cidpu)` 得到的字节当 key，长度由 CCCrypt 校验（必须是 16）。
-    /// 实测密钥帧末尾只有 4 字节 CIDPU，因此这里不足 16 时**右补零**，
-    /// 并在调用方日志里标明 —— 真正的 16 字节 cidpu 要等车端下发完整值。
+    ///
+    /// ## CIDPU 长度（与 `InBlueAuth.parseKeyFrame` 一致）
+    /// 反汇编 `saveKeysData:` @`0x129a4` 的 `subdataWithRange:(0x2E,0x10)` 明确
+    /// **CIDPU = 16 字节**（32 hex），不是 4 字节。`KeyStore.cidpuFullHex`
+    /// 会返回完整 32 hex；此处仅在异常短输入时防御性右补零（原 App 会直接崩）。
     public static func cidpuAESKey(_ hex: String) -> [UInt8]? {
         var bytes = FrameCodec.bytes(fromHex: hex)
         guard !bytes.isEmpty else { return nil }

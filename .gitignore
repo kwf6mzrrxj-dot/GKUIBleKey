@@ -18,3 +18,10 @@ xcuserdata/
 
 # 日志
 *.log
+
+# ★ 内置钥匙凭据（真实车钥匙，绝不入库）
+#   仓库里只保留 builtin-keys.example.txt 模板
+Resources/builtin-keys.txt
+
+# 本地安装包（构建产物）
+DerivedData/

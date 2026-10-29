@@ -49,8 +49,33 @@ public enum ErrorCodeTable {
         40002: "上一条指令正在执行",
     ]
 
-    // MARK: - 业务层（`error_20xx`–`22xx`，摘录与蓝牙车控直接相关的）
+    // MARK: - 传输/链路层（`callDidSendCommandFailedWithMessage:code:` 透传值）
 
+    /// 原 App 日志实证（`Docs/evidence/xiaoka_gl.log`，25 天使用记录）：
+    ///
+    /// ```text
+    /// Command failed. Code : 690   × 5   ← 命令超时（IBManager.commandTimeout = 4.0s）
+    /// Command failed. Code : 310   × 1   ← 加密超时（CBError.code 15 透传）
+    /// ```
+    ///
+    /// `310` 那次完整原文：
+    ///
+    /// ```text
+    /// 06:14:49.493  Reconnect with cidpu: 01918d11…6ac89ad4
+    /// 06:14:50.738  Will not connected. Error : CBErrorDomain Code=15
+    ///               "Failed to encrypt the connection, the connection has
+    ///                timed out unexpectedly."
+    /// 06:14:50.739  Command failed. Code : 310
+    /// ```
+    ///
+    /// **这条是「车端 LTK 与手机不匹配」的原 App 版本**——原 App 也无法绕过，
+    /// 只回报失败然后 `Start scan` 重试。
+    public static let transportErrors: [Int: String] = [
+        310: "加密超时：车端未能完成 BLE 加密握手（LTK 不匹配或车端已删除配对）",
+        690: "命令超时：车端在超时时间内未回应（配对 30s / 普通命令 4s）",
+    ]
+
+    // MARK: - 业务层（`error_20xx`–`22xx`，摘录与蓝牙车控直接相关的）
     public static let businessErrors: [Int: String] = [
         2001: "有其他任务正在执行，请稍后重试",
         2002: "车辆已启动",
@@ -85,9 +110,9 @@ public enum ErrorCodeTable {
         2273: "远程控制失败：蓝牙正在查询车辆状态",
     ]
 
-    /// 按码查文案（先查 SDK 层，再查业务层）
+    /// 按码查文案（先查传输层，再查 SDK 层，最后查业务层）
     public static func message(for code: Int) -> String? {
-        sdkErrors[code] ?? businessErrors[code]
+        transportErrors[code] ?? sdkErrors[code] ?? businessErrors[code]
     }
 
     /// `04` 帧结果码的解释。

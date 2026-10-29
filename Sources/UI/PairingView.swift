@@ -30,6 +30,8 @@ struct PairingView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var showLog = false
+    /// 点击状态条但当前不可操作时的说明（替代原来的静默 return）
+    @State private var statusHint: String?
 
     var body: some View {
         NavigationStack {
@@ -51,11 +53,21 @@ struct PairingView: View {
         }
         // ★ 打开页面即自动开始配对（原 App 就是这样，用户不需要点）
         .onAppear {
-            // ★★★ 配对前先进入**静默模式**：连接成功后不主动发现服务/订阅/读 RSSI，
-            //     把信道让给 iOS 与模块之间的 pairing 协商。
-            //     否则这些操作会打断协商 → 诊断仪报「配对失败」。
-            model.ble.quietMode = true
             model.startFullPairing()
+            // 本地已有密钥 → startFullPairing 会主动阻止并发原因，这里直接展示，
+            // 否则用户看到的就是"打开页面没反应"。
+            if let r = model.pairingBlockedReason { statusHint = r }
+        }
+        .onChange(of: model.pairingBlockedReason) { _, newValue in
+            if let r = newValue { statusHint = r }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { statusHint != nil },
+            set: { if !$0 { statusHint = nil } }
+        )) {
+            Button("知道了", role: .cancel) { statusHint = nil }
+        } message: {
+            Text(statusHint ?? "")
         }
     }
 
@@ -133,6 +145,9 @@ struct PairingView: View {
                 .padding(.horizontal, 30)
 
             // 底部连接状态条（对应原 App 的「蓝牙正在连接车辆」）
+            // ★ 可点击：未绑定且不在配对中时，点击重新发起配对
+            //   （statusText 里那句「点击此处以开始连接」此前是死文案，
+            //   状态条没绑任何动作 —— 2026-10-25 修复为可点击重试）
             HStack(spacing: 8) {
                 if isWorking {
                     ProgressView().controlSize(.small).tint(.cyan)
@@ -156,6 +171,19 @@ struct PairingView: View {
             .padding(.vertical, 14)
             .glassEffect(.regular, in: .rect(cornerRadius: 14))
             .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                // 以前这里是静默 return，点了完全没反应。现在每种情况都给回应。
+                if hasVehicle {
+                    statusHint = "已绑定车辆。\n如需重新配对，请先在「开发者 → 密钥管理 → 解绑车辆」清除本地密钥。"
+                    return
+                }
+                if model.pairingArmed {
+                    statusHint = "配对正在进行中，请稍候…\n如果长时间没有结果，请确认诊断仪已开启配对窗口。"
+                    return
+                }
+                model.startFullPairing()
+            }
         }
         .padding(.bottom, 10)
     }
@@ -193,14 +221,17 @@ struct PairingView: View {
     }
 
     private var isWorking: Bool {
-        !hasVehicle
+        // ★ 只有「配对进行中」（已发起配对 或 已连接正在登记）才显示进度圈；
+        //   未发起/已失败时（pairingArmed==false 且未连接）显示「可点击重试」，
+        //   此时不应再转圈。
+        hasVehicle == false && (model.pairingArmed || model.ble.isWriteReady)
     }
 
     private var statusText: String {
         if hasVehicle { return "蓝牙已连接车辆" }
         if model.ble.isWriteReady { return "蓝牙已连接，正在登记…" }
         if model.pairingArmed { return "蓝牙正在连接车辆" }
-        return "点击此处或选择车型以开始连接"
+        return "点击此处重新连接车辆"
     }
 
     private var stateDetail: String {

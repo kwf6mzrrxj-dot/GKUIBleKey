@@ -23,6 +23,8 @@ struct LogView: View {
     @State private var source: Source = .measured
     @State private var autoScroll = true
     @State private var copied = false
+    /// 落盘日志的级别过滤（与 `FileLogger.shared.config.minimumLevel` 同步，写入 UserDefaults 持久化）
+    @State private var logLevel: LogLevel = FileLogger.shared.config.minimumLevel
 
     private var lines: [String] {
         switch source {
@@ -45,6 +47,12 @@ struct LogView: View {
             .navigationTitle("日志")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    // 导出落盘日志（全部轮转文件拼接），便于外部分析
+                    ShareLink(item: FileLogger.shared.exportText()) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button(copied ? "已复制" : "复制全部") { copyAll() }
                         .disabled(lines.isEmpty)
@@ -66,6 +74,23 @@ struct LogView: View {
                 }
             }
             .pickerStyle(.segmented)
+
+            // ★ 落盘日志的级别过滤（运行时生效，写 UserDefaults 持久化）
+            HStack(spacing: 8) {
+                Text("落盘级别")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Picker("级别", selection: $logLevel) {
+                    ForEach(LogLevel.allCases, id: \.self) { lv in
+                        Text(lv.label.trimmingCharacters(in: .whitespaces)).tag(lv)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: logLevel) { _, newValue in
+                    FileLogger.shared.config.minimumLevel = newValue
+                    UserDefaults.standard.set(newValue.name, forKey: "gkuiblekey.log.level")
+                }
+            }
 
             HStack {
                 Toggle("自动滚到底部", isOn: $autoScroll)

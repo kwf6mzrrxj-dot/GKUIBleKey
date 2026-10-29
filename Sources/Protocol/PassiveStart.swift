@@ -96,6 +96,64 @@ public struct PassiveStartJudge: Sendable {
     /// 判定时按 `0` 处理（与原 App 的 `nil` 语义一致）。
     public var calibration: Int?
 
+    // ── 标定流程（照 VCBDevice startCalibration / calibrationWithRSSIOne:RSSITwo:）──
+
+    /// 是否正在标定（对应 `_calibrationOngoing`）
+    public private(set) var isCalibrating = false
+    /// 标定采样计数（采满 `calibrationSampleTarget` 次即完成）
+    public private(set) var calibrationSampleCount = 0
+    /// 标定采样目标次数 —— `0x8854 cmp count, #0x5A` → 90 次
+    public static let calibrationSampleTarget = 90
+
+    /// 开始标定（对应 `VCBDevice.startCalibration` @0x81bc：`_calibrationOngoing = true`）。
+    public mutating func startCalibration() {
+        isCalibrating = true
+        calibrationSampleCount = 0
+        calibrationAccumulator = 0
+    }
+
+    /// 标定采样累加器（合成 dB 值之和，完成后除以次数取均值）
+    private var calibrationAccumulator = 0.0
+
+    /// 取消标定（对应 `VCBDevice.cancelCalibration`）。
+    public mutating func cancelCalibration() {
+        isCalibrating = false
+        calibrationSampleCount = 0
+        calibrationAccumulator = 0
+    }
+
+    /// 记录一次标定采样（对应 `calibrationWithRSSIOne:RSSITwo:` @0x8774）。
+    ///
+    /// 每帧广播回调时，按天线分路的两路 RSSI 合成：
+    /// `10 × log10(√(10^(rssiOne/10)² + 10^(rssiTwo/10)²))`
+    /// （与 `distance`/`averageForCalibrationWithRSSIAntennaOne:` 同公式）。
+    /// 采满 90 次后取均值作为标定值，返回该标定值；未完成返回 `nil`。
+    @discardableResult
+    public mutating func addCalibrationSample(rssiOne: Double, rssiTwo: Double) -> Int? {
+        guard isCalibrating else { return nil }
+
+        let dist = distance(rssiOne: rssiOne, rssiTwo: rssiTwo)
+        // 合成 dB 值（对应 addRSSI: 前 addRSSI: 的 10×log10(distance)）
+        let combinedDB = 10.0 * log10(dist)
+        calibrationAccumulator += combinedDB
+        calibrationSampleCount += 1
+
+        guard calibrationSampleCount >= Self.calibrationSampleTarget else { return nil }
+
+        // 采满 → 取均值（对应 averageOfRSSIArray: ∑/count），完成标定
+        let avg = Int((calibrationAccumulator / Double(calibrationSampleCount)).rounded())
+        calibration = avg
+        isCalibrating = false
+        calibrationSampleCount = 0
+        calibrationAccumulator = 0
+        return avg
+    }
+
+    /// 标定进度（0~1），供界面显示进度条
+    public var calibrationProgress: Double {
+        Double(calibrationSampleCount) / Double(Self.calibrationSampleTarget)
+    }
+
     /// RSSI 历史（对应 `rssiDates`）
     public private(set) var samples: [Sample] = []
     /// 最近一次判定结果（对应 `isInPassiveStartArea`）
@@ -169,12 +227,6 @@ public struct PassiveStartJudge: Sendable {
     @discardableResult
     public mutating func check(rssiOne: Double, rssiTwo: Double) -> Bool {
         let dist = distance(rssiOne: rssiOne, rssiTwo: rssiTwo)
-
-        // 距上次判定太近就跳过（对应 timeBetweenPassiveStart）
-        if let last = samples.last,
-           Date().timeIntervalSince(last.date) < timeBetweenPassiveStart {
-            return isInPassiveStartArea
-        }
 
         samples.append(Sample(date: Date(), rssiOne: rssiOne,
                               rssiTwo: rssiTwo, distance: dist))

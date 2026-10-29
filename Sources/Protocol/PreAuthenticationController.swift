@@ -86,10 +86,20 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - 常量（地址见类型注释）
 
-    /// 预认证成功后到下一次的间隔 —— `0xb7d8: fmov d0, #6.5`
-    public static let successInterval: TimeInterval = 6.5
-    /// 预认证失败后到下一次的间隔 —— `0xb7e0: fmov d0, #29.0`
-    public static let failureInterval: TimeInterval = 29.0
+    /// 一次预认证往返结束后的重试间隔。
+    ///
+    /// 取 **29.0 秒**，不是反汇编里的 `6.5`——
+    /// 原因见 `didComplete()` 的完整说明：`0xb7d4: cbz x20` 判的是
+    /// **self 是否为 nil**（不是 error），`6.5` 是固定值；而日志里 339 次
+    /// `0x01` 的间隔主导值是 **30 秒**（29 秒等待 + 约 1 秒执行）。
+    ///
+    /// 若按 6.5 秒跑会快 4.5 倍，且会撞上车端「7 秒内不接受第二次加密重连」。
+    public static let retryInterval: TimeInterval = 29.0
+
+    /// 反汇编 `0xb7d8` 的立即数，**仅作记录，不参与调度**
+    /// （`setTimeBetweenPassiveStart:6.5`，实际节奏被 RSSI 窗口拉到 30 秒）
+    public static let disassemblyInterval: TimeInterval = 6.5
+
     /// 已连接时再发起连接的延迟 —— `0xb590: fmov d0, #1.0`
     public static let connectedDelay: TimeInterval = 1.0
 
@@ -170,14 +180,45 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - ⑤ didPassiveStartCompletedWithError:
 
-    /// 一次预认证往返结束时调用。`success == false` 用 29.0 秒，
-    /// 成功用 6.5 秒 —— 与 `0xb7d8` / `0xb7e0` 一致。
-    public func didComplete(success: Bool) {
+    /// 一次预认证往返结束后的重试间隔。
+    ///
+    /// ## 反汇编里其实**没有**「成功/失败」分支
+    ///
+    /// `-[IBVehicle didPassiveStartCompletedWithError:]` @`0xb6cc`：
+    ///
+    /// ```asm
+    /// 0xb710: mov  x20, x0                       ; x20 = self
+    /// 0xb7d0: ldr  x1, @selector(setTimeBetweenPassiveStart:)
+    /// 0xb7d4: cbz  x20, #0xb7e0                  ; self == nil → 29.0
+    /// 0xb7d8: fmov d0, #6.5                      ; self != nil → 固定 6.5
+    /// 0xb7e0: fmov d0, #29.0                     ; （不可达的占位）
+    /// ```
+    ///
+    /// `cbz x20` 判的是 **self 是否为 nil**（编译器为 weak self 生成的判空），
+    /// **不是 error**。也就是说 `6.5` 是固定值，`29.0` 走不到。
+    ///
+    /// （此前把它读成「成功 6.5 / 失败 29.0」是误读，已纠正。）
+    ///
+    /// ## 但日志实测的节奏是 **30 秒**
+    ///
+    /// 339 次 `0x01` 的间隔分布（`Docs/evidence/xiaoka_vcc.log`）：
+    ///
+    /// ```text
+    /// 29.9s ×110   30.0s ×99   30.1s ×36   30.2s ×17   30.3s ×6 …
+    /// 6.4–7.1s 合计只有 ~6 次
+    /// ```
+    ///
+    /// 说明 6.5 秒之后还有别的门槛（RSSI 滑窗满 10 个值 / 区域判定）
+    /// 把实际节奏拉到了 30 秒。我们没实现那套前置条件，
+    /// **若按 6.5 秒重试会比原 App 快 4.5 倍** —— 而车端在 7 秒内
+    /// 不接受第二次加密重连（2026-10-29 06:14:38 成功、06:14:45 加密超时）。
+    ///
+    /// 所以这里统一用 **29 秒**：29 秒等待 + 约 1 秒连接/鉴权执行 ≈ 实测的 30 秒。
+    public func didComplete() {
         guard isEnabled, didStart else { return }
-        timeBetweenPassiveStart = success ? Self.successInterval : Self.failureInterval
+        timeBetweenPassiveStart = Self.retryInterval
         cancelPending()
-        onLog?(String(format: "预认证%@，%.1f 秒后重试",
-                      success ? "成功" : "失败", timeBetweenPassiveStart))
+        onLog?(String(format: "预认证往返结束，%.1f 秒后重试", timeBetweenPassiveStart))
         schedule(after: timeBetweenPassiveStart) { [weak self] in
             self?.launchEntryCommands()
         }
@@ -208,9 +249,29 @@ public final class PreAuthenticationController: ObservableObject {
 
     private func schedule(after delay: TimeInterval, _ body: @escaping @MainActor () -> Void) {
         cancelPending()
+        let plannedAt = Date()
         pendingTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
+            // ★ 后台保活的关键证据：**计划延迟 vs 实际延迟**。
+            //
+            // `Task.sleep` 在 App 被挂起时不会按时唤醒，进程恢复后才补执行。
+            // 所以只要这里出现「计划 29s / 实际 300s」的偏差，就证明
+            // 那段时间进程是被挂起的 —— 这是无法从其它 API 直接读到的信息。
+            let actual = Date().timeIntervalSince(plannedAt)
+            let drift = actual - delay
+            if drift > 2 {
+                FileLogger.shared.warning(
+                    "[保活] 预认证定时器被延迟：计划 \(String(format: "%.0f", delay))s，"
+                    + "实际 \(String(format: "%.1f", actual))s（偏差 \(String(format: "%+.1f", drift))s）"
+                    + "—— 进程在这段时间被挂起过",
+                    module: "保活")
+            } else {
+                FileLogger.shared.info(
+                    "[保活] 预认证定时器准时：计划 \(String(format: "%.0f", delay))s，"
+                    + "实际 \(String(format: "%.1f", actual))s",
+                    module: "保活")
+            }
             body()
         }
     }

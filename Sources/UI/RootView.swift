@@ -16,9 +16,18 @@ struct RootView: View {
 
     @State private var showDeveloper = false
     @State private var showPairing = false
+    /// 点击「当前不可执行」的按钮时，用它弹出明确原因。
+    ///
+    /// 之前控车按钮直接 `.disabled(!isWriteReady)`：未连接时按钮变灰、
+    /// 点了毫无反馈，用户分不清是"没连上"还是"App 坏了"。
+    /// 现在改成**可点击 + 弹提示**，每次点击都有回应。
+    @State private var actionHint: String?
 
-    /// 车辆爱称（原 App 可自定义，这里先用固定值）
-    private let vehicleNickname = "爱车"
+    /// 车辆爱称（详情页可改，持久化在 UserDefaults）
+    ///
+    /// 本 App 只服务这一台车，所以不做「按 cidpu 分键」的多车抽象 ——
+    /// 一个全局键就够，换车时重新配对会覆盖同一台车的密钥，爱称手动改即可。
+    @AppStorage(VehicleProfile.nicknameKey) private var vehicleNickname = VehicleProfile.defaultNickname
     private let vehicleModelName = "博越 PRO"
 
     var body: some View {
@@ -42,6 +51,15 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDeveloper) { DeveloperMenuView() }
         .sheet(isPresented: $showPairing) { PairingView() }
+        .alert("暂时无法执行", isPresented: Binding(
+            get: { actionHint != nil },
+            set: { if !$0 { actionHint = nil } }
+        )) {
+            Button("去连接") { actionHint = nil; model.autoConnect() }
+            Button("知道了", role: .cancel) { actionHint = nil }
+        } message: {
+            Text(actionHint ?? "")
+        }
     }
 
     // MARK: - 背景（随浅色/深色自适应）
@@ -80,7 +98,9 @@ struct RootView: View {
             .padding(.vertical, 5)
             .background(glassFill, in: Capsule())
 
-            // RSSI 信号值（连接后显示）
+            // RSSI 信号值：只在「扫描中且最近 10 秒内收到过本车广播」时显示。
+            // 停止扫描 / 离开覆盖范围 / 车机停止广播后会自动消失，
+            // 不会把过期值当实时信号挂着（v2.2 之前就是永久冻结的假值）。
             if let r = model.ble.rssi {
                 HStack(spacing: 3) {
                     Image(systemName: "cellularbars")
@@ -184,28 +204,70 @@ struct RootView: View {
 
     // MARK: - 状态芯片（车门/后备箱/上电/发动机/ACC，广播解密状态）
 
+    /// 状态芯片「新鲜度」阈值（秒）。超过就标橙，提示可能已不是当前状态。
+    ///
+    /// 依据：车机广播**不是实时流**，实测间隔从 10 秒到十几分钟不等
+    /// （见日志 21:14:50 → 21:15:00 → 21:15:31 → 21:35:32），
+    /// 所以 2 分钟没收到新广播就足以提示「这条快照可能已经变了」。
+    private let statusStaleSeconds: TimeInterval = 120
+
+    /// 车辆状态是否「新鲜」——只有新鲜时才在按钮上做「下一步推荐」。
+    ///
+    /// 车机广播间隔不固定（实测 10s–17min），所以状态随时可能是旧的。
+    /// 拿过期状态去推荐操作（比如 18 分钟前"已锁"就高亮"解锁"）会误导用户。
+    private var isStatusFresh: Bool {
+        guard let t = model.measured.statusUpdatedAt else { return false }
+        return Date().timeIntervalSince(t) <= statusStaleSeconds
+    }
+
     @ViewBuilder private var statusChips: some View {
         if let s = model.measured.status {
-            HStack(spacing: 8) {
-                chip(icon: s.isLocked ? "lock.fill" : "lock.open.fill",
-                     text: s.isLocked ? "已锁" : "未锁",
-                     good: s.isLocked)
-                chip(icon: "door.left.hand.closed",
-                     text: s.isDoorClosed ? "门关" : "门开",
-                     good: s.isDoorClosed)
-                chip(icon: "car.rear.open",
-                     text: s.isTrunkClosed ? "后备箱关" : "后备箱开",
-                     good: s.isTrunkClosed)
-                chip(icon: "engine.combustion",
-                     text: s.isEngineRunning ? "已启动" : "未启动",
-                     good: true)
-                chip(icon: "bolt.fill",
-                     text: s.isAccOn ? "ACC开" : "ACC关",
-                     good: true)
+            VStack(spacing: 4) {
+                HStack(spacing: 8) {
+                    chip(icon: s.isLocked ? "lock.fill" : "lock.open.fill",
+                         text: s.isLocked ? "已锁" : "未锁",
+                         good: s.isLocked)
+                    chip(icon: "door.left.hand.closed",
+                         text: s.isDoorClosed ? "门关" : "门开",
+                         good: s.isDoorClosed)
+                    chip(icon: "car.rear.open",
+                         text: s.isTrunkClosed ? "后备箱关" : "后备箱开",
+                         good: s.isTrunkClosed)
+                    chip(icon: "engine.combustion",
+                         text: s.isEngineRunning ? "已启动" : "未启动",
+                         good: true)
+                    chip(icon: "bolt.fill",
+                         text: s.isAccOn ? "ACC开" : "ACC关",
+                         good: true)
+                }
+
+                // ★ 时效标记：明确告诉用户这是「最后一次收到」的快照，
+                //   而不是实时状态。过期就标橙，避免「显示已锁、实际已解锁」的误判。
+                if let t = model.measured.statusUpdatedAt {
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        let age = max(0, ctx.date.timeIntervalSince(t))
+                        let stale = age > statusStaleSeconds
+                        HStack(spacing: 4) {
+                            Image(systemName: stale ? "exclamationmark.triangle.fill" : "clock")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(stale
+                                 ? "\(ageText(age))收到，可能已不是当前状态"
+                                 : "\(ageText(age))更新")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(stale ? Color.orange : Color.secondary)
+                    }
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 6)
         }
+    }
+
+    private func ageText(_ age: TimeInterval) -> String {
+        if age < 60 { return "\(Int(age)) 秒前" }
+        if age < 3600 { return "\(Int(age / 60)) 分钟前" }
+        return "\(Int(age / 3600)) 小时前"
     }
 
     private func chip(icon: String, text: String, good: Bool) -> some View {
@@ -225,12 +287,18 @@ struct RootView: View {
         VStack(spacing: 12) {
             // 两大键：解锁 / 闭锁 —— 车锁状态直接体现在按钮上
             HStack(spacing: 12) {
+                // ★ 只有状态**新鲜**（≤ `statusStaleSeconds`）时才做「下一步推荐」。
+                //
+                // 之前不管状态多旧都高亮：截图里状态是 18 分钟前收到的，
+                // 却仍在推荐「解锁」，很可能与实车相反。过期状态只展示、不推荐。
                 primaryAction(.unlock, "解锁", .green, "lock.open.fill",
-                              isCurrentState: model.measured.status?.isLocked == true,
-                              stateBadge: model.measured.status?.isLocked == true ? "当前已锁" : nil)
+                              isCurrentState: isStatusFresh && model.measured.status?.isLocked == true,
+                              stateBadge: isStatusFresh && model.measured.status?.isLocked == true
+                                  ? "当前已锁" : nil)
                 primaryAction(.lock, "闭锁", .blue, "lock.fill",
-                              isCurrentState: model.measured.status?.isLocked == false,
-                              stateBadge: model.measured.status?.isLocked == false ? "当前未锁" : nil)
+                              isCurrentState: isStatusFresh && model.measured.status?.isLocked == false,
+                              stateBadge: isStatusFresh && model.measured.status?.isLocked == false
+                                  ? "当前未锁" : nil)
             }
 
             // 次要动作：后备箱 / 车窗 / 寻车
@@ -265,7 +333,32 @@ struct RootView: View {
         _ action: IBCommandType, _ title: String, _ tint: Color, _ icon: String,
         isCurrentState: Bool = false, stateBadge: String? = nil
     ) -> some View {
-        Button { model.perform(action) } label: {
+        // ★ 形状只定义一次，玻璃底与高亮描边共用同一个 path。
+        //
+        // 之前是 `.buttonStyle(.glass)` + 独立的 `RoundedRectangle(cornerRadius: 22)` 描边，
+        // 两者形状不同源，四角必然错位：
+        //   ① `RoundedRectangle` 默认 `.circular` 圆角，系统玻璃用的是 continuous 超椭圆，
+        //      同样 22pt 半径下两者在四个角的曲率明显不同；
+        //   ② `.glass` buttonStyle 会在 label frame 内再留一圈 rim，
+        //      贴着 frame 画的描边就浮在玻璃外面。
+        // 改成自绘玻璃后，底色与描边是同一个 shape 的同一个 path，物理上不可能错开。
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
+        return Button {
+            // ★ 不再在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
+            //
+            // 车端在每条命令执行完会主动断开链路（原 App 日志同样如此），
+            // 所以"点完一次就无法再点"是常态。v3.4 起 `perform` 已经能做到
+            // 「挂起动作 → 立刻重连已知设备 → ready 后自动执行」，
+            // 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
+            //
+            // 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
+            guard model.ble.managerState == .poweredOn else {
+                actionHint = "蓝牙未开启，无法连接车辆。\n请先在系统设置里打开蓝牙。"
+                return
+            }
+            model.perform(action)
+        } label: {
             VStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 26, weight: .medium))
                 Text(title).font(.headline)
@@ -279,22 +372,40 @@ struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 76)
+            .padding(.vertical, 8)
+            // 玻璃底：参数与描边用同一个 shape
+            .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: shape)
+            // 高亮描边：贴着同一个 shape 的内边描（`strokeBorder` 向内，不改变尺寸）
+            .overlay {
+                shape.strokeBorder(isCurrentState ? tint : .clear, lineWidth: 2)
+            }
         }
-        .buttonStyle(.glass)
-        .tint(tint)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(isCurrentState ? tint.opacity(0.9) : .clear,
-                              lineWidth: isCurrentState ? 2 : 0)
-        )
-        .opacity(isCurrentState ? 1 : (stateBadge == nil && model.measured.status != nil ? 0.75 : 1))
-        .disabled(!model.ble.isWriteReady)
+        .buttonStyle(.plain)
+        // ★ 不再按「是否推荐」调暗 —— 之前非推荐的那个按钮会掉到 0.75，
+        //   看起来像 disabled（截图里「闭锁」就是灰的），但其实是可点的。
+        //   现在两个主按钮同亮度，只有「推荐」那个多一圈描边 + 角标。
+        //   未连接时轻微变淡（0.7）作为「需要先连」的提示，仍可点击。
+        .opacity(model.ble.isWriteReady ? 1 : 0.7)
     }
 
     private func secondaryAction(
         _ action: IBCommandType, _ title: String, _ icon: String
     ) -> some View {
-        Button { model.perform(action) } label: {
+        Button {
+            // ★ 不再在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
+            //
+            // 车端在每条命令执行完会主动断开链路（原 App 日志同样如此），
+            // 所以"点完一次就无法再点"是常态。v3.4 起 `perform` 已经能做到
+            // 「挂起动作 → 立刻重连已知设备 → ready 后自动执行」，
+            // 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
+            //
+            // 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
+            guard model.ble.managerState == .poweredOn else {
+                actionHint = "蓝牙未开启，无法连接车辆。\n请先在系统设置里打开蓝牙。"
+                return
+            }
+            model.perform(action)
+        } label: {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 18))
                 Text(title).font(.caption)
@@ -302,7 +413,7 @@ struct RootView: View {
             .frame(maxWidth: .infinity, minHeight: 60)
         }
         .buttonStyle(.glass)
-        .disabled(!model.ble.isWriteReady)
+        .opacity(model.ble.isWriteReady ? 1 : 0.55)
     }
 
     // MARK: - 状态区
@@ -317,6 +428,9 @@ struct RootView: View {
                           detail: hintForBluetoothState)
             }
 
+            // 无感进入（PE：靠近车辆拉门把手解锁）总开关
+            passiveEntryCard
+
             // 密钥状态（未配对时整行可点，引导去绑定）
             statusRow(icon: model.measured.keys != nil ? "key.fill" : "key",
                       iconColor: model.measured.keys != nil ? .green : .orange,
@@ -325,6 +439,45 @@ struct RootView: View {
                       action: model.measured.keys == nil ? { showPairing = true } : nil)
         }
         .padding(.bottom, 12)
+    }
+
+    /// 无感进入开关卡片：靠近车辆时拉门把手解锁。
+    private var passiveEntryCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: model.passiveEntryEnabled
+                  ? "figure.walk.arrival" : "figure.walk.departure")
+                .font(.system(size: 18))
+                .foregroundStyle(model.passiveEntryEnabled ? .green : .secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("无感进入")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(model.passiveEntryEnabled
+                     ? "靠近车辆时拉门把手解锁"
+                     : "手动控车（不自动解锁）")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if model.passiveEntrySwitching {
+                ProgressView()
+            } else {
+                Toggle("", isOn: Binding(
+                    get: { model.passiveEntryEnabled },
+                    set: { model.setPassiveEntry($0) }
+                ))
+                .labelsHidden()
+                .tint(.green)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     private var hintForBluetoothState: String {
@@ -424,14 +577,11 @@ struct DeveloperMenuView: View {
                 }
 
                 Section("钥匙") {
+                    // 副标题去掉「导入」——从原 App 导入密钥的功能早已移除
+                    // （KeyInspectorView 顶部注释：不提供从原 App 导入），
+                    // 留着「导入」是死描述，会让人去找不存在的能力。
                     Button { showKeys = true } label: {
-                        menuRow("密钥管理", "key.horizontal", "检视 / 备份 / 恢复 / 导入")
-                    }
-                    Button { model.verifyKeyIntegrity() } label: {
-                        HStack {
-                            menuRow("校验密钥完整性", "checkmark.shield",
-                                    model.keyIntegrityDetail)
-                        }
+                        menuRow("密钥管理", "key.horizontal", "检视 / 备份 / 恢复")
                     }
                 }
 
@@ -457,6 +607,14 @@ struct DeveloperMenuView: View {
                 }
 
                 Section("调试") {
+                    // ★ 实时日志浮窗开关
+                    Toggle(isOn: $model.liveLogFloatingEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("实时日志浮窗").font(.subheadline).foregroundStyle(.primary)
+                            Text("在主页面悬浮显示实时日志，可拖动、折叠")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                     Button { showDiagnostics = true } label: {
                         menuRow("诊断", "waveform.path.ecg", "自检、时序、原始报文")
                     }
@@ -468,6 +626,17 @@ struct DeveloperMenuView: View {
                 Section {
                     Button(role: .destructive) { model.disconnect() } label: {
                         Label("断开连接", systemImage: "xmark.circle")
+                    }
+                }
+
+                // 版本信息：原「关于」页只显示版本号，已并入这里（少一次跳转）
+                Section {
+                    HStack {
+                        Text("版本").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(AppInfo.versionString) (\(AppInfo.buildNumber))")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -505,6 +674,8 @@ struct DeveloperMenuView: View {
 struct PassiveStartDetailView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    /// 未连接时点「开始标定」的提示（替代原来的静默 disabled）
+    @State private var calibHint: String?
 
     var body: some View {
         NavigationStack {
@@ -515,11 +686,21 @@ struct PassiveStartDetailView: View {
                         if model.passiveStart.isCalibrated {
                             Label("已标定", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
+                            row("标定值", "\(model.passiveStart.calibration ?? 0)")
+                        } else if model.passiveStart.isCalibrating {
+                            Label("标定中…", systemImage: "waveform.path.ecg")
+                                .foregroundStyle(.cyan)
+                            // 采样进度（采满 90 次完成）
+                            ProgressView(value: model.passiveStart.calibrationProgress)
+                                .tint(.cyan)
+                            Text("已采 \(model.passiveStart.calibrationSampleCount)/90 次，请保持手机在车内靠近天线")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         } else {
                             Label("未标定", systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.orange)
-                            Text("未标定时基准为 -32，几乎不会触发。标定写入端跨底层 GLBLE 协议，"
-                                 + "当前尚未实现，因此此功能实际不可用。")
+                            Text("点火位置验证依赖标定值。连接车辆后点击下方「开始标定」，"
+                                 + "保持手机在车内，采集 90 次双天线 RSSI 后自动完成。")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -531,6 +712,30 @@ struct PassiveStartDetailView: View {
                         row("判定基准", "\(model.passiveStart.threshold)")
                         row("是否在区域内",
                             model.passiveStart.isInPassiveStartArea ? "是" : "否")
+                    }
+
+                    // 标定操作
+                    if model.passiveStart.isCalibrating {
+                        Button(role: .destructive) {
+                            model.cancelCalibration()
+                        } label: {
+                            Label("取消标定", systemImage: "xmark.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.glass)
+                    } else {
+                        Button {
+                            guard model.ble.isWriteReady else {
+                                calibHint = "标定需要连接车辆后才能开始。\n请确认蓝牙已开启、手机在车辆附近。"
+                                return
+                            }
+                            model.startCalibration()
+                        } label: {
+                            Label("开始标定", systemImage: "location.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .opacity(model.ble.isWriteReady ? 1 : 0.55)
                     }
 
                     Button {
@@ -550,6 +755,14 @@ struct PassiveStartDetailView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+            .alert("暂时无法执行", isPresented: Binding(
+                get: { calibHint != nil },
+                set: { if !$0 { calibHint = nil } }
+            )) {
+                Button("知道了", role: .cancel) { calibHint = nil }
+            } message: {
+                Text(calibHint ?? "")
             }
         }
     }
@@ -582,6 +795,14 @@ struct PassiveStartDetailView: View {
 struct VehicleDetailView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    /// 本页自己的提示（蓝牙不可用等原因）—— 不能复用主界面的 `actionHint`
+    @State private var hint: String?
+
+    /// 车辆爱称（与主界面共用同一个 UserDefaults 键，改完立刻同步）
+    @AppStorage(VehicleProfile.nicknameKey) private var nickname = VehicleProfile.defaultNickname
+    /// 编辑爱称的弹窗开关与草稿
+    @State private var showRename = false
+    @State private var draftNickname = ""
 
     var body: some View {
         NavigationStack {
@@ -593,9 +814,39 @@ struct VehicleDetailView: View {
                         .padding(.top, 10)
 
                     VStack(spacing: 0) {
-                        row("车辆爱称", "爱车")
+                        Button {
+                            draftNickname = nickname
+                            showRename = true
+                        } label: {
+                            HStack {
+                                Text("车辆爱称")
+                                    .font(.subheadline).foregroundStyle(.primary)
+                                Spacer()
+                                Text(nickname)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .alert("车辆爱称", isPresented: $showRename) {
+                            TextField("比如「小白」", text: $draftNickname)
+                                .textInputAutocapitalization(.never)
+                            Button("保存") {
+                                nickname = VehicleProfile.sanitize(draftNickname)
+                            }
+                            Button("恢复默认") {
+                                nickname = VehicleProfile.defaultNickname
+                            }
+                            Button("取消", role: .cancel) { }
+                        } message: {
+                            Text("最多 \(VehicleProfile.maxNicknameLength) 个字。只改本机显示，不影响车端。")
+                        }
                         Divider()
-                        row("车辆 ID (CIDPU)", cidpuText, mono: true)
+                        row("CIDPU（后 8 位）", cidpuText, mono: true)
                         Divider()
                         row("连接状态", model.ble.isWriteReady ? "蓝牙连接 iPhone" : "未连接")
                         Divider()
@@ -607,15 +858,29 @@ struct VehicleDetailView: View {
                             ? "—" : model.measured.vehicleState.hexDescription, mono: true)
                         Divider()
                         row("已登记手机", model.measured.pairedDeviceNames.isEmpty
-                            ? "未知（点下方「查询」）" : model.measured.pairedDeviceNames.joined(separator: ", "))
+                            ? (model.measured.isQueryingDeviceNames ? "查询中…" : "未知（点下方「查询」）")
+                            : model.measured.pairedDeviceNames.joined(separator: ", "))
                         Divider()
                         Button {
+                            // ★ 不在这里拦「未连接」：查询同样走 `01→02→03(0x0D)`
+                            //   完整鉴权链，`AppModel.perform` 会自动连接后补发。
+                            //   之前 `.disabled(!isWriteReady)` 让这个按钮在未连接时
+                            //   变灰不可点，用户只能先手动触发一次控车把链路拉起来，
+                            //   属于「点了没反应」的同类问题。
+                            guard model.ble.managerState == .poweredOn else {
+                                hint = "蓝牙未开启，无法查询车端名册。\n请先在系统设置里打开蓝牙。"
+                                return
+                            }
                             model.requestPairedDeviceNames()
                         } label: {
-                            Label("查询车端已配对手机", systemImage: "arrow.down.circle")
+                            Label(model.measured.isQueryingDeviceNames
+                                  ? "正在查询…" : "查询车端已配对手机",
+                                  systemImage: "arrow.down.circle")
                                 .font(.caption)
                         }
-                        .disabled(!model.ble.isWriteReady)
+                        // ⚠️ 不加 `.disabled`：`pendingAction` 在极少数路径下
+                        //    （未收到 0x0F 就断开）可能残留，disabled 会让按钮
+                        //    永久变灰、再也点不动。重复点只是重发一次幂等查询。
                     }
                     .glassEffect(.regular, in: .rect(cornerRadius: 16))
 
@@ -651,6 +916,12 @@ struct VehicleDetailView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+            .alert("提示", isPresented: Binding(get: { hint != nil },
+                                            set: { if !$0 { hint = nil } })) {
+                Button("知道了", role: .cancel) { hint = nil }
+            } message: {
+                Text(hint ?? "")
             }
         }
     }

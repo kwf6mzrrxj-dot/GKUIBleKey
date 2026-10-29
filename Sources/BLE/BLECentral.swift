@@ -1,47 +1,8 @@
 import Foundation
 import CoreLocation
-// CoreBluetooth 的委托回调仍是非 Sendable 的旧式 API，
-// 用 @preconcurrency 让 Swift 6 放宽区域隔离检查（语义不变，因为回调实际都在主队列）。
+// CoreBluetooth 的 delegate 回调是非 Sendable 的旧式 API，
+// 用 @preconcurrency 让 Swift 6 放宽隔离检查（回调实际都在主队列，语义不变）。
 @preconcurrency import CoreBluetooth
-
-/// 连接时序埋点。
-///
-/// **这是为诊断「要点很多次才能打着火」而专门加的**：
-/// 车端要求「连接后 2 秒内」发出 ID 1 确认帧（错误码 `0x6f00`），
-/// 而 Apple 开发者论坛有实测报告指出 CoreBluetooth 从 `didConnect`
-/// 到服务发现/订阅完成之间可能有约 900ms 延迟
-/// （developer.apple.com/forums/thread/839638）。
-/// 把这几段耗时打出来，就能立刻判断是否卡在时序上。
-public struct ConnectTiming: Sendable {
-    public var connectStart: Date?
-    public var didConnect: Date?
-    public var servicesDiscovered: Date?
-    public var characteristicsDiscovered: Date?
-    public var notifySubscribed: Date?
-
-    public init() {}
-
-    public var connectDuration: TimeInterval? { delta(connectStart, didConnect) }
-    public var serviceDiscoveryDuration: TimeInterval? { delta(didConnect, servicesDiscovered) }
-    public var characteristicDiscoveryDuration: TimeInterval? { delta(servicesDiscovered, characteristicsDiscovered) }
-    public var subscribeDuration: TimeInterval? { delta(characteristicsDiscovered, notifySubscribed) }
-    /// 从连接成功到链路就绪（订阅完成）——**这个值必须远小于 2 秒**。
-    public var linkReadyDuration: TimeInterval? { delta(didConnect, notifySubscribed) }
-
-    private func delta(_ a: Date?, _ b: Date?) -> TimeInterval? {
-        guard let a, let b else { return nil }
-        return b.timeIntervalSince(a)
-    }
-
-    public var summary: String {
-        func f(_ v: TimeInterval?) -> String { v.map { String(format: "%.0fms", $0 * 1000) } ?? "-" }
-        return """
-        连接 \(f(connectDuration)) │ 服务发现 \(f(serviceDiscoveryDuration)) \
-        │ 特征发现 \(f(characteristicDiscoveryDuration)) │ 订阅 \(f(subscribeDuration))
-        链路就绪总计 \(f(linkReadyDuration))（红线 2000ms）
-        """
-    }
-}
 
 @MainActor
 public final class BLECentral: NSObject, ObservableObject {
@@ -59,22 +20,25 @@ public final class BLECentral: NSObject, ObservableObject {
     @Published public private(set) var managerState: CBManagerState = .unknown
     @Published public private(set) var linkState: LinkState = .idle
     @Published public private(set) var candidates: [DiscoveredDevice] = []
-    @Published public private(set) var timing = ConnectTiming()
     @Published public private(set) var lastMessage: String = ""
     @Published public private(set) var rxHexStream: [String] = []
 
     // ── 下列为 PEPS 场景必需的状态量 ──────────────────────────
-    /// 协商后的单次写入上限（MTU 相关）。
-    /// 老车 PEPS 模块对大包敏感，超长必须分包发送。
-    @Published public private(set) var maxWriteLength: Int = 0
     /// 最近一次 RSSI（用于信号强度展示与中继攻击提示）
     @Published public private(set) var rssi: Int?
-    /// 自动重连状态
-    @Published public private(set) var reconnectAttempt = 0
-    /// 是否启用自动重连
+    /// RSSI 最后一次被刷新的时刻
+    @Published public private(set) var rssiUpdatedAt: Date?
+    /// RSSI 的有效期（秒）。
+    ///
+    /// 取值依据是**实测广播间隔**，不是想当然的 1–2 秒：日志里同一台车的
+    /// 广播间隔分别是 10s / 22s / 28s / 31s / 77s，最长到 17 分钟
+    /// （车静止时系统会限流）。所以太短会导致正常扫描中 RSSI 反复消失，
+    /// 120 秒既能清掉「已离开范围」的假值，又不会误伤正常间隔。
+    public var rssiStaleSeconds: TimeInterval = 120
+    /// RSSI 过期看门狗：每收到一次新值就重置，超时则清空
+    private var rssiWatchdog: Task<Void, Never>?
+    /// 是否启用「连接失败 → 改用扫描重试」的回退（原 App 无自动重连，仅保留扫描回退）
     public var autoReconnect = true
-    /// 自动重连上限（避免死循环）
-    public var maxReconnectAttempts = 6
 
     public struct DiscoveredDevice: Identifiable, Hashable, Sendable {
         public let id: UUID
@@ -108,12 +72,9 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 收到完整下行帧时回调（已在主线程）。
     public var onFrame: (([UInt8]) -> Void)?
-    /// 收到任意原始数据时回调（用于观察未分帧的数据，例如车端广播随机数）。
-    public var onRawData: (([UInt8]) -> Void)?
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
-    private var rssiTask: Task<Void, Never>?
     /// 扫描到的 CBPeripheral 对象缓存（绕开 iOS 500 条设备缓存淘汰问题）
     private var peripheralCache: [UUID: CBPeripheral] = [:]
     /// 同一设备 `didDiscover` 的节流：记录上次处理时间，避免 AllowDuplicates
@@ -131,47 +92,16 @@ public final class BLECentral: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue?.uuidString, forKey: "gkuiblekey.lastPeripheral") }
     }
 
+    /// 清除记住的设备标识（解绑时调用，避免解绑后仍用旧车 identifier 重连）。
+    public func forgetRememberedPeripheral() {
+        UserDefaults.standard.removeObject(forKey: "gkuiblekey.lastPeripheral")
+    }
+
     /// 是否显示**全部**扫描到的设备（关闭时只显示疑似目标）
     @Published public var showAllDevices = false
 
-    /// 是否解析 Tbox 广播码（默认关 —— 已从主链路移除，见 `TboxBroadcastCode`）
-    public nonisolated(unsafe) static var debugTboxBroadcastCode = false
-
-    /// ★★★ **设备广播的原始数据**（`CBAdvertisementDataManufacturerDataKey`）。
-    ///
-    /// ## 为什么关键（反汇编证据）
-    /// `-[IBDevice parseBroadcastData:]` @0x4bc0：
-    /// ```objc
-    /// +[IBNSString cidpu]
-    /// [x0 stringToData:]
-    /// [x0 decryptData:withKey:]      // ★ 用 cidpu 解密广播数据
-    /// [x0 subdataWithRange:]
-    /// [x0 parseStatus:]
-    /// ```
-    /// 即：**广播数据是加密的，要用 `cidpu` 作 key、AES-CBC 解密**，
-    /// 明文里含 `cryptedID` / 随机数等 —— 那些才是 `01` 帧该用的真实值。
-    ///
-    /// 之前 App 现场生成随机数发给车端，车端不认 → 立刻断开（"点了就断"）。
-    @Published public private(set) var lastManufacturerData: [UInt8] = []
     /// 当前设备的 CIDPU（从广播名解析，如 `InBlue3f26c66ac89ad4` → `c89ad4`）
     @Published public private(set) var currentCidpu = ""
-
-    /// ★ **配对静默模式**。
-    ///
-    /// 置 `true` 时，连接成功后**不做任何主动 BLE 操作**（不发现服务、
-    /// 不订阅通知、不读 RSSI），只保持链路。
-    ///
-    /// ## 为什么需要
-    /// iOS 的 pairing 是模块与系统之间的协商。如果 App 在协商期间
-    /// 同时发起 `discoverServices` / `setNotifyValue` / `readRSSI`，
-    /// 这些操作会打断协商 → **诊断仪报「配对失败」**。
-    ///
-    /// 原 App 配对期间是静默的，所以能一次成功。
-    @Published public var quietMode = false
-    /// 静默模式的超时任务
-    private var quietTask: Task<Void, Never>?
-    /// 待重连的外设（配对流程要求"断开→重连"以触发系统 pairing）
-    private var pendingPairingReconnect: CBPeripheral?
 
     /// ★ **配对等待中自动连接**开关。
     ///
@@ -180,17 +110,12 @@ public final class BLECentral: NSObject, ObservableObject {
     /// （弹出 6 位码框）—— 对应原 App「配对不用手动点设备」的行为。
     @Published public var autoConnectWhilePairing = false
 
-    /// ★ **Tbox 广播码解析结果**（`01` 帧第一段的来源）。
-    ///
-    /// 反汇编：`isTboxBluetoothBroadcastWithBroadcastCode:` 要求 25 字节，
-    /// 切出 `code[17..25)` 作为 `broadcastRandom`。
-    @Published public private(set) var broadcastCodeRandom: [UInt8] = []
-    /// 解析出的广播码原文（诊断）
-    @Published public private(set) var broadcastCode: [UInt8] = []
-    /// 收到广播码时的回调（由 AppModel 接到 MeasuredSession）
-    public var onBroadcastCode: (([UInt8]) -> Void)?
     /// 广播解密出车辆状态明文时的回调（由 AppModel 接到 MeasuredSession）
     public var onBroadcastStatus: (([UInt8]) -> Void)?
+    /// ★ 分路 RSSI 回调（由 AppModel 接到标定流程）：
+    /// `(antennaNumber, rssi)` —— 广播回调时按 antenna 字段高 4 位分路，
+    /// `1`=天线1、`2`=天线2，配合 `PassiveStartJudge` 的标定采样。
+    public var onDualRSSI: ((Int, Int) -> Void)?
 
 
     /// ★ `didDiscover` 回调计数 —— **诊断"扫描到底有没有工作"的关键指标**。
@@ -215,6 +140,16 @@ public final class BLECentral: NSObject, ObservableObject {
     // 于是位置权限就成了硬性前提。缺权限时 iOS **不会报错**，
     // 只是让 isScanning=true 却零回调，非常容易被误判成"设备不在广播"。
     private let locationManager = CLLocationManager()
+
+    /// `CBCentralManager` 的状态恢复标识。
+    ///
+    /// 用途：App 被系统终止后，iOS 靠它把 BLE 现场（已连接的外设、
+    /// 待投递的通知）交还给新进程，`willRestoreState` 里直接认领即可，
+    /// 不用重新扫描连接 —— 这是「后台保持钥匙在线」的基础。
+    ///
+    /// ⚠️ 整个 App 只能有一个值，且 `resetCentral()` 重建时也必须带同一个，
+    /// 否则重建出来的 manager 不受恢复保护。
+    private static let restoreIdentifier = "com.mmxisme.gkuiblekey.central"
 
     /// 位置权限的可读文本（供界面显示）
     @Published public private(set) var locationAuthText = "未决定"
@@ -242,12 +177,21 @@ public final class BLECentral: NSObject, ObservableObject {
         locationAuthText.hasPrefix("已授权")
     }
 
-    /// 请求位置权限（iOS 会弹系统框）
+    /// 请求位置权限（iOS 会弹系统框）。
+    ///
+    /// ★ 后台「靠近解锁」需要 **Always 定位**（配合 `UIBackgroundModes: location`）：
+    /// 后台 `scanForPeripherals` 扫描附近车辆依赖定位服务，仅 WhenInUse 无法在
+    /// App 退后台后继续扫描。iOS 规则：必须先请求 WhenInUse，用户授权后才能
+    /// 升级请求 Always。
     public func requestLocationPermission() {
         refreshLocationAuth()
         if locationAuthText == "未决定" {
             locationManager.requestWhenInUseAuthorization()
             lastMessage = "已请求位置权限，请在系统弹框中允许"
+        } else if locationAuthText == "已授权（使用期间）" {
+            // 升级到 Always（后台靠近解锁必需）
+            locationManager.requestAlwaysAuthorization()
+            lastMessage = "已请求「始终」定位权限（后台靠近解锁需要）"
         } else if locationAuthText == "已拒绝" {
             lastMessage = "位置权限已被拒绝，请到「设置 → 隐私与安全性 → 定位服务」里为「蓝牙钥匙」打开"
         } else {
@@ -256,6 +200,78 @@ public final class BLECentral: NSObject, ObservableObject {
     }
     private var writeChar: CBCharacteristic?
     private var notifyChar: CBCharacteristic?
+    /// ★ 照原 App `setReadCharacteristic:`：`peripheral:didDiscoverCharacteristics...`
+    /// @`0xa8d4` 把 `F000FF12` **同时**登记为 readCharacteristic。
+    /// 原 App 保存它用于后续按特征区分上行数据来源；我们同样保存，
+    /// 以便 `didUpdateValue` 能区分「通知数据」与「读取结果」。
+    private var readChar: CBCharacteristic?
+    /// ★ 照原 App 的 `deviceDidReadyToExchangeData:`（@`0xaac0`）：
+    /// 特征发现**一结束**就置位，不等订阅回调。
+    ///
+    /// 注意：它只是「可交换数据」的状态标记。真正发送仍以**订阅成功**
+    /// 为准（原 App 的 `deviceDidSubscriptionDoneWithSuccess:` → `sendData`），
+    /// 所以这里不改 `linkState`，避免打乱已验证的发送时机。
+    public private(set) var characteristicsReady = false
+
+    // ── 订阅耗时监控（bonding 状态的唯一量化判据）─────────────────────
+    //
+    // 原 App 日志（`Docs/evidence/xiaoka_vcc.log`）里 344 次订阅的耗时分布：
+    //
+    // ```
+    //   < 0.3s   338 次   ← 中位数 0.056 秒！bonding 已建立，iOS 直接复用 LTK
+    //   5–15s      5 次   ← 这 5 次正是「配对」，在等用户输入 PASSKEY
+    //   失败       1 次   ← 2.95 秒后 code 15 "Encryption is insufficient."
+    // ```
+    //
+    // 也就是说：
+    //   · 订阅 **< 0.3 秒** = 链路已加密（bonding 正常）
+    //   · 订阅 **5–15 秒** = 系统弹了 PASSKEY 框
+    //   · 订阅 **约 3 秒后失败** = 车端 LTK 与手机不匹配（车端删了配对/清过槽位）
+    //
+    // 这条判据比 `error.localizedDescription` 更可靠：同样的失败，iOS 有时
+    // 只报 "Encryption is insufficient"，有时报 "Failed to encrypt the
+    // connection, the connection has timed out unexpectedly"。
+    private var notifyRequestedAt: Date?
+
+    // ── 扫描常开（对齐原 App 稳态）─────────────────────────────
+    /// 本次连接建立时刻 —— 用于判断"是不是 3 秒内就被断开"
+    private var connectedAt: Date?
+    /// 连续快速断开次数（3 秒内断开算一次）
+    private var quickDisconnectCount = 0
+    /// 冷却定时器（连续快速断开 5 次后暂停重扫 30 秒）
+    private var scanCooldownTask: Task<Void, Never>?
+
+    // ── 自动连接冷却（防止「连→断→扫→连」死循环）──────────────
+    //
+    /// 车端主动断开的时刻。`didDiscover` 里据此判断要不要立刻自动重连。
+    ///
+    /// ## 为什么需要
+    /// 原 App 每执行完一条命令，**车端会主动断开**（日志里 `0x05` 到达后
+    /// 0.2 秒就 `device is disconnected`）。而原 App 断开后只重扫，
+    /// **不会「扫到就立刻连」** —— 下一次连接是由用户操作或预认证触发的
+    /// （日志中「断开 → Stopping scan → Request for connection」之间有 6 秒间隔）。
+    ///
+    /// 我们原来是「命中本车就无条件 connect」，配合 v3.1 的扫描常开就变成：
+    /// 车端断开 → 重扫 → 立刻又连上 → 车端又断……死循环耗电并干扰车端会话。
+    private var lastDisconnectAt: Date?
+
+    /// 冷却时长（秒）。冷却期内只扫描、不自动重连。
+    private let autoConnectCooldownSeconds: TimeInterval = 15
+
+    /// 强制连接一次（用户点了控车按钮 / 需要发帧时由上层置位）。
+    /// 置位后无视冷却，下一次扫到本车立刻连接，然后自动清掉。
+    public var forceConnectOnce = false
+
+    // ── 出范围判定（照 `-[VCBDevice resetWithTimeout]` @`0x9fb4`）──────
+    /// 是否仍在「范围内」：每次收到车端数据都刷新，超过 `outOfRangeSeconds`
+    /// 收不到就判定为已远离。
+    @Published public private(set) var isInRange = false
+    /// 接收超时（秒）。反汇编 `fmov d0, #9.0` → `performSelector:withObject:afterDelay:`
+    /// 调 `deviceWhentOutOfRange`，所以原值是 **9 秒**。
+    public var outOfRangeSeconds: TimeInterval = 9.0
+    /// 判定出范围时的回调（上层据此复位被动进入/预认证的边沿状态）
+    public var onWentOutOfRange: (() -> Void)?
+    private var rangeTimeoutTask: Task<Void, Never>?
 
     public override init() {
         super.init()
@@ -271,7 +287,15 @@ public final class BLECentral: NSObject, ObservableObject {
             delegate: self,
             queue: .main,
             options: [CBCentralManagerOptionRestoreIdentifierKey:
-                        "com.mmxisme.gkuiblekey.central"])
+                        Self.restoreIdentifier])
+
+        // ★ 后台「靠近解锁」需要后台定位（配合 `UIBackgroundModes: location`）。
+        //   `allowsBackgroundLocationUpdates` 让 App 退后台后仍能接收定位事件，
+        //   从而在后台扫描/发现靠近的车辆。原 App 同样开了这个（见其二进制
+        //   `setAllowsBackgroundLocationUpdates:` 字符串）。
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
+        refreshLocationAuth()
     }
 
     /// ★ 系统恢复 BLE 现场时回调（配合上面的 RestoreIdentifier）。
@@ -296,7 +320,6 @@ public final class BLECentral: NSObject, ObservableObject {
             lastMessage = "已从系统恢复连接（\(p.name ?? "无名")），无需重连"
             // 服务/特征可能已被系统缓存，直接走发现流程（发现已是幂等的）
             p.discoverServices([GATT.serviceUUID])
-            startRSSIPolling(p)
         }
     }
 
@@ -352,6 +375,65 @@ public final class BLECentral: NSObject, ObservableObject {
     public func stopScan() {
         central.stopScan()
         if linkState == .scanning { linkState = .idle }
+        // ★ 停止扫描后不再有 RSSI 来源，立刻清掉显示值，
+        //   避免界面一直挂着最后一次扫到的信号强度（假信号）。
+        clearRSSI()
+    }
+
+    /// 收到车端数据后重置「出范围」定时器。
+    ///
+    /// 对应 `-[VCBDevice resetWithTimeout]` @`0x9fb4`：
+    /// ```objc
+    /// [self cancelTimeout];
+    /// [self performSelector:@selector(deviceWhentOutOfRange) withObject:nil afterDelay:9.0];
+    /// ```
+    /// 即**每收到一帧就重新计时 9 秒**，超时则判定设备已远离。
+    /// 原 App 靠它复位被动进入的边沿判断；我们之前完全没有这条，
+    /// 导致「连着但走远」时不会复位，回来可能不再触发一次。
+    private func resetRangeTimeout() {
+        if !isInRange { isInRange = true }
+        rangeTimeoutTask?.cancel()
+        let timeout = outOfRangeSeconds
+        rangeTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            guard self.isInRange else { return }
+            self.isInRange = false
+            self.note("\(Int(timeout)) 秒未收到车端数据 → 判定出范围"
+                      + "（照 VCBDevice resetWithTimeout deviceWhentOutOfRange）",
+                      level: .warning)
+            self.onWentOutOfRange?()
+        }
+    }
+
+    private func cancelRangeTimeout() {
+        rangeTimeoutTask?.cancel()
+        rangeTimeoutTask = nil
+        isInRange = false
+    }
+
+    /// 清空 RSSI 显示值并停掉看门狗
+    private func clearRSSI() {
+        rssiWatchdog?.cancel()
+        rssiWatchdog = nil
+        rssi = nil
+        rssiUpdatedAt = nil
+    }
+
+    /// 收到新 RSSI 后重启看门狗；`rssiStaleSeconds` 内没有新广播就清空。
+    ///
+    /// 为什么需要它：`rssi` 只有「扫描到本车广播」这一个来源（原 App 连接后
+    /// 不做 readRSSI，我们也不做，避免干扰 bonding 协商）。所以必须靠超时
+    /// 反推「已离开范围」，否则界面会永远停留在最后一次的值。
+    private func armRSSIWatchdog() {
+        rssiWatchdog?.cancel()
+        let timeout = rssiStaleSeconds
+        rssiWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.rssi = nil
+            self?.rssiUpdatedAt = nil
+        }
     }
 
     // MARK: - 连接
@@ -418,21 +500,124 @@ public final class BLECentral: NSObject, ObservableObject {
         linkState = .idle
     }
 
+    /// 立刻连接「上次连过的车」—— **不等扫描广播**。
+    ///
+    /// ## 为什么需要
+    ///
+    /// 车端在每条命令执行完会**主动断开**（原 App 日志同样如此：
+    /// `0x05` 状态包到达后约 0.2 秒就 `device is disconnected`）。
+    /// 用户再点按钮时，如果走「扫描 → 等广播 → 连接」：
+    ///
+    /// ```
+    /// AllowDuplicates = YES 下广播间隔 1–2 秒 → 最多等 2 秒才拿到 didDiscover
+    /// + 连接握手 ~0.5 秒 + 订阅 ~0.05 秒
+    /// ```
+    ///
+    /// 用户感知就是「点了以后断联几秒」。
+    ///
+    /// `CBCentralManager.retrievePeripherals(withIdentifiers:)` **不需要扫描**
+    /// 就能拿到已绑定外设的 `CBPeripheral`，拿到即可 `connect`，
+    /// 延迟降到一次连接握手。
+    ///
+    /// - Returns: `true` 表示已发起连接（或本来就在连/已连）；`false` 表示
+    ///   没有已知设备，调用方应回退到扫描。
+    @discardableResult
+    public func connectRemembered() -> Bool {
+        guard central.state == .poweredOn else { return false }
+        switch linkState {
+        case .ready, .connecting, .discovering:
+            return true                      // 已经在连或已连，无需重复
+        default:
+            break
+        }
+        guard let id = rememberedPeripheralID else { return false }
+        let p = peripheralCache[id]
+            ?? central.retrievePeripherals(withIdentifiers: [id]).first
+        guard let p else { return false }
+        peripheralCache[p.identifier] = p
+        note("直接连接已知设备 \(p.name ?? id.uuidString)（不等扫描广播）")
+        connect(p)
+        return true
+    }
+
+    /// 同时更新界面文案与日志文件。
+    ///
+    /// 为什么必须双写：连接 / 服务发现 / 特征发现 / 订阅这四步原先**只写界面**
+    /// （`lastMessage`），失败后日志里完全看不到"到底连上没、订阅成没成"。
+    /// 而「订阅成功」是 BLE bonding（SMP 加密）已建立的**唯一可见证据**
+    /// —— 对应原 App 的 `Notification updated for %@ device.`。
+    /// 车端只在加密链路上受理业务帧，所以这一行有没有，直接决定成败判断。
+    private func note(_ msg: String, level: LogLevel = .info) {
+        lastMessage = msg
+        switch level {
+        case .debug:   FileLogger.shared.debug(msg, module: "链路")
+        case .info:    FileLogger.shared.info(msg, module: "链路")
+        case .warning: FileLogger.shared.warning(msg, module: "链路")
+        case .error:   FileLogger.shared.error(msg, module: "链路", includeStack: false)
+        }
+    }
+
     public func connect(_ p: CBPeripheral) {
+        // ★ 照原 App `-[VCBDevice connect]` @`0x8de4` 的前置检查（L3）：
+        //   `if ([self isConnectable]) { if ([self state] != 0) → 报
+        //   "The device is not disconnected" 并返回；否则才真正 connect }`
+        //   即**只有断开态才发起连接**，已连接/连接中不重复 connect。
+        if p.state != .disconnected {
+            if p.state == .connected {
+                // 已连接：直接进入服务发现（复用现有连接，不 cancel、不重连）
+                note("设备已连接，直接发现服务")
+                linkState = .discovering
+                peripheral = p
+                p.delegate = self
+                p.discoverServices([GATT.serviceUUID])
+            } else {
+                note("设备状态 \(p.state.rawValue)（连接中），跳过重复连接", level: .warning)
+            }
+            return
+        }
         stopScan()
-        timing = ConnectTiming()
-        timing.connectStart = Date()
         linkState = .connecting
         peripheral = p
         p.delegate = self
-        lastMessage = "正在连接 \(p.name ?? p.identifier.uuidString)…"
+        note("正在连接 \(p.name ?? p.identifier.uuidString)…")
         // 连接后系统如需 MITM 配对（6 位码）会自动弹窗，App 无需干预
+        // 原 App 同款：`connectPeripheral:options: nil`（`0x5de0: mov x3, #0`）
         central.connect(p, options: nil)
 
     }
 
     public func disconnect() {
+        // ★ 手动断开：抑制自动重连（否则 didDisconnectPeripheral 会立刻重连回来）
+        suppressAutoReconnect = true
         if let p = peripheral { central.cancelPeripheralConnection(p) }
+    }
+
+    /// 当前连接中的外设（供配对流程主动断开用）。
+    public var currentPeripheral: CBPeripheral? { peripheral }
+
+    /// 主动断开指定外设（不触发 `autoReconnect` 的自动重连）。
+    public func cancelConnection(_ p: CBPeripheral) {
+        // ★ 手动断开：抑制自动重连
+        suppressAutoReconnect = true
+        central.cancelPeripheralConnection(p)
+    }
+
+    /// ★ 是否抑制下一次断连的自动重连（手动断开/解绑/配对前重置时置位）。
+    private var suppressAutoReconnect = false
+
+    /// 配对扫描前复位连接相关状态，确保进入「干净扫描」。
+    ///
+    /// 清空写/通知特征、置 idle，但不碰 `autoConnectWhilePairing`
+    /// （由调用方在 `startScan` 前设置）。
+    public func prepareForPairingScan() {
+        writeChar = nil
+        notifyChar = nil
+        peripheral = nil
+        // ★ 复位抑制标志：配对前 `cancelConnection` 置位的 `suppressAutoReconnect`
+        //   会因「旧连接断开回调被忽略」而残留，若不复位会抑制「配对成功后车端
+        //   断开」的自动重连。这里清掉，让配对后的重连走正常自动重连。
+        suppressAutoReconnect = false
+        linkState = .idle
     }
 
     // MARK: - 发送
@@ -446,15 +631,22 @@ public final class BLECentral: NSObject, ObservableObject {
         }
         guard !bytes.isEmpty else { return false }
         let data = Data(bytes)
-        // ★★★ 写入类型：**必须优先用 Write Command（`.withoutResponse`）**。
+        // ★★★ 写入类型：优先 Write Command（`.withoutResponse`）。
         //
-        // 实测证据（2026-10-04 真机 HCI 抓包）：
-        //   数据写入一律是 ATT **Write Command（opcode 0x52）**，
-        //   只有 CCCD 订阅用 Write Request（0x12）。
+        // **反汇编依据**（`-[VCBDevice sendData:]` @`0x99c4`，已核对）：
+        //   ```asm
+        //   0x9bf4: bl  objc_msgSend        ; [self writeCharacteristic] → CBCharacteristic
+        //   0x9c00: mov x23, x0             ; characteristic
+        //   0x9c04: mov w4, #1              ; ★ type = 1 = CBCharacteristicWriteWithoutResponse
+        //   0x9c0c: mov x1, #sel(writeValue:forCharacteristic:type:)
+        //   0x9c10: mov x2, x27             ; data
+        //   0x9c14: mov x3, x23             ; characteristic
+        //   ```
+        //   `writeValue:forCharacteristic:type:` 参数位是 x2=data / x3=char / x4=type，
+        //   所以 `w4 = 1` 即 Write Command。
         //
-        // 而 `F000FF11` 的属性是 `0x0C`（同时含 `.write` 与 `.writeWithoutResponse`），
-        // 之前的代码优先挑 `.write` → 发出的是 **Write Request** →
-        // 模块不认这种写法，**收到就断开连接** —— 表现为"一点按钮就跳未连接"。
+        // 注：此前这里引用过一条「2026-10-04 HCI 抓包」的说法，该结论已按用户要求作废，
+        // 现仅以反汇编为准。
         let type: CBCharacteristicWriteType
         if c.properties.contains(.writeWithoutResponse) {
             type = .withoutResponse
@@ -464,11 +656,48 @@ public final class BLECentral: NSObject, ObservableObject {
             type = .withoutResponse
         }
         // iOS 27 SDK 已把 forCharacteristic: 重命名为 for:
-        p.writeValue(data, for: c, type: type)
+        //
+        // ★★★ 分包：对齐原 App `-[VCBTransportProtocolManager splitData:withMTU:]` @0xdcac
+        //
+        // 反汇编事实：
+        //   · 包数 = `ceil((len + 4) / mtu)`（`add x8,x0,#4` → `fdiv` → `fcvtpu`）
+        //   · **每包数据量 = MTU − 4**（`sub x8, x20, #4`）
+        //   · 首包前置 **4 字节头 = 包数（小端 uint32）**
+        //     （`str x23,[sp,#0x28]` 存包数 → `dataWithBytes:&count length:4`）
+        //   · 首包 = 4B 头 + (MTU−4)B 数据 = 正好 MTU；后续每包 MTU 字节
+        //
+        // 注意：MTU 足够时（实测车端 182，最大帧 62B）**只会有 1 包**，
+        // 此时保持「整帧直发、不加头」——这是已验证可用的路径（车端能正常回 0x0E），
+        // 不引入额外 4 字节以免改变已工作行为。
+        let mtu = max(p.maximumWriteValueLength(for: .withoutResponse), 24)
+        let maxPayload = mtu - 4
+        if bytes.count <= maxPayload {
+            p.writeValue(data, for: c, type: type)
+        } else {
+            // 多包路径（MTU 偏小时才触发）
+            let packetCount = (bytes.count + mtu - 1) / mtu
+            var header = UInt32(packetCount).littleEndian
+            var first = Data(bytes: &header, count: 4)
+            first.append(contentsOf: bytes[0..<maxPayload])
+            p.writeValue(first, for: c, type: type)
+            FileLogger.shared.debug("→ 分包 1/\(packetCount) 头=\(packetCount) "
+                                   + FrameCodec.hexString([UInt8](first)), module: "TX")
+            var offset = maxPayload
+            var idx = 2
+            while offset < bytes.count {
+                let end = min(offset + mtu, bytes.count)
+                let chunk = [UInt8](bytes[offset..<end])
+                p.writeValue(Data(chunk), for: c, type: type)
+                FileLogger.shared.debug("→ 分包 \(idx)/\(packetCount) "
+                                       + FrameCodec.hexString(chunk), module: "TX")
+                offset = end
+                idx += 1
+            }
+        }
         rxHexStream.append("\(Self.stamp())  →  \(FrameCodec.hexString(bytes))"
                          + "  [\(type == .withoutResponse ? "Command" : "Request")]")
-        FileLogger.shared.append("→ \(FrameCodec.hexString(bytes))"
-                               + " [\(type == .withoutResponse ? "Command" : "Request")]", tag: "TX")
+        FileLogger.shared.debug("→ \(FrameCodec.hexString(bytes))"
+                               + " [\(type == .withoutResponse ? "Command" : "Request")]", module: "TX")
         trimStream()
         lastMessage = "已发送 \(bytes.count) 字节"
         return true
@@ -536,7 +765,13 @@ extension BLECentral: CBCentralManagerDelegate {
     /// 这种"回调从未触发"的情况，iOS 有时重建一次就好了。
     public func resetCentral() {
         central?.delegate = nil
-        central = CBCentralManager(delegate: self, queue: .main)
+        // ★ 重建时**必须**带上同一个 RestoreIdentifier，否则新的 manager
+        //   不再受系统状态恢复保护：App 被终止后不会再被 BLE 事件唤醒，
+        //   「后台保持连接」的能力就没了。
+        central = CBCentralManager(
+            delegate: self,
+            queue: .main,
+            options: [CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier])
         managerState = central.state
         lastMessage = "已重建蓝牙管理器（当前状态：\(stateText(central.state))）"
     }
@@ -560,27 +795,15 @@ extension BLECentral: CBCentralManagerDelegate {
         // ★ 厂商数据 = 加密的广播载荷（`parseBroadcastData:` 的输入）
         let mfgData = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data)
             .map { [UInt8]($0) } ?? []
-        // ★★★ **Service 数据** —— 原 App 的 Tbox 广播码可能由它补齐。
-        //
-        // 反汇编：`-[XXX centralManager:didDiscoverPeripheral:advertisementData:RSSI:]`
-        // 把 `advertisementData[@"kCBAdvDataManufacturerData"]` 交给
-        // `-[ViewModel isTboxBluetoothBroadcastWithBroadcastCode:]`，
-        // 后者要求**长度正好 25 字节**（`cmp x0, #0x19`），才能切出
-        // `broadcastRandom = data[17..25)`。
-        //
-        // 实测厂商数据只有 **19 字节**（差 6），怀疑缺的就在 Service 数据里。
-        let svcDataPairs: [(String, [UInt8])] = {
-            guard let d = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data]
-            else { return [] }
-            return d.map { ($0.key.uuidString.uppercased(), [UInt8]($0.value)) }
-                    .sorted { $0.0 < $1.0 }
-        }()
 
         MainActor.assumeIsolated {
+            // ★ 广播计数：给「后台保活」日志提供「还在不在收广播」的硬指标。
+            //   进程被挂起时这个数会停止增长，是最直接的证据。
+            //   （必须放在 MainActor 块里：`BackgroundMonitor` 是 @MainActor 隔离的）
+            BackgroundMonitor.shared.noteBroadcast()
             // ★★★ 保存广播原始数据 + 解析 CIDPU —— 这是构造 01 帧的前提。
             //     原 App 的 `parseBroadcastData:` 会拿 cidpu 去 AES 解密这段数据。
             if !mfgData.isEmpty {
-                lastManufacturerData = mfgData
                 // ★★★ CIDPU 的正确来源：**已保存的密钥帧（core）末尾 4 字节**。
                 //
                 // 实测密钥帧末尾 = `6A C8 9A D4` → CIDPU = `6ac89ad4`，
@@ -596,43 +819,27 @@ extension BLECentral: CBCentralManagerDelegate {
                 // ★ 把原始数据完整打出来 —— 原 App 的标识信息在厂商数据里
                 //   （`isValeoDeviceWithAdvertisingData:` 是拿它前几字节比魔数），
                 //   所以必须先看清厂商数据长什么样，才能定位 cidpu / cryptedID。
-                FileLogger.shared.append(
+                FileLogger.shared.debug(
                     "广播名=「\(advName)」 厂商数据 \(mfgData.count)B = "
                     + mfgData.map { String(format: "%02X", $0) }.joined(separator: " "),
-                    tag: "广播")
-                FileLogger.shared.append(
+                    module: "广播")
+                // ★ reSynchro = 厂商数据 [4..6) 的 2 字节（反汇编确认：
+                //   `parseAdvertisingGen03:` @`0xbd9c` `mov w2,#4 / mov w3,#2`
+                //   → `subdataWithRange:` → 存进 `_reSynchro`）。
+                //   原 App 的 `didFoundVehicleRequestPairing`（配对邀请）很可能
+                //   就取决于这 2 字节 —— 实测时对比「车端正常态」与「诊断仪开
+                //   配对窗口」两种情况下它的值，就能确定判据。
+                if mfgData.count >= 6 {
+                    let rs = mfgData[4..<6].map { String(format: "%02X", $0) }.joined(separator: " ")
+                    let mode = mfgData.count > 6 ? String(format: "%02X", mfgData[6]) : "-"
+                    FileLogger.shared.debug(
+                        "reSynchro=[\(rs)] mode=\(mode) protocolVersion=\(mfgData.count > 2 ? String(format: "%02X", mfgData[2]) : "-")",
+                        module: "广播")
+                }
+                FileLogger.shared.debug(
                     "cidpu=\(currentCidpu.isEmpty ? "(空)" : currentCidpu), "
                     + "广播Service=[\(advServiceUUIDs.joined(separator: ","))]",
-                    tag: "广播")
-                // ★ Service 数据（可能是广播码缺的那 6 字节）
-                for (u, bytes) in svcDataPairs {
-                    FileLogger.shared.append(
-                        "ServiceData[\(u)] \(bytes.count)B = "
-                        + bytes.map { String(format: "%02X", $0) }.joined(separator: " "),
-                        tag: "广播")
-                }
-                if svcDataPairs.isEmpty {
-                    FileLogger.shared.append("ServiceData（无）", tag: "广播")
-                }
-
-                // ⚠️ Tbox 广播码（`code[17..25)`）已从主链路移除。
-                //
-                // 它曾被认为是 `01` 帧的第一段，但复核后确认 `01` 帧是
-                // `AES(明文, CkTRxSP)` 的两段结构，**不含 broadcastRandom 字段**。
-                // 保留 `TboxBroadcastCode` 文件仅供诊断，默认不参与解析，
-                // 避免每次广播都刷两行无用日志。
-                if Self.debugTboxBroadcastCode {
-                    let svcAll = svcDataPairs.flatMap { $0.1 }
-                    let code = TboxBroadcastCode.assemble(manufacturer: mfgData, service: svcAll)
-                    if let parsed = TboxBroadcastCode.parse(code) {
-                        broadcastCode = code
-                        broadcastCodeRandom = parsed.broadcastRandom
-                        FileLogger.shared.append(
-                            "Tbox 广播码 25B → broadcastRandom = "
-                            + parsed.broadcastRandom.map { String(format: "%02X", $0) }.joined(separator: " "),
-                            tag: "广播")
-                    }
-                }
+                    module: "广播")
             }
             // ★ 诊断：先记下"回调确实来过"，再谈过滤
             discoverCount += 1
@@ -657,10 +864,6 @@ extension BLECentral: CBCentralManagerDelegate {
                 lastDiscoveryTime = lastDiscoveryTime.filter { keep.contains($0.key) }
             }
 
-            // ★ 诊断：先记下"回调确实来过"，再谈过滤
-            discoverCount += 1
-            lastDiscoveredName = advName.isEmpty ? "(无名)" : advName
-
             // ★★★ **照原 App 的匹配规则**（`+[VCBAdvertisingData isValeoDeviceWithAdvertisingData:]`
             //     → `-[IBVehicleManager updateVehicleWithDevice:]` → `-[IBDevice checkCryptedID:]`）
             //
@@ -677,14 +880,28 @@ extension BLECentral: CBCentralManagerDelegate {
             // 但 `isLikelyTarget` 严格按原规则给值。
             let hit = (identity != .notValeo)
             let weak = Double(rssiValue) <= ValeoAdvMatch.rssiFloor
+            // ★ 命中本车时更新 RSSI 显示值。原 App 连接后从不 readRSSI，
+            //   所以 RSSI 只能来自广播回调 —— 一旦停止扫描或离开覆盖范围，
+            //   就必须靠看门狗把显示值清掉（否则会挂着过期值当实时信号）。
+            if hit {
+                rssi = rssiValue
+                rssiUpdatedAt = Date()
+                armRSSIWatchdog()
+            }
 
             if let adv {
-                FileLogger.shared.append(
+                FileLogger.shared.debug(
                     "匹配：\(adv.genLabel) 版本=\(adv.protocolVersion) "
                     + "cryptedID=\(adv.cryptedID.map { String(format: "%02X", $0) }.joined()) "
                     + "→ \(identity.rawValue)"
                     + (weak ? "（RSSI \(rssiValue) ≤ -91，原 App 会丢弃）" : ""),
-                    tag: "匹配")
+                    module: "匹配")
+
+                // ★ 分路 RSSI：按 antenna 字段高 4 位分路（0x80=天线1/0x40=天线2），
+                //   供标定流程（addRSSI: @0x801c）采集两路 RSSI。
+                if let antennaNo = adv.antennaNumber {
+                    onDualRSSI?(antennaNo, rssiValue)
+                }
 
                 // ★★★ 车辆状态：照原 App `parseBroadcastData:` @`0x4bc0`。
                 //   广播里的 `broadcastData`（Gen03 = 厂商数据 [19,35) 16B）是
@@ -694,9 +911,9 @@ extension BLECentral: CBCentralManagerDelegate {
                 if !adv.broadcastData.isEmpty, !cidpuHex.isEmpty,
                    let decrypted = VehicleStatus.decryptBroadcast(
                        cipher: adv.broadcastData, cidpuHex: cidpuHex) {
-                    FileLogger.shared.append(
+                    FileLogger.shared.debug(
                         "车辆状态明文：\(decrypted.plain.map { String(format: "%02X", $0) }.joined(separator: " "))",
-                        tag: "状态")
+                        module: "状态")
                     onBroadcastStatus?(decrypted.plain)
                 }
             }
@@ -715,9 +932,51 @@ extension BLECentral: CBCentralManagerDelegate {
             } else {
                 candidates.append(dev)
             }
+            // ★★★ 强兜底（优先级最高）：**配对流程等待中**（配对页已 armed）时，
+            //    车端正处在配对模式、模块一定在广播 —— 此时连第一个发现的设备，
+            //    让 iOS 走完整的 pairing 流程（弹出 6 位码框）。
+            //    这正是原 App「配对不用手点」的行为。
+            //
+            // 2026-10-25 修复：之前这里要求 `!advName.isEmpty` 且排在 hit 判定之后，
+            // 导致「车端广播名空 / 配对模式下广播不带 EE 01 魔数」时永远不自动连，
+            // 表现为「绑定页收不到配对、要去诊断页点扫描才连得上」。
+            // 现在配对等待中时**无条件连第一个发现的设备**（名字空也连）。
+            // ★★★ 2026-10-25 修复竞态：之前这里要求 `linkState == .scanning`，
+            //     但 `startFullPairing` 里 `cancelConnection` 的异步 `didDisconnect`
+            //     会把 `linkState` 从 `.scanning` 覆盖成 `.disconnected`，导致
+            //     这个判断永远失败 → 扫描到了设备却不自动连接 → 用户要手动点
+            //     状态条（第二次才连上）才弹 6 位码。
+            //     现在去掉 linkState 条件：只要配对等待中，就无条件连第一个发现的
+            //     设备（autoConnectWhilePairing 连接后即置 false，只连一次）。
+            if autoConnectWhilePairing {
+                autoConnectWhilePairing = false       // 只连一次，避免连错多个
+                lastMessage = "配对中：自动连接 \(advName.isEmpty ? peripheralID.uuidString : advName) 以触发系统配对…"
+                connect(peripheral)
+                return
+            }
+
             // 原 App 没有「广播带 Service 就直连」这一步 —— 判定只看厂商数据，
             // 因此这里也只在**判定命中**时自动连接（弱信号按原规则跳过）。
             if hit && !weak {
+                // ★ 冷却判断：车端刚主动断开时只扫描、不立刻重连。
+                //
+                // 原 App 的真实节奏（`xiaoka_vcc.log`）：
+                // ```
+                // 06:14:39.127  device is disconnected
+                // 06:14:45.492  Stopping scan
+                // 06:14:45.494  Request for connection     ← 隔 6 秒，且是用户操作触发
+                // ```
+                // 即**断开后不会「扫到就立刻连」**。我们原来是无条件 connect，
+                // 配合扫描常开会形成「连→断→扫→连」死循环。
+                //
+                // 用户主动操作时上层会置 `forceConnectOnce = true`，不受此限制。
+                if !forceConnectOnce,
+                   let t = lastDisconnectAt,
+                   Date().timeIntervalSince(t) < autoConnectCooldownSeconds {
+                    // 冷却中：RSSI / 车辆状态照常更新（前面已处理），只是不重连
+                    return
+                }
+                forceConnectOnce = false
                 // 本车优先：已经有归属结论时直接连；未确认归属也连（这是配对新设备的场景）
                 lastMessage = "发现目标设备 \(advName.isEmpty ? peripheralID.uuidString : advName)"
                     + "（\(adv?.genLabel ?? "?")·\(identity.rawValue)），正在连接…"
@@ -729,47 +988,6 @@ extension BLECentral: CBCentralManagerDelegate {
                 let keep = Set(candidates.map { $0.id })
                 peripheralCache = peripheralCache.filter { keep.contains($0.key) || $0.key == peripheralID }
             }
-
-            // ★★ 强兜底：**配对流程等待中**（配对页已 armed）时，
-            //    车端正处在配对模式、模块一定在广播 —— 此时连第一个
-            //    发现的设备，让 iOS 走完整的 pairing 流程（弹出 6 位码框）。
-            //    这正是原 App「配对不用手点」的行为。
-            if autoConnectWhilePairing, !advName.isEmpty, linkState == .scanning {
-                autoConnectWhilePairing = false       // 只连一次，避免连错多个
-                lastMessage = "配对中：自动连接 \(advName) 以触发系统配对…"
-                connect(peripheral)
-            }
-        }
-    }
-
-    /// 退出配对静默模式：恢复正常的服务发现 + RSSI 轮询。
-    ///
-    /// 由两处触发：① 用户点「我已输完配对码」；② 静默超时兜底。
-    public func exitQuietMode() {
-        quietTask?.cancel()
-        quietTask = nil
-        guard quietMode else { return }
-        quietMode = false
-        lastMessage = "配对静默结束，恢复服务发现"
-        if let p = peripheral {
-            p.discoverServices([GATT.serviceUUID])
-            startRSSIPolling(p)
-        }
-    }
-
-    /// 静默模式的超时兜底。
-    ///
-    /// ⚠️ 时间不能太长：车端很可能只在**配对完成后的短窗口**内接受登记帧
-    /// （`0x0D`）。之前给 20 秒，等静默结束才发帧，可能已经错过窗口，
-    /// 表现为「卡在等待下发密钥」。
-    /// 现在给 8 秒 —— 足够输 6 位码，又不至于拖过窗口。
-    private func scheduleQuietModeExit() {
-        quietTask?.cancel()
-        quietTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
-            guard let self, self.quietMode else { return }
-            self.lastMessage = "配对静默超时（8s），自动恢复并发送登记帧"
-            self.exitQuietMode()
         }
     }
 
@@ -804,97 +1022,22 @@ extension BLECentral: CBCentralManagerDelegate {
         return true
     }
 
-    /// ★ **为配对而重连**：先断开当前链路，再重新连接。
-    ///
-    /// 为什么需要：iOS 只在**建立新连接**时才与模块协商 pairing。
-    /// 如果链路早已连着（例如用户进配对页前 App 就自动连上了），
-    /// 系统**不会再次配对**，车端也就不认这次"登记"。
-    ///
-    /// 断开后重连，就能让 iOS 重新走一遍完整流程（含 6 位码弹窗）。
-    public func reconnectForPairing() {
-        // ★ 照原 App `closeConnexionForCommand`：关掉旧连接，然后重新连一次。
-        //
-        // ⚠️ 之前这里设了 `autoReconnect = false` 并依赖 `didDisconnectPeripheral`
-        //    回调去重连。但**设备已断开时 `cancelPeripheralConnection` 不会触发
-        //    `didDisconnect`** → 状态永远停在 `.connecting` → **表现为"连不上"**。
-        //
-        // 现在**不依赖任何回调**：关连接 → 立刻清理本地状态 → 重新扫描。
-        if let p = peripheral {
-            lastMessage = "为配对关闭旧连接…"
-            central.cancelPeripheralConnection(p)
-        }
-        peripheral = nil
-        writeChar = nil
-        notifyChar = nil
-        stopRSSIPolling()
-        linkState = .idle
-
-        autoConnectWhilePairing = true
-        lastMessage = "重新扫描以建立新连接（触发系统配对）…"
-        startScan()
-    }
-
     public nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
-            timing.didConnect = Date()
+            BackgroundMonitor.shared.noteConnect()
             linkState = .discovering
-            reconnectAttempt = 0
+            connectedAt = Date()          // ← 「连接存活时长」计时起点（扫描常开的防抖用）
             // ★ 记住这个设备，之后可以「不用扫描」直接重连
             rememberedPeripheralID = peripheral.identifier
-            // MTU / 单次写入上限：老车 PEPS 模块对大包敏感，必须先拿到这个值
-            maxWriteLength = peripheral.maximumWriteValueLength(for: .withoutResponse)
 
-            // ★★★ 配对静默模式：连接后**什么都不做**，把时间让给 iOS 的 pairing 协商。
-            //     一旦我们在这期间 discoverServices / setNotifyValue / readRSSI，
-            //     就可能打断协商 → 诊断仪报「配对失败」。
-            // ★★★ 配对静默：**只跳过"额外"操作，但不阻塞主流程**。
-            //
-            // 反汇编证据（`-[IBDevice openConnexionForCommand:]` @0x4988）：
-            // 原 App 是「stopScan → (0x55 时 closeConnexion) → 开连接 → **立即发帧**」，
-            // **并不会等 pairing 完成**。pairing 弹窗由 iOS 在连接过程中并行处理。
-            //
-            // 所以这里立刻退出静默、走正常的服务发现 + 发帧流程，
-            // 不再做"等 8 秒让用户输码"这种阻塞 —— 那反而会错过车端的响应窗口。
-            if quietMode {
-                lastMessage = "已连接（配对中），立即发现服务并发送登记帧…"
-                exitQuietMode()
-                return
-            }
-
-            lastMessage = "已连接（写上限 \(maxWriteLength)B），发现服务中（只查目标 Service 抢时间）"
+            // ★★★ 照原 App `didConnectPeripheral` @0x640c：连接成功后直接
+            //     `discoverServices("F000FF10")` → 发现特征后 `setNotifyValue(FF12)`
+            //     （访问加密特征时 iOS 自动触发 6 位码配对）+ `setWriteCharacteristic(FF11)`。
+            //     **原 App 连接后从不 readRSSI**（readRSSI 只在主 App 层），
+            //     所以这里也不做 RSSI 轮询 —— 周期 readRSSI 会干扰 6 位码配对协商。
+            note("已连接，发现服务中（只查目标 Service 抢时间）")
             // 只发现目标服务，避免枚举全部服务浪费时间
             peripheral.discoverServices([GATT.serviceUUID])
-            // 启动 RSSI 周期读取（无感靠近 / 中继攻击提示都依赖它）
-            // ★ 它同时起"保活"作用：周期性读操作让 iOS 不把这条链路
-            //   判为空闲 —— 原 App 之所以"秒连"，就是链路在后台一直被系统保持。
-            startRSSIPolling(peripheral)
-        }
-    }
-
-    /// 周期性读取 RSSI。原先只读一次，无法做「信号突变」这类中继检测。
-    private func startRSSIPolling(_ peripheral: CBPeripheral) {
-        rssiTask?.cancel()
-        rssiTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self, self.peripheral === peripheral else { return }
-                peripheral.readRSSI()
-            }
-        }
-    }
-
-    private func stopRSSIPolling() {
-        rssiTask?.cancel()
-        rssiTask = nil
-    }
-
-    public nonisolated func peripheral(
-        _ peripheral: CBPeripheral,
-        didReadRSSI RSSI: NSNumber,
-        error: Error?
-    ) {
-        MainActor.assumeIsolated {
-            rssi = RSSI.intValue
         }
     }
 
@@ -905,7 +1048,7 @@ extension BLECentral: CBCentralManagerDelegate {
     ) {
         MainActor.assumeIsolated {
             linkState = .failed
-            lastMessage = "连接失败：\(error?.localizedDescription ?? "未知")"
+            note("连接失败：\(error?.localizedDescription ?? "未知")", level: .error)
 
             // ★★ 回退：连接失败就改用扫描。
             //    系统缓存里的 `CBPeripheral` 有时是过期的（iOS 会淘汰 500 条以上的
@@ -928,44 +1071,108 @@ extension BLECentral: CBCentralManagerDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
-            // ★★★ 配对重连优先处理：断开是为了重连以触发系统 pairing。
-            //     必须在自动重连逻辑**之前**处理，否则会被它抢走。
-            if let p = pendingPairingReconnect {
-                pendingPairingReconnect = nil
-                self.peripheral = p            // ★ 必须显式 self.：参数名 peripheral 遮蔽了属性
-                p.delegate = self
-                linkState = .connecting
-                lastMessage = "断开完成，正在重连以触发系统配对…"
-                central.connect(p, options: nil)
-                return
-            }
+            // ★★★ 竞态修复（2026-10-25）：`startFullPairing` 会 `cancelConnection`
+            //     旧连接 → 立即 `startScan` → `connect` 新连接。旧连接的**异步**
+            //     断开回调若在新连接建立后才触发，会把新连接的 `.scanning/.
+            //     discovering/.ready` 覆盖成 `.disconnected`，破坏「首次连接 →
+            //     触发 6 位码配对」的时序（表现为首次不弹码，要退出重进才弹）。
+            //     修复：只处理「当前连接」的断开，旧连接的异步回调直接忽略。
+            guard peripheral === self.peripheral else { return }
 
+            BackgroundMonitor.shared.noteDisconnect()
             linkState = .disconnected
             writeChar = nil
             notifyChar = nil
-                stopRSSIPolling()
-            rssi = nil
             let reason = error?.localizedDescription ?? "正常断开"
-            lastMessage = "已断开：\(reason)"
+            note("已断开：\(reason)", level: .warning)
 
-            // 意外断开按退避自动重连；限制次数避免死循环
-            guard autoReconnect, reconnectAttempt < maxReconnectAttempts else {
-                if reconnectAttempt >= maxReconnectAttempts {
-                    lastMessage = "重连已达上限（\(maxReconnectAttempts) 次），请手动重试"
-                }
+            // ★ 手动断开 → 消费抑制标志，不做自动重连
+            if suppressAutoReconnect {
+                suppressAutoReconnect = false
                 return
             }
-            let attempt = reconnectAttempt
-            reconnectAttempt += 1
-            let delay = min(5.0, 0.4 * pow(2.0, Double(attempt)))
-            lastMessage = "断开后 \(String(format: "%.1f", delay))s 自动重连"
-                + "（第 \(reconnectAttempt)/\(maxReconnectAttempts) 次）"
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                guard let self, self.autoReconnect else { return }
-                self.central.connect(peripheral, options: nil)
-            }
+
+            // ★★★ 照原 App：VCB 层断开**只通知，不自动重连**（M3）。
+            //
+            // 反汇编 `-[VCBBluetoothManager centralManager:didDisconnectPeripheral:error:]`
+            // @`0x69fc` 的完整行为：
+            // ```objc
+            // VCBDevice *dev = [VCBManager deviceWithIdentifier:p.identifier];
+            // if (dev == nil) return;
+            // NSLog(@"The %@ device is disconnected.", dev);
+            // [dev setState:0];
+            // if ([dev.delegate respondsToSelector:@selector(device:didDisconnectWithError:)])
+            //     [dev.delegate device:didDisconnectWithError:error];   // 只回调
+            // ```
+            // 即**没有任何 `connect` 重试**。重连由上层 `autoConnect()`
+            // （App 启动/蓝牙就绪/回前台时）或用户手动操作触发。
+            //
+            // 之前这里的「指数退避自动重连」是自造行为：配对成功后若车端主动断开，
+            // 会被反复重连，干扰车端会话，与原 App 不一致。
+            characteristicsReady = false
+            cancelRangeTimeout()
+            note("已断开：\(reason)（原 App 的扫描是常开的，见 resumeScanAfterDisconnect）", level: .warning)
+            resumeScanAfterDisconnect()
         }
+    }
+
+    // MARK: - ★ 扫描常开（对齐原 App 的稳态）
+
+    /// 原 App 的扫描是**常开**的，不是"用到才扫"。
+    ///
+    /// 日志证据（`Docs/evidence/xiaoka_vcc.log`）：
+    ///
+    /// ```text
+    /// 17:46:06.988  Start scan
+    /// 17:46:07.107  Data received 22B (0x05)
+    /// 17:46:07.208  device is disconnected      ← 断开时扫描已经在跑
+    /// 17:46:07.311  Stopping scan
+    /// 17:46:07.313  Request for connection      ← 车端一广播就 2 毫秒内连上
+    /// ```
+    ///
+    /// 也就是说：**原 App 在断开之前就已经 `Start scan` 了**，
+    /// 所以下一条命令到来时无需"先扫再连"，直接命中。
+    ///
+    /// 我们原来是连接成功即 `stopScan()`、断开后停着不动，
+    /// 只能等 `autoConnect()`（启动/回前台）或用户手动操作 ——
+    /// 后果有两个：
+    /// 1. 无感进入的 RSSI 采样断流（那条链路依赖持续扫描）
+    /// 2. 点按钮要等 1–2 秒扫描 + 连接
+    ///
+    /// ### 防抖
+    /// 原 App 没有这个限制，但完全无限制的重扫在车端异常时会形成
+    /// 「连上→立刻断开→重扫→再连」的死循环（耗电且干扰车端会话）。
+    /// 这里加一条温和的门槛：**3 秒内断开累计 5 次**就暂停 30 秒再恢复。
+    /// 正常使用（每条命令一次连接）永远不会触发。
+    private func resumeScanAfterDisconnect() {
+        lastDisconnectAt = Date()        // ← 自动重连冷却的计时起点
+        guard central.state == .poweredOn else {
+            note("断开后未重扫：蓝牙适配器 \(stateText(central.state))", level: .warning)
+            return
+        }
+        // 连续快速断开计数
+        let now = Date()
+        let lived = connectedAt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        connectedAt = nil
+        if lived < 3.0 {
+            quickDisconnectCount += 1
+        } else {
+            quickDisconnectCount = 0
+        }
+        if quickDisconnectCount >= 5 {
+            quickDisconnectCount = 0
+            scanCooldownTask?.cancel()
+            note("连续 \(5) 次 3 秒内断开 → 暂停重扫 30 秒（防死循环）", level: .warning)
+            scanCooldownTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.note("冷却结束，恢复常开扫描")
+                self.resumeScanAfterDisconnect()
+            }
+            return
+        }
+        note("断开后自动重扫（对齐原 App 的扫描常开）")
+        startScan()
     }
 }
 
@@ -975,13 +1182,21 @@ extension BLECentral: CBPeripheralDelegate {
 
     public nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         MainActor.assumeIsolated {
-            timing.servicesDiscovered = Date()
-            guard error == nil, let svc = peripheral.services?.first(where: { $0.uuid == GATT.serviceUUID })
-                    ?? peripheral.services?.first else {
-                lastMessage = "未找到目标服务：\(error?.localizedDescription ?? "空")"
+            // ★ 照原 App：**必须**匹配目标服务 `F000FF10`，不匹配即失败（L4）。
+            //   原 App 没有「用第一个服务兜底」的行为 —— 兜底会连到错误服务，
+            //   后续特征发现必然失败且原因被掩盖。
+            if let error {
+                note("发现服务失败：\(error.localizedDescription)", level: .error)
                 linkState = .failed
                 return
             }
+            guard let svc = peripheral.services?.first(where: { $0.uuid == GATT.serviceUUID }) else {
+                let all = (peripheral.services ?? []).map { $0.uuid.uuidString }.joined(separator: ",")
+                note("未找到目标服务 F000FF10（现有：\(all.isEmpty ? "空" : all)）", level: .error)
+                linkState = .failed
+                return
+            }
+            note("已找到目标服务 F000FF10，发现特征中…")
             peripheral.discoverCharacteristics([GATT.writeCharUUID, GATT.notifyCharUUID], for: svc)
         }
     }
@@ -992,20 +1207,54 @@ extension BLECentral: CBPeripheralDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
-            timing.characteristicsDiscovered = Date()
+            // ★ 照原 App 的 peripheral → device 映射（`sharedManager` + `deviceWithIdentifier:`
+            //   @`0xa5c8`）：SDK 只认识自己跟踪的设备，否则回调
+            //   `device:didNotReadyToExchangeDataWithError:` 并报
+            //   "The device is nil. The SDK don't know this peripheral."
+            //   我们是单设备模型，等价做法是：回调必须来自当前跟踪的那个外设。
+            guard let tracked = self.peripheral,
+                  peripheral.identifier == tracked.identifier else {
+                note("特征发现来自未知外设（原 App：SDK don't know this peripheral）",
+                     level: .error)
+                linkState = .failed
+                return
+            }
+            // ★ 照原 App 检查 error（L5）
+            if let error {
+                note("发现特征失败：\(error.localizedDescription)", level: .error)
+                linkState = .failed
+                return
+            }
             for c in service.characteristics ?? [] {
-                // 与原 App 一致：按 UUID 硬编码判定读写角色
-                // （反汇编 0xa950 比 F000FF12 → setReadCharacteristic + setNotifyValue；
-                //   0xa9fc 比 F000FF11 → setWriteCharacteristic）
+                // ★★ 严格照原 App `peripheral:didDiscoverCharacteristicsForService:error:`
+                //    @`0xa53c` 的分支：
+                //      UUID == F000FF12-0451-4000-B000-000000000000
+                //        → setReadCharacteristic:  (@0xa8d4)
+                //        → requestSubcriptionToNotification / setNotifyValue:forCharacteristic:
+                //        → setRequestSubcriptionToNotification:
+                //      UUID == F000FF11-0451-4000-B000-000000000000
+                //        → setWriteCharacteristic: (@0xa904)
+                //
+                // 之前这里漏了 `setReadCharacteristic:`（只登记了 notify），
+                // 是与原 App 的实际差异，现已补齐。
                 if c.uuid == GATT.writeCharUUID { writeChar = c }
                 if c.uuid == GATT.notifyCharUUID {
                     notifyChar = c
+                    readChar = c                      // ← 补：setReadCharacteristic:
                     peripheral.setNotifyValue(true, for: c)
                 }
             }
             if writeChar == nil || notifyChar == nil {
-                lastMessage = "特征不完整（write=\(writeChar != nil), notify=\(notifyChar != nil)）"
+                note("特征不完整（write=\(writeChar != nil), notify=\(notifyChar != nil)）", level: .error)
+                return
             }
+            // ★ 照原 App：特征发现后立即置「可交换数据」并回调，
+            //   不等 didUpdateNotificationState（原 App @`0xaa88` setState: +
+            //   @`0xaac0` deviceDidReadyToExchangeData:）。
+            characteristicsReady = true
+            notifyRequestedAt = Date()             // ← 订阅耗时计时起点
+            note("特征就绪：write=FF11 / read+notify=FF12，已请求订阅"
+                 + "（照原 App 此刻即置 deviceDidReadyToExchangeData）")
         }
     }
 
@@ -1015,14 +1264,39 @@ extension BLECentral: CBPeripheralDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
+            // ★ 订阅耗时 —— 判断 bonding 状态最可靠的量化指标
+            //   （原 App 日志 344 次订阅：中位数 0.056s，配对时 5–15s）
+            let elapsed = notifyRequestedAt.map { Date().timeIntervalSince($0) } ?? -1
+            notifyRequestedAt = nil
+            let timing = elapsed >= 0 ? String(format: "%.2fs", elapsed) : "?"
             if error != nil {
-                lastMessage = "订阅失败：\(error!.localizedDescription)"
+                // ★ 这一行是「bonding 失败」的直接证据：原 App 的
+                //   `device:didSubcriptionFailedWithError:` 走的就是这里，
+                //   此时它**根本不会发 0x0D**。
+                note("订阅失败（bonding 未建立）：耗时 \(timing)，\(error!.localizedDescription)",
+                     level: .error)
+                if elapsed >= 1.0 && elapsed <= 6.0 {
+                    note("   ↳ 耗时落在 1–6s 且失败 = 车端 LTK 与手机不匹配。"
+                         + "原 App 同一现象实测 2.95s 失败（code 15 Encryption is insufficient）。"
+                         + "处置：iPhone 设置→蓝牙→忽略本车机，再由诊断仪重新配对。",
+                         level: .error)
+                }
                 return
             }
             if characteristic.isNotifying {
-                timing.notifySubscribed = Date()
                 linkState = .ready
-                lastMessage = "链路就绪 —— \(timing.summary)"
+                // ★ 对应原 App 的 `Notification updated for %@ device.`——
+                //   订阅成功即链路已加密（SMP bonding 完成），是车端受理
+                //   业务帧（0x0D / 0x01）的前提。
+                if elapsed >= 5 {
+                    note("链路就绪：订阅成功，耗时 \(timing)（5s+ = 系统弹了 PASSKEY 框，"
+                         + "说明这次刚建立 bonding）")
+                } else if elapsed >= 0.3 {
+                    note("链路就绪：订阅成功，耗时 \(timing)（略慢，正常应 <0.3s；"
+                         + "若车端无响应可从信号强度排查）", level: .warning)
+                } else {
+                    note("链路就绪：订阅成功，耗时 \(timing)（<0.3s = bonding 已复用，链路已加密）")
+                }
             }
         }
     }
@@ -1035,10 +1309,11 @@ extension BLECentral: CBPeripheralDelegate {
         MainActor.assumeIsolated {
             guard error == nil, let data = characteristic.value, !data.isEmpty else { return }
             let bytes = [UInt8](data)
+            // ★ 收到数据即重置「出范围」计时（照 VCBDevice resetWithTimeout @0x9fb4）
+            resetRangeTimeout()
             rxHexStream.append("\(Self.stamp())  ←  \(FrameCodec.hexString(bytes))")
-            FileLogger.shared.append("← \(FrameCodec.hexString(bytes))", tag: "RX")
+            FileLogger.shared.debug("← \(FrameCodec.hexString(bytes))", module: "RX")
             trimStream()
-            onRawData?(bytes)
 
             // ★★★ **直接把原始字节交给上层**。
             //
