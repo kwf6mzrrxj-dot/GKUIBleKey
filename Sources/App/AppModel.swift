@@ -416,8 +416,25 @@ public final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // ★★★ **蓝牙就绪即自动连接** —— 这是"打开 App 就自动连上"的关键。
+        // ★★★ Live Activity 跟随预认证开关
         //
+        // 只在「需要后台 BLE」时才让它出现在锁屏上：开保活 → 启动，
+        // 关保活 → 立即结束，不在用户锁屏上留没用的卡片。
+        preAuth.$isEnabled
+            .removeDuplicates()
+            .sink { [weak self] on in
+                guard let self else { return }
+                if on { self.refreshLiveActivity() } else { self.liveActivity.end() }
+            }
+            .store(in: &cancellables)
+
+        // ★ 链路 / 车辆状态变化 → 刷新锁屏卡片（内部有 2 秒节流）
+        ble.$linkState
+            .removeDuplicates()
+            .sink { [weak self] _ in self?.refreshLiveActivity() }
+            .store(in: &cancellables)
+
+        // ★★★ **蓝牙就绪即自动连接** —— 这是"打开 App 就自动连上"的关键。        //
         // 不能只靠 SwiftUI 的 `onAppear`/`onChange`：冷启动时
         // `CBCentralManager` 的 state 还是 `.unknown`，此时 `startScan()`
         // 会被 guard 拒绝，自动连接就静默失败了。
@@ -1015,6 +1032,55 @@ public final class AppModel: ObservableObject {
     /// 上一次记录过的中继告警，用于去重（nil = 当前无告警）
     private var lastRelayAlarm: String?
 
+    // MARK: - ★ Live Activity（后台 BLE 权限的钥匙）
+
+    /// 锁屏 / 灵动岛上的实时活动。
+    ///
+    /// **技术目的**：Apple 文档（iOS 26+）规定，App 有 `CBManager` 实例并启动
+    /// Live Activity 后，后台可获得与前台相同的 Core Bluetooth 权限 ——
+    /// 特别是后台扫描时 `AllowDuplicates` 仍然生效（不被系统合并成十几秒一次）。
+    ///
+    /// 用户实测原厂 App「iOS 26 稳定、iOS 27 抽奖」，差别就在这个权限上。
+    public let liveActivity = LiveActivityController()
+
+    /// 把当前状态推给锁屏卡片（预认证保活关闭时直接结束活动）
+    ///
+    /// 加 2 秒节流：`linkState` 在连接/断开时会连续变化多次，
+    /// 而 Live Activity 的更新本身有系统级频率限制，没必要每次都推。
+    private var lastLiveActivityRefresh = Date.distantPast
+
+    private func refreshLiveActivity() {
+        guard preAuth.isEnabled else {
+            liveActivity.end()
+            return
+        }
+        if liveActivity.isRunning,
+           Date().timeIntervalSince(lastLiveActivityRefresh) < 2 {
+            return
+        }
+        lastLiveActivityRefresh = Date()
+        let text: String
+        if ble.linkState == .ready {
+            text = "链路就绪"
+        } else if preAuth.lastSentAt != nil {
+            text = "已向车端报到"
+        } else if ble.linkState == .scanning || ble.linkState == .discovering
+                    || ble.linkState == .connecting {
+            text = "搜索车辆中"
+        } else {
+            text = "待机"
+        }
+        let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
+            ?? VehicleProfile.defaultNickname
+        liveActivity.startOrUpdate(
+            vehicleName: name,
+            state: VehicleActivityAttributes.ContentState(
+                isLocked: measured.status?.isLocked,
+                isConnected: ble.linkState == .ready,
+                lastPreAuthAt: preAuth.lastSentAt,
+                statusText: text))
+    }
+
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - 车控动作（统一入口）
@@ -1305,6 +1371,8 @@ public final class AppModel: ObservableObject {
                     //   持续扫描是 iOS 判定"后台仍在工作"最强的信号，
                     //   也是原 App 后台 30 秒节奏稳定的可能原因。
                     ble.resumeScanIfNeeded()
+                    // 预认证往返结束 → 更新锁屏卡片的「最近报到」时间
+                    refreshLiveActivity()
                     return
                 }
                 // ★ 0x0F 设备名回执：解析已在 MeasuredSession 里完成，

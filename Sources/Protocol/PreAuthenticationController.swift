@@ -176,8 +176,8 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - ③ launchPassiveEntryCommands
 
-    /// 上一次真正把 `0x0C` 交出去的时刻（事件驱动补发的判据）
-    private var lastSentAt: Date?
+    /// 上一次真正把 `0x0C` 交出去的时刻（事件驱动补发的判据，同时供锁屏卡片显示）
+    public private(set) var lastSentAt: Date?
     /// 正在排/发（防止广播高频触发反复 cancel 定时器）
     private var isSending = false
 

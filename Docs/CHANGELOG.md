@@ -5,6 +5,74 @@
 
 ---
 
+## v5.9（2026-10-29）—— Live Activity：拿后台蓝牙权限（代码完成，待签名启用）
+
+用户实测给出决定性线索：**同一份原厂 App 在 iOS 26 稳定点火、在 iOS 27 抽奖。**
+
+### 官方文档里的答案
+
+Apple Core Bluetooth 文档（iOS 26+）原文：
+
+> In iOS 26 and later, your app can continue certain activities in the background if
+> the app starts a **Live Activity** before it goes to the background. If your app has
+> an instantiated `CBManager` and starts a Live Activity, it can use the **same
+> privileges while in the background that it uses when it is in the foreground**.
+> This means activities like scanning without providing service UUID's and
+> **scanning with duplicates filter disabled** will be allowed while in the background.
+
+三个条件：`CBManager` 实例（有）+ 进后台前启动 Live Activity（**我们一直缺**）
++ `NSSupportsLiveActivities`（缺）。
+
+不满足时，iOS 在后台会**合并广播投递**（同一设备十几秒才报一次），
+`AllowDuplicates` 被忽略 —— 这正是日志里「心跳间隔 3 分 46 秒」的来源，
+也让 29 秒的预认证节奏必然跑不准。
+
+**修正之前的判断**：不是"iOS 27 收紧了蓝牙"（MacObserver 核对过 iOS 27
+发布说明，`Bluetooth: No iOS 27 Bluetooth change published at all`），
+而是 **iOS 26 给了这条新通道，我们从来没走过**。
+
+### 已实现的代码
+
+| 文件 | 作用 |
+|---|---|
+| `Sources/LiveActivity/VehicleActivityAttributes.swift` | 活动数据模型（主 App 与 Widget 共享） |
+| `Sources/LiveActivity/LiveActivityController.swift` | 启动/更新/结束，处理系统关闭时的降级 |
+| `Sources/Widget/VehicleLiveActivityWidget.swift` | 锁屏 + 灵动岛三种布局 |
+| `Sources/Widget/GKUIBleKeyWidgetBundle.swift` | Widget 入口 |
+| `AppModel` | `preAuth.$isEnabled` 联动开关；`linkState` 变化与 04 回执后刷新（2 秒节流） |
+| `Info.plist` | `NSSupportsLiveActivities = true` |
+
+设计取舍：**只在「预认证保活开启」时启动**（那才是需要后台 BLE 的场景），
+关掉保活立即结束，不在锁屏上留没用的卡片。
+
+### ⚠️ 当前状态：被签名卡住，功能尚未生效
+
+Widget 扩展是新 bundle id（`com.mmxisme.gkuiblekey.widget`），本机却只有
+**一个 explicit App ID 的 profile**（`2PQ29MSM39.com.mmxisme.gkuiblekey`），
+且 Xcode 未登录账号（`No Accounts`）→ 无法自动生成 profile：
+
+```text
+error: No accounts: Add a new account in Accounts settings. (in target 'GKUIBleKeyWidget')
+error: No profiles for 'com.mmxisme.gkuiblekey.widget' were found
+```
+
+所以本轮**临时把 Widget target 从 `project.yml` 注释掉**（内容保留，
+去掉行首 `# ` 即可恢复），主 App 正常构建/安装。此时 `Activity.request`
+会失败并被 catch 记录 warning，不影响任何其他功能。
+
+**启用步骤**（用户操作）：
+1. Xcode → Settings → Accounts → 登录 Apple ID（免费账号即可）
+2. 告诉助手，或手动删掉 `project.yml` 末尾 Widget 段每行的 `# `
+3. `xcodegen generate && xcodebuild ... build`
+
+### 验证
+
+- 主 App `swiftc -typecheck`：0 error / 0 warning
+- 两个 target 均 `BUILD SUCCEEDED`（Widget 在注释前已验证通过编译）
+- 启用后待验证：锁屏出现卡片，且后台日志的广播间隔明显变密
+
+---
+
 ## v5.8（2026-10-29）—— 关键线索：原厂 App 在 iOS 27 上一样"抽奖" → 改为事件驱动补发
 
 用户提供了一条决定性信息：
