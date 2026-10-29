@@ -183,10 +183,34 @@ public enum BuiltInKeys {
     /// 不会覆盖之后自己配对成功拿到的密钥 —— 那时标记已是当前版本，
     /// 直接返回 `false`。
     ///
+    /// ## ★ 重装 / 换机后不能覆盖已有钥匙（2026-10-29 修复）
+    ///
+    /// 「只写一次」的唯一依据是 `UserDefaults` 里的标记，而 **Keychain 会跟着
+    /// iCloud 回来、UserDefaults 不会**。所以重装或换机后会出现：
+    /// ```
+    /// Keychain = 用户自己配对的那把（已同步回来）
+    /// UserDefaults = 空 → 判定"从未应用过" → apply() 覆盖成内置这把
+    /// ```
+    /// 车端槽位里存的是用户自己的钥匙，被换成内置后就鉴权被拒 / 连上秒断，
+    /// 而用户完全不知道发生了什么。
+    ///
+    /// 因此这里先检查「Keychain 里是否已有一把完整的、非内置的钥匙」，
+    /// 有就直接补写标记并跳过。
+    ///
     /// - Returns: 是否真的写入成功（调用方据此决定要不要 `reloadKeys()`）
     @discardableResult
     public static func applyIfNeeded() -> Bool {
         if UserDefaults.standard.string(forKey: appliedFlagKey) == appliedVersion {
+            return false
+        }
+        let store = KeyStore.shared
+        // 两个关键字段齐全 + 不是内置这把 → 认为是用户自己的钥匙，不动它
+        let hasOwnKey = store.get(.dk1)?.isEmpty == false
+            && store.communicationKey?.isEmpty == false
+            && !isActive
+        if isConfigured, hasOwnKey {
+            UserDefaults.standard.set(appliedVersion, forKey: appliedFlagKey)
+            NSLog("[BuiltInKeys] Keychain 已有用户自己的钥匙，跳过内置钥匙写入")
             return false
         }
         return apply()

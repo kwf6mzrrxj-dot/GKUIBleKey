@@ -126,6 +126,15 @@ struct KeyInspectorView: View {
                 Button {
                     let n = KeyStore.shared.importBackup(backupText)
                     backupResult = n > 0 ? "已恢复 \(n) 项密钥" : "恢复失败：内容无法识别"
+                    // ★ 恢复成功后必须让会话重载密钥并重算完整性（2026-10-29 修复）。
+                    //   原来只 `refreshTick += 1`（只重画 Keychain 列表），
+                    //   于是主界面仍显示「尚未绑定车辆」，且若之前指纹校验为
+                    //   失败态，恢复一把正确的钥匙后依然发不出任何帧。
+                    if n > 0 {
+                        model.measured.reloadKeys()
+                        model.verifyKeyIntegrity()
+                        backupResult = "已恢复 \(n) 项密钥，钥匙已生效"
+                    }
                     refreshTick += 1
                 } label: {
                     Label("从备份恢复", systemImage: "square.and.arrow.down.on.square")

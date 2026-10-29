@@ -5,6 +5,143 @@
 
 ---
 
+## v4.7（2026-10-29）—— 全量代码审查：10 处 bug，其中 3 处会让功能彻底失效
+
+用户要求「审查一下有没有 bug」。按「会导致功能失败的真实缺陷」标准过了一遍
+9800 行源码（重点：BLE 连接生命周期、鉴权状态机、密钥存取、UI 反馈），
+确认并修复 10 处。**其中前三条都能单独造成「看起来完全不能用」。**
+
+### ① 密钥完整性指纹把控车永久拦死 ★最严重
+
+`verifyKeyIntegrity()` 把「`communicationKey` 指纹变化」直接判为
+`keyIntegrityOK = false`，而 `perform`/`beginMeasuredAuth` 里 `guard keyIntegrityOK != false`
+是硬拦截。但指纹变化的**正常原因**恰恰是合法写入：
+
+| 场景 | 旧行为 |
+|---|---|
+| 自己配对成功（`saveKeys` 写入新 `communicationKey`） | 下次启动判「被篡改」→ **所有按钮失效** |
+| 点「重新应用内置钥匙」 | 同上 |
+| 从备份恢复 | 同上 |
+
+而 `verifyKeyIntegrity()` 只在 `AppModel.init` 里调一次 → **重启也救不回来**，
+唯一出路是解绑车辆。用户会看到「配对成功但什么都点不动」。
+
+→ 改为**自愈**：指纹不一致就重算写回，只在详情里留一句说明；
+硬失败只剩「密钥缺失 / 长度异常」。
+
+### ② `.idle` 被当成断连，把预认证链自己掐断 ★正是 3.4「点火不了」的真凶
+
+`connect(_:)` → `stopScan()` 会把 `.scanning` 改成 `.idle`，而 `AppModel` 的
+断连订阅 filter 里**包含 `.idle`** → `preAuth.resetEdge()`。于是：
+
+```
+进入区域 → launch → 1s 后 onSend → 链路未就绪 → connectRemembered
+→ connect → stopScan → .idle → resetEdge（didStart=false + cancelPending）
+→ .ready 补发 0x0C → 车端回 04 → didComplete() 里 guard didStart 直接 return
+→ 29s 续发链断掉 → 车只收到一次 0x0C → 点火不了
+```
+
+**实测日志里「start sending passive start commands」与
+「stop sending passive start commands」出现在同一毫秒**，就是这个（不可能是
+RSSI 离开区域）。v4.4 只修了「预认证被丢弃」，没修到这条。
+
+→ 两处同时改：`connect()` 先置 `.connecting` 再 `stopScan()`；filter 去掉 `.idle`。
+
+### ③ 订阅失败只记日志就 return → 链路假死
+
+`didUpdateNotificationStateFor` 的 error 分支原来只 `note(...); return`：
+`linkState` 停在 `.discovering`，`writeChar` 仍非 nil（`isWriteReady == true`）。
+后果：`autoConnect()` 因 `.discovering` 早退、`connectRemembered()` 返回 true
+却不做事；用户点按钮直接往**未加密链路**发 01 → 每次 4 秒超时 690。
+车端不踢的话永久卡死，只能杀 App。
+
+→ 改为清特征 + 置 `.failed` + 主动断开，让 `didDisconnect` 正常收尾（重扫/冷却）。
+
+### ④ 回完 03 不再计时 → 04 不来就永久悬挂
+
+`handleIncomingFrame` 第一行**无条件** `cancelCommandTimeout()`，而 02 到达后
+发 03 也没有重新起表。于是车端收下 03 却不回 04 时（挑战不匹配/丢包/忙），
+`statusLine` 永久停在「已自动回复鉴权3，等待结果」，`preAuth.didComplete()`
+永不触发 → 预认证链死掉。顺带：车端周期推送的 `0x05` 状态帧也能把超时撤掉。
+
+→ 只在 `cmd != 0x05` 时撤超时；发完 03 立刻 `startCommandTimeout("鉴权3")`。
+
+### ⑤ 主界面完全不显示 `statusLine` → 按钮点了没反应
+
+`perform` 的所有反馈（未连接/锁定/完整性失败/构造失败/写入失败/超时）
+都只写 `model.statusLine`，而主界面**一处都没渲染**，只有「开发者 → 诊断」能看到。
+
+→ `statusSection` 加一行状态卡（按内容着色 + 图标），`animation` 跟随变化。
+
+### ⑥ `forceConnectOnce` 走直连路径时不清 → 操作成功后多一次空连接
+
+标志只在 `didDiscover` 命中分支清零，`connectRemembered()` 直连时不消费。
+操作完成后车端断链 → 重扫 → 扫到本车 → 又满足 `forceConnectOnce` →
+**再连一次什么帧都不发的空连接**（车端 2 秒踢），表现为「操作成功后信号又闪断」。
+
+→ `didConnect` 里清零。
+
+### ⑦ 连接阶段没有看门狗 → 永久「正在连接车辆…」
+
+`didConnect` / `didFailToConnect` 一个都不来（连到已被系统淘汰的
+`CBPeripheral`）时，`linkState` 永远 `.connecting`：`autoConnect()` 早退、
+`connectRemembered()` 返回 true 不做事 → 只能杀 App。
+
+→ `connect()` 起 10 秒看门狗，`didConnect`/`didFailToConnect`/`didDisconnect` 撤销。
+
+### ⑧ 重装/换机后内置钥匙会覆盖用户自己配对的钥匙
+
+「只写一次」的依据在 `UserDefaults`，而 Keychain 会跟 iCloud 回来、
+UserDefaults 不会 → 重装后判定「从未应用过」→ `apply()` 覆盖成内置这把，
+车端槽位对不上 → 鉴权被拒、连上秒断。
+
+→ `applyIfNeeded()` 先检查「Keychain 是否已有完整且非内置的钥匙」，有则跳过。
+
+### ⑨ 从备份恢复后不重载密钥
+
+`KeyInspectorView` 的恢复分支只 `refreshTick += 1`（只重画列表），
+没有 `measured.reloadKeys()`、也没有重算完整性 → 主界面仍显示「尚未绑定车辆」，
+且若之前是拦截态，恢复一把正确钥匙后依然发不出帧。
+
+→ 恢复成功后 `reloadKeys()` + `verifyKeyIntegrity()`。
+
+### ⑩ 预认证的 `04 00` 会让 Siri 谎报「已解锁」
+
+`resolveIntent(true)` 不看这个 `04` 属于哪一轮。预认证保活开着且在区域内时，
+一轮 `0x0C` 的成功回执就能让 Siri 说「已解锁」，而门没开。
+同一处已经算出 `isPreAuth` 却没用。
+
+→ `if !isPreAuth` 才 `resolveIntent`。
+
+### 顺带的健壮性修正
+
+- **分包包数公式**：注释写 `ceil((len+4)/mtu)`，代码写成 `ceil(len/mtu)`
+  → 179B@mtu182 会算成 1 包（实际 2 包），车端按头只收首包 → 帧被截断。
+  当前 MTU 182 不触发，属潜伏 bug，已按反汇编改正。
+- **MTU 按实际写入类型取**：原来固定 `for: .withoutResponse`，特征只有 `.write`
+  时会拿到 23，整条协议被塞进多包路径。改为 `for: type`。
+- **`didFailToConnect` 无条件 arm「配对自动连」**：任何一次普通连接失败都会让
+  下次扫描无条件连第一个 Valeo 设备（不校验是否本车）。改为只在
+  `pairingMode`（由 `pairingArmed` 同步）时置位。
+- **`disconnect()`/`cancelConnection()` 的抑制标志残留**：对已断开的外设置位后
+  没有 `didDisconnect` 来消费 → 之后所有断连都不重扫。改为仅在实际连接时置位。
+- **`startScan()` 覆盖 `.ready`**：配对成功后链路还连着，却被改成「扫描中」，
+  UI 显示错且会触发重复 `discoverServices`。改为 `.ready` 时不动。
+- **`AppModel` 不转发 `ble.objectWillChange`**：连接状态/RSSI/报文流靠「日志行」
+  被动刷新，日志级别调到 warning 以上就完全不刷新。已补转发。
+- **`carStage` 先判 `.ready`**：配对中车图不闪灯（顶部胶囊却写「配对中」）。已调整顺序。
+- **Intent 12 秒兜底定时器不取消、无代号**：连说两条指令时第一条的定时器会
+  把第二条判失败；超时后挂起动作仍会补发（toggle 命令被翻两次）。
+  改为 generation token + 超时清挂起动作。
+- **`commandTimeoutSeconds` 加 `nonisolated`**：消除 Swift 6 警告（原为 2 条 warning）。
+
+### 验证
+
+- `swiftc -typecheck`（iOS 27 SDK，33 文件 9800 行）：**0 error / 0 warning**
+- `xcodebuild build`：BUILD SUCCEEDED
+
+---
+
 ## v4.6（2026-10-29）—— 把「能不能点火」变成界面上看得见的结论
 
 用户问「现在能启动车了吗」。查手机上的实际状态

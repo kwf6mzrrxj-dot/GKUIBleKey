@@ -190,8 +190,11 @@ struct RootView: View {
 
     /// 车辆舞台状态：连接阶段 → 对应动画
     private var carStage: CarModelView.Stage {
-        if model.ble.linkState == .ready { return .ready }
+        // ★ 配对优先（2026-10-29 修复）：配对时链路通常已经 `.ready`，
+        //   原来先判 `.ready` 会让 `.pairing` 永远走不到，车图不闪灯，
+        //   但顶部胶囊写着「配对中」，两边自相矛盾。
         if model.pairingArmed { return .pairing }
+        if model.ble.linkState == .ready { return .ready }
         return .connecting
     }
 
@@ -437,8 +440,52 @@ struct RootView: View {
                       text: model.measured.keys != nil ? "数字钥匙已就绪" : "尚未绑定车辆",
                       trailing: model.measured.keys == nil ? "去绑定" : nil,
                       action: model.measured.keys == nil ? { showPairing = true } : nil)
+
+            // ★★★ 动作结果 / 拒绝原因（2026-10-29 补上）
+            //
+            // `perform` 的所有反馈都只写 `model.statusLine`：
+            // 未连接、锁定中、密钥完整性失败、鉴权1 构造失败、写入失败、
+            // 4 秒超时、预认证是否已被车内认可……
+            // 之前主界面**一处都没渲染**，只有「开发者 → 诊断」里能看到，
+            // 用户点解锁后界面零回应，以为按钮坏了。
+            if !model.statusLine.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: statusLineIcon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.top, 1)
+                    Text(model.statusLine)
+                        .font(.caption2)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(statusLineColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(statusLineColor.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
         }
         .padding(.bottom, 12)
+        .animation(.easeInOut(duration: 0.15), value: model.statusLine)
+    }
+
+    /// 状态行的图标 / 颜色 —— 按内容粗分类，不做协议层判断
+    private var statusLineIcon: String {
+        let s = model.statusLine
+        if s.contains("✅") || s.contains("成功") { return "checkmark.circle.fill" }
+        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return "exclamationmark.circle.fill" }
+        if s.contains("锁定") || s.contains("超时") { return "lock.circle.fill" }
+        return "info.circle"
+    }
+
+    private var statusLineColor: Color {
+        let s = model.statusLine
+        if s.contains("✅") || s.contains("成功") { return .green }
+        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return .red }
+        if s.contains("锁定") || s.contains("超时") { return .orange }
+        return .secondary
     }
 
     /// 无感进入开关卡片：靠近车辆时拉门把手解锁。

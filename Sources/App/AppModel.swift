@@ -178,6 +178,20 @@ public final class AppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        // ★★★ BLE 层也要转发（2026-10-29 补上）
+        //
+        // `ble` 是 `let`（不是 @Published），它自己的 `linkState` / `rssi` /
+        // `rxHexStream` / `candidates` 变化原本**不会**触发 AppModel 刷新。
+        // 界面此前能更新纯属巧合：`FileLogger.onNewLine → liveLogLines.append`
+        // 顺带 publish 了 AppModel。一旦把日志级别调到 warning 以上
+        // （`FileLogger` 直接丢弃低级别行），连接状态胶囊、RSSI、诊断页报文流
+        // 就完全不刷新，看着像链路卡死。
+        ble.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         // ★ 配对器（InBluePairing）也是 ObservableObject，转发以刷新配对页日志
         pairing.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -299,8 +313,20 @@ public final class AppModel: ObservableObject {
         // ★ 断连/失败 → 复位预认证的边沿状态。
         //   否则"断开时在区域内"会残留 `wasInsideArea = true`，
         //   重连后一直停在区域内，不会再触发一次 launch。
+        //
+        // ⚠️ **不能包含 `.idle`**（2026-10-29 修复）：`.idle` 只是"停止扫描"，
+        //   不是"链路断了"。`connect(_:)` → `stopScan()` 会先把 `.scanning`
+        //   改成 `.idle`，于是出现这条链：
+        //   ```
+        //   进入区域 → launch → 1s 后 onSend → 链路未就绪 → connectRemembered
+        //   → connect → stopScan → .idle → resetEdge → didStart=false + cancelPending
+        //   → .ready 补发 0x0C → 车端回 04 → didComplete() 里 guard didStart 直接 return
+        //   → 29s 续发链断掉 → 车端只收到一次 0x0C → 点火不了
+        //   ```
+        //   实测日志里「start sending passive start commands」与
+        //   「stop sending passive start commands」出现在**同一毫秒**，就是这个。
         ble.$linkState
-            .filter { $0 == .disconnected || $0 == .failed || $0 == .idle }
+            .filter { $0 == .disconnected || $0 == .failed }
             .sink { [weak self] _ in
                 self?.preAuth.resetEdge()
                 // ★ 断连时复位无感进入切换状态：避免切换请求悬空后开关一直转圈
@@ -468,7 +494,12 @@ public final class AppModel: ObservableObject {
     }
 
     /// 配对流程是否在等待链路就绪（就绪后自动发登记帧）
-    @Published public var pairingArmed = false
+    ///
+    /// 同时同步给 BLE 层：`pairingMode` 决定「连接失败后要不要无条件连
+    /// 下一个扫到的设备」——平时不该这样（会连错车）。
+    @Published public var pairingArmed = false {
+        didSet { ble.pairingMode = pairingArmed }
+    }
 
     /// 非空表示这次配对**被主动阻止**（典型：本地已有密钥）。
     /// `PairingView` 用它弹说明，避免用户以为"点了没反应"。
@@ -677,10 +708,13 @@ public final class AppModel: ObservableObject {
     private var commandTimeoutTask: Task<Void, Never>?
 
     /// 普通命令超时（`IBManager.commandTimeout` 默认值）
-    static let commandTimeoutSeconds: TimeInterval = 4.0
+    ///
+    /// `nonisolated`：它被 `startCommandTimeout` 的**默认参数**引用，
+    /// 而默认参数在 nonisolated 上下文求值 —— 不加会被 Swift 6 判为错误。
+    nonisolated static let commandTimeoutSeconds: TimeInterval = 4.0
 
     /// 配对命令（`0x55`）超时
-    static let pairingTimeoutSeconds: TimeInterval = 30.0
+    nonisolated static let pairingTimeoutSeconds: TimeInterval = 30.0
 
     private func startCommandTimeout(
         _ what: String,
@@ -961,22 +995,37 @@ public final class AppModel: ObservableObject {
     // MARK: - 下行
 
     private func handleIncomingFrame(_ bytes: [UInt8]) {
-        // ★ 收到任何下行帧 → 取消 30s 命令超时（命令已得到回应）
-        cancelCommandTimeout()
         // ★★ 实测协议优先：首字节就是命令号
 
         // 配对帧（0x0D / 0x0E）先交给配对流程
-        if handlePairingFrame(bytes) { return }
+        if handlePairingFrame(bytes) {
+            cancelCommandTimeout()
+            return
+        }
 
         // 0x01–0x05 是鉴权链；0x0F 是「已配对设备名」回执 ——
         // 少了 0x0F 的话，`requestPairedDevicesNames()` 发出去后回执会被
         // 下面的"未知帧"分支吞掉，功能永远不闭环。
         if let (cmd, _) = MeasuredFrame.decode(bytes),
            (0x01...0x05).contains(cmd) || cmd == 0x0F {
+            // ★ 只在「本轮鉴权链的实质响应」上撤超时（2026-10-29 修复）。
+            //
+            // 原来在函数第一行**无条件** `cancelCommandTimeout()`，于是
+            // 车端周期推送的 `0x05` 状态帧也能把 01→04 的超时撤掉，
+            // 表现为「命令没回应也不报超时，界面一直挂着」。
+            if cmd != 0x05 { cancelCommandTimeout() }
             if let next = measured.handle(bytes) {
                 // 收到 02 后自动回 03 —— 事件驱动，不用等固定延时
                 if ble.send(next) {
                     statusLine = "已自动回复鉴权3，等待结果"
+                    // ★★★ 03 发出后**必须重新起表**（2026-10-29 修复）。
+                    //
+                    // 原来的 4s 超时只覆盖「01 → 第一帧」；02 一到就被取消，
+                    // 回完 03 再没有任何计时器。车端收下 03 却不回 04 时
+                    // （挑战不匹配 / 丢包 / 车端忙），`pendingAction` 与
+                    // statusLine 永久停在"等待结果"，`preAuth.didComplete()`
+                    // 永不触发 → 预认证续发链死掉。这是典型的静默失败。
+                    startCommandTimeout("鉴权3")
                 } else {
                     statusLine = "鉴权3 写入失败（写特征未就绪）"
                 }
@@ -1005,11 +1054,18 @@ public final class AppModel: ObservableObject {
                     }
                     // ★ Siri / 快捷指令在等结果 → 交出（`resolveIntent` 幂等，
                     //   没有 Intent 在等时是空操作）
-                    switch result {
-                    case .success, .paired, .acceptedAwaitingNames:
-                        resolveIntent(true)
-                    case .refused, .timedOut:
-                        resolveIntent(false)
+                    //
+                    // ⚠️ 预认证轮次必须排除（2026-10-29 修复）：预认证保活开着时，
+                    //   一轮 `0x0C` 的 `04 00` 与用户意图的 `04 00` 长得一模一样。
+                    //   原来不看来源就 `resolveIntent(true)`，于是 Siri 会说
+                    //   「已解锁」而门根本没开。
+                    if !isPreAuth {
+                        switch result {
+                        case .success, .paired, .acceptedAwaitingNames:
+                            resolveIntent(true)
+                        case .refused, .timedOut:
+                            resolveIntent(false)
+                        }
                     }
                     // ★ 无感进入开关回执：用 pendingPassiveEntryValue 判断是否在切换，
                     //   成功则落状态，失败/拒绝也复位 switching（避免开关一直转圈）。
@@ -1120,10 +1176,29 @@ public final class AppModel: ObservableObject {
 
     // MARK: - 密钥完整性校验（启动时 / 手动触发）
 
-    /// 校验必需密钥是否存在、长度是否合理，并与记录的指纹比对以检测篡改。
+    /// 校验必需密钥是否存在、长度是否合理，并与记录的指纹比对。
+    ///
+    /// ## ⚠️ 指纹不匹配**不再拦截**控车（2026-10-29 修复）
+    ///
+    /// 原来的实现把「指纹变化」直接判为 `keyIntegrityOK = false`，而这个值
+    /// 在 `perform` / `beginMeasuredAuth` 里是硬拦截。但指纹变化的**正常原因**
+    /// 恰恰是合法写入：
+    ///
+    /// | 场景 | 结果（旧实现） |
+    /// |---|---|
+    /// | 自己配对成功 → `saveKeys` 写入新 `communicationKey` | 下次启动判「被篡改」→ **所有按钮失效** |
+    /// | 点「重新应用内置钥匙」 | 同上 |
+    /// | 从备份恢复 | 同上 |
+    ///
+    /// 而且 `verifyKeyIntegrity()` 只在 `init` 里调一次，因此**重启也无法恢复**，
+    /// 唯一出路是解绑车辆（`clearAll` 删掉指纹）——用户会看到「配对成功但什么都点不动」。
+    ///
+    /// 现在：指纹不匹配时**自愈**（重算并写回），只在 `keyIntegrityDetail`
+    /// 里留一条说明。真正的硬失败只剩「密钥缺失 / 长度异常」两种。
     public func verifyKeyIntegrity() {
         let store = KeyStore.shared
         var problems: [String] = []
+        var notes: [String] = []
 
         let comm = store.communicationKey
         if comm == nil {
@@ -1132,20 +1207,25 @@ public final class AppModel: ObservableObject {
             problems.append("communicationKey 长度异常（\(c.count) 字节）")
         }
 
-        // 指纹比对：首次记录，之后比对
+        // 指纹比对：不一致就自愈（合法写入会改变它），不阻断功能
         if let c = comm, !c.isEmpty {
             let fp = CryptoBox.sha256(c).map { String(format: "%02x", $0) }.joined()
-            if let saved = store.getString(.integrityFingerprint) {
-                if saved != fp {
-                    problems.append("communicationKey 指纹变化（本地密钥可能被篡改）")
-                }
-            } else {
+            let saved = store.getString(.integrityFingerprint)
+            if saved != fp {
                 store.setString(fp, for: .integrityFingerprint)
+                if saved != nil {
+                    notes.append("密钥已更新，指纹已刷新")
+                    FileLogger.shared.info(
+                        "communicationKey 指纹变化 → 已刷新（配对/应用内置/恢复备份属正常写入）",
+                        module: "密钥")
+                }
             }
         }
 
         keyIntegrityOK = problems.isEmpty
-        keyIntegrityDetail = problems.isEmpty ? "通过（密钥存在且指纹一致）" : problems.joined(separator: "；")
+        keyIntegrityDetail = problems.isEmpty
+            ? (notes.isEmpty ? "通过（密钥存在且指纹一致）" : "通过（\(notes.joined(separator: "；"))）")
+            : problems.joined(separator: "；")
         statusLine = "密钥校验：\(keyIntegrityDetail)"
     }
 
@@ -1168,6 +1248,9 @@ public final class AppModel: ObservableObject {
     /// 会让车端的序号/挑战状态错乱。
     private var intentContinuation: CheckedContinuation<Bool, Never>?
 
+    /// Intent 调用代号 —— 兜底定时器据此判断「自己是否还是当前那一轮」。
+    private var intentGeneration = 0
+
     /// 供 App Intent 使用：发一条控车命令并**等待结果**。
     ///
     /// - Returns: `true` = 收到 `04 00`（车端确认执行）
@@ -1178,12 +1261,28 @@ public final class AppModel: ObservableObject {
     public func runIntentCommand(_ action: IBCommandType,
                                  timeout: TimeInterval = 12) async -> Bool {
         guard intentContinuation == nil else { return false }
+        // ★ 代号（generation）：兜底定时器只允许结束**自己那一轮**的 Intent。
+        //
+        // 原来 `Task { sleep(timeout); resolveIntent(false) }` 成功后不取消、
+        // 也无法区分归属，于是连说两条指令（解锁 → 闭锁）时，
+        // 第一条留下的定时器会把第二条的续体以 false 结束 —— Siri 报失败，
+        // 而车其实执行了。
+        intentGeneration &+= 1
+        let gen = intentGeneration
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             intentContinuation = cont
             perform(action)
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                self?.resolveIntent(false)
+                guard let self, self.intentGeneration == gen else { return }
+                // ★ 超时即放弃这轮：顺手清掉「等连接后补发」的动作，
+                //   否则 Siri 已经报失败，链路就绪后命令仍会发出 ——
+                //   用户重试一次，后备箱这种 toggle 命令就会被翻两次。
+                if self.pendingActionAfterConnect != nil {
+                    self.pendingActionAfterConnect = nil
+                    self.measured.recordNote("Intent 超时，已放弃挂起的「\(action.label)」")
+                }
+                self.resolveIntent(false)
             }
         }
     }

@@ -110,6 +110,15 @@ public final class BLECentral: NSObject, ObservableObject {
     /// （弹出 6 位码框）—— 对应原 App「配对不用手动点设备」的行为。
     @Published public var autoConnectWhilePairing = false
 
+    /// 上层是否处于「等待配对」状态（由 `AppModel.pairingArmed` 同步过来）。
+    ///
+    /// 只用于一个判断：连接失败后要不要无条件连"下一个扫到的设备"。
+    /// 不区分的话，**平时**一次连接失败（车走远/缓存过期）也会把
+    /// `autoConnectWhilePairing` 置真，下次扫描就会连上第一个 Valeo 设备
+    /// —— 停车场里同款车不止一台时可能连错，还会绕过 `forceConnectOnce`
+    /// 的按需连接设计。
+    public var pairingMode = false
+
     /// 广播解密出车辆状态明文时的回调（由 AppModel 接到 MeasuredSession）
     public var onBroadcastStatus: (([UInt8]) -> Void)?
     /// ★ 分路 RSSI 回调（由 AppModel 接到标定流程）：
@@ -341,7 +350,11 @@ public final class BLECentral: NSObject, ObservableObject {
             linkState = .idle
             return
         }
-        linkState = .scanning
+        // ★ 已在连接态就别把状态改成 .scanning（2026-10-29 修复）：
+        //   配对成功后 `finishPairingWithReconnect()` 会调本方法，但那时链路
+        //   并没有断开，改状态会让 UI 显示「扫描中」、并让后续
+        //   `autoConnect()` 对同一条连接重复 discoverServices + 重订阅。
+        if linkState != .ready { linkState = .scanning }
         discoverCount = 0
         lastDiscoveredName = ""
         // ★★★ 照原 App：**必须带 `AllowDuplicatesKey: YES`**。
@@ -575,21 +588,59 @@ public final class BLECentral: NSObject, ObservableObject {
             }
             return
         }
-        stopScan()
+        // ★ 先把状态切到 .connecting，**再** stopScan()。
+        //   反过来会让 stopScan 把 `.scanning` 改成 `.idle`，上层把 `.idle`
+        //   当断连处理（复位预认证边沿态），预认证续发链被自己掐断。
         linkState = .connecting
+        stopScan()
         peripheral = p
         p.delegate = self
         note("正在连接 \(p.name ?? p.identifier.uuidString)…")
         // 连接后系统如需 MITM 配对（6 位码）会自动弹窗，App 无需干预
         // 原 App 同款：`connectPeripheral:options: nil`（`0x5de0: mov x3, #0`）
         central.connect(p, options: nil)
+        armConnectTimeout()
+    }
 
+    /// 起「连接阶段」看门狗。只覆盖 `.connecting`，不管 `.discovering`
+    /// （订阅慢是正常现象，配对弹 PASSKEY 框时实测可到 5–15s）。
+    private func armConnectTimeout() {
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(Self.connectTimeoutSeconds * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            guard self.linkState == .connecting else { return }
+            self.note("连接超时（\(Int(Self.connectTimeoutSeconds))s 未完成），放弃并重扫",
+                      level: .warning)
+            self.linkState = .failed
+            if let q = self.peripheral {
+                self.suppressAutoReconnect = false   // 让 didDisconnect 正常收尾 + 重扫
+                self.central.cancelPeripheralConnection(q)
+            } else {
+                self.resumeScanAfterDisconnect()
+            }
+        }
+    }
+
+    private func cancelConnectTimeout() {
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = nil
     }
 
     public func disconnect() {
         // ★ 手动断开：抑制自动重连（否则 didDisconnectPeripheral 会立刻重连回来）
-        suppressAutoReconnect = true
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
+        //
+        // ⚠️ 只在本机确实连着的时候置位（2026-10-29 修复）：
+        //   对**已断开**的外设调 `cancelPeripheralConnection` 不会产生
+        //   `didDisconnectPeripheral`，标志就永远没人消费 → 之后每次车端断开
+        //   都被抑制 → 扫描再也不重启，点按钮永远停在「正在连接车辆…」。
+        if let p = peripheral, p.state != .disconnected {
+            suppressAutoReconnect = true
+            central.cancelPeripheralConnection(p)
+        } else {
+            suppressAutoReconnect = false
+        }
     }
 
     /// 当前连接中的外设（供配对流程主动断开用）。
@@ -597,13 +648,29 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 主动断开指定外设（不触发 `autoReconnect` 的自动重连）。
     public func cancelConnection(_ p: CBPeripheral) {
-        // ★ 手动断开：抑制自动重连
+        // ★ 同 `disconnect()`：只在真的连着时置抑制位，避免标志残留
+        guard p.state != .disconnected else {
+            suppressAutoReconnect = false
+            return
+        }
         suppressAutoReconnect = true
         central.cancelPeripheralConnection(p)
     }
 
     /// ★ 是否抑制下一次断连的自动重连（手动断开/解绑/配对前重置时置位）。
     private var suppressAutoReconnect = false
+
+    /// 连接阶段的看门狗（`connect()` 起表，`didConnect` / `didFailToConnect` 撤销）。
+    ///
+    /// 没有它的话，`didConnect` / `didFailToConnect` **一个都不来**时
+    /// `linkState` 会永远停在 `.connecting`：`autoConnect()` 直接早退、
+    /// `connectRemembered()` 又对 `.connecting` 返回 true 却不做事，
+    /// 界面永久停在「正在连接车辆…」，只能杀 App。
+    /// 连到已被系统淘汰的 `CBPeripheral` 时很容易出现。
+    private var connectTimeoutTask: Task<Void, Never>?
+
+    /// 连接阶段超时（秒）。正常连接 < 1s，留足余量。
+    private static let connectTimeoutSeconds: TimeInterval = 10
 
     /// 配对扫描前复位连接相关状态，确保进入「干净扫描」。
     ///
@@ -669,13 +736,21 @@ public final class BLECentral: NSObject, ObservableObject {
         // 注意：MTU 足够时（实测车端 182，最大帧 62B）**只会有 1 包**，
         // 此时保持「整帧直发、不加头」——这是已验证可用的路径（车端能正常回 0x0E），
         // 不引入额外 4 字节以免改变已工作行为。
-        let mtu = max(p.maximumWriteValueLength(for: .withoutResponse), 24)
+        // ★ 按**实际写入类型**取 MTU（2026-10-29 修复）。
+        //   原来固定取 `.withoutResponse`，若特征只有 `.write`（write request）
+        //   会拿到 0/23，maxPayload 掉到 20，整条协议被塞进"多包路径"。
+        let mtu = max(p.maximumWriteValueLength(for: type), 24)
         let maxPayload = mtu - 4
         if bytes.count <= maxPayload {
             p.writeValue(data, for: c, type: type)
         } else {
             // 多包路径（MTU 偏小时才触发）
-            let packetCount = (bytes.count + mtu - 1) / mtu
+            //
+            // ★ 包数公式必须算上首包的 4 字节头（2026-10-29 修复）：
+            //   反汇编是 `ceil((len + 4) / mtu)`，原来写成了 `ceil(len / mtu)`，
+            //   于是 179 字节 @ mtu=182 会被算成 1 包（实际需要 2 包），
+            //   车端按头里的包数只收首包 → 帧被截断。
+            let packetCount = (bytes.count + 4 + mtu - 1) / mtu
             var header = UInt32(packetCount).littleEndian
             var first = Data(bytes: &header, count: 4)
             first.append(contentsOf: bytes[0..<maxPayload])
@@ -1043,7 +1118,17 @@ extension BLECentral: CBCentralManagerDelegate {
     public nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
             BackgroundMonitor.shared.noteConnect()
+            cancelConnectTimeout()
             linkState = .discovering
+            // ★ 连接已建立 → 消费掉「一次性强制连接」标志。
+            //
+            // 这个标志本来只在 `didDiscover` 的命中分支里清零，走
+            // `connectRemembered()` 直连已知设备时**没人清**，于是一次操作
+            // 结束后标志仍为 true：车端断链 → 重扫 → 扫到本车 →
+            // `if hit && !weak && forceConnectOnce` 又成立 → 再连一次
+            // **什么帧也不发**的空连接（车端 2 秒踢），用户看到「操作成功后
+            // 信号又闪断一次」。
+            forceConnectOnce = false
             connectedAt = Date()          // ← 「连接存活时长」计时起点（扫描常开的防抖用）
             // ★ 记住这个设备，之后可以「不用扫描」直接重连
             rememberedPeripheralID = peripheral.identifier
@@ -1065,6 +1150,7 @@ extension BLECentral: CBCentralManagerDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
+            cancelConnectTimeout()
             linkState = .failed
             note("连接失败：\(error?.localizedDescription ?? "未知")", level: .error)
 
@@ -1072,8 +1158,12 @@ extension BLECentral: CBCentralManagerDelegate {
             //    系统缓存里的 `CBPeripheral` 有时是过期的（iOS 会淘汰 500 条以上的
             //    设备缓存），直接 connect 会一直失败；此时必须重新扫描拿到新对象。
             guard autoReconnect else { return }
-            // 允许下次发现时再自动连（配对兜底开关可能已被消费掉）
-            autoConnectWhilePairing = true
+            // ★ 只有「配对等待中」才允许无条件连下一个设备（2026-10-29 修复）。
+            //   原来无条件置真，任何一次普通连接失败都会留下这个状态，
+            //   下次扫到任意 Valeo 设备就直接连，不校验是不是本车。
+            if pairingMode {
+                autoConnectWhilePairing = true
+            }
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 guard let self, self.linkState != .ready else { return }
@@ -1098,6 +1188,7 @@ extension BLECentral: CBCentralManagerDelegate {
             guard peripheral === self.peripheral else { return }
 
             BackgroundMonitor.shared.noteDisconnect()
+            cancelConnectTimeout()
             linkState = .disconnected
             writeChar = nil
             notifyChar = nil
@@ -1299,6 +1390,25 @@ extension BLECentral: CBPeripheralDelegate {
                          + "处置：iPhone 设置→蓝牙→忽略本车机，再由诊断仪重新配对。",
                          level: .error)
                 }
+                // ★★★ 必须复位链路（2026-10-29 修复）。
+                //
+                // 原来这里直接 `return`，什么都不改，于是：
+                // - `linkState` 停在 `.discovering` → `autoConnect()` 早退、
+                //   `connectRemembered()` 返回 true 却不做事（假死）
+                // - `writeChar` 仍非 nil → `isWriteReady == true` → 用户点按钮
+                //   直接被判"可以写"，往**未加密链路**发 01 → 4 秒超时 690
+                // - 车端不踢的话永久卡死，只能杀 App
+                //
+                // 正确做法：清掉特征、置 failed、主动断开，让 didDisconnect
+                // 走正常收尾（重扫 / 5 次快速断开进 30s 冷却）。
+                writeChar = nil
+                notifyChar = nil
+                characteristicsReady = false
+                linkState = .failed
+                // 保留 self.peripheral，让 didDisconnectPeripheral 的
+                // `guard peripheral === self.peripheral` 能通过 —— 由它负责
+                // 收尾（清特征、置 .disconnected、重扫）。
+                central.cancelPeripheralConnection(peripheral)
                 return
             }
             if characteristic.isNotifying {
