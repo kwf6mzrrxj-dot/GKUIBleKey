@@ -380,6 +380,32 @@ public final class BLECentral: NSObject, ObservableObject {
         lastMessage = "✅ 扫描已启动（广播 Service = 10FF，AllowDuplicates=YES，适配器=\(st)）"
     }
 
+    /// **命令完成后恢复扫描**（不改 `linkState`）。
+    ///
+    /// ## 对齐原 App 的时序（`xiaoka_vcc.log` @06:25:14）
+    ///
+    /// ```text
+    /// 06:25:14:626  Data received {0x0400}      ← 收到 04 成功
+    /// 06:25:14:631  Start scan
+    /// 06:25:14:638  Scanning                    ← 立刻恢复，**不等断开**
+    /// 06:25:14:828  device is disconnected      ← 车端 0.2 秒后才断
+    /// ```
+    ///
+    /// 我们原来是等 `didDisconnectPeripheral` 才 `resumeScanAfterDisconnect()`，
+    /// 所以从"发命令"到"断开"这 0.5–1.5 秒里扫描是停的。前台看不出差别，
+    /// 但 iOS 判定后台活跃度时，**持续的 BLE 扫描是最强的"仍在工作"信号** ——
+    /// 原 App 的后台节奏能稳定在 30 秒，和这个行为很可能有关。
+    ///
+    /// 这里直接调底层扫描，**不碰 `linkState`**（它此刻是 `.ready`，
+    /// 改成 `.scanning` 会让 `connectRemembered()` 误判并触发重复 discoverServices）。
+    public func resumeScanIfNeeded() {
+        guard central.state == .poweredOn else { return }
+        guard linkState == .ready || linkState == .discovering else { return }
+        central.scanForPeripherals(
+            withServices: [GATT.advServiceUUID],
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+    }
+
     public func stopScan() {
         central.stopScan()
         if linkState == .scanning { linkState = .idle }

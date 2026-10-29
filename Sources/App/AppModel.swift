@@ -1293,6 +1293,11 @@ public final class AppModel: ObservableObject {
                         // 不是 error 分支；实测节奏 30 秒（见 `didComplete()` 说明）。
                         preAuth.didComplete()
                     }
+                    // ★ 收到 04 → 立刻恢复扫描（对齐原 App 06:25:14 的
+                    //   `Data received {0x0400}` → `Start scan`，不等车端断开）。
+                    //   持续扫描是 iOS 判定"后台仍在工作"最强的信号，
+                    //   也是原 App 后台 30 秒节奏稳定的可能原因。
+                    ble.resumeScanIfNeeded()
                     return
                 }
                 // ★ 0x0F 设备名回执：解析已在 MeasuredSession 里完成，
