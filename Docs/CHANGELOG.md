@@ -5,6 +5,65 @@
 
 ---
 
+## v4.3（2026-10-29）—— 密钥外置（安全）+ 代码上 GitHub
+
+### 一、内置钥匙凭据移出源码
+
+原来 `Sources/Keychain/BuiltInKeys.swift` 里硬编码着真实车钥匙
+（`Dk1` / `CkTRxSP` / `cidpu` 等 8 个字段）。准备推到 GitHub 时发现这是
+**必须先解决的硬问题**：
+
+> 一旦提交，密钥会永久留在 Git 历史里 —— 即使之后删掉文件，
+> 仍然能从历史提交里翻出来。而它是车端认可的真实凭据（能解锁、能点火）。
+
+改法：
+
+```
+Resources/builtin-keys.txt          ← 真实值（.gitignore 排除，只在本机）
+Resources/builtin-keys.example.txt  ← 模板（入库，值为空）
+Sources/Keychain/BuiltInKeys.swift  ← 运行时从 Bundle 读 key=value
+```
+
+- `BuiltInKeys.seed` 在类型初始化时读一次 Bundle 里的 `builtin-keys.txt`
+- `isConfigured == false` 时 `apply()` **直接返回**，不会写 Keychain
+  （否则会把空值写进去、生成 1 字节垃圾 `core` 帧，破坏已有有效密钥）
+- 读不到不影响正常路径：自己配对 / 从备份恢复照常可用
+
+顺带把文档里两处完整密钥表脱敏（`Dk1` / `CkTRxSP` → `3c71e819…c1b077` 形式），
+以及 `ErrorCodeTable.swift` 注释里的完整 cidpu。
+
+### 二、GitHub 私有仓库
+
+```
+https://github.com/kwf6mzrrxj-dot/GKUIBleKey   (PRIVATE)
+```
+
+已确认：
+
+- 远程 70 个文件里**没有** `builtin-keys.txt`，只有 `example` 模板
+- 提交前对暂存区做过全文搜索（`3c71e819…` / `7156d3cd…` 均 0 命中）
+
+### 三、`tools/sync.sh` —— 一键同步（带密钥防护）
+
+```bash
+./tools/sync.sh              # 自动提交信息
+./tools/sync.sh "修复 xxx"    # 自定义
+```
+
+两道安全检查：
+
+1. `git check-ignore` 确认 `.gitignore` 仍排除密钥文件（防止有人改坏）
+2. 暂存区一旦出现 `Resources/builtin-keys.txt` 就**中止**
+
+任一不通过都拒绝提交，避免 `git add -A` 把车钥匙推上去。
+
+### 版本
+
+**4.3 / build 43**，`xcodebuild` **0 error 0 warning**。
+安装包已更新：`DerivedData/Install/GKUIBleKey.app`（含 `builtin-keys.txt`，647 B）。
+
+---
+
 ## v4.2（2026-10-29）—— 后台保活「可验证」：心跳 + 定时器偏差 + 进程重启间隔
 
 上一版只能从代码推断后台能力，这一版把**证据做进日志**，让实测能给出确定答案。
