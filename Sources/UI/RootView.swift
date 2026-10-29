@@ -187,7 +187,9 @@ struct RootView: View {
         switch model.ble.linkState {
         case .ready:        return "已连接"
         case .connecting:   return "连接中"
-        case .discovering:  return "发现服务"
+        // 「发现服务」是 BLE 术语（GATT 服务发现），对用户太黑话。
+        // 正常只存在 0.04–0.17 秒，一闪而过；诊断页仍显示原始名。
+        case .discovering:  return "正在握手…"
         case .scanning:     return "扫描中"
         case .disconnected: return "未连接"
         case .failed:       return "连接失败"

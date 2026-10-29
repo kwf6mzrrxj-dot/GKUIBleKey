@@ -617,6 +617,32 @@ public final class BLECentral: NSObject, ObservableObject {
         connectTimeoutTask = nil
     }
 
+    /// 起「服务发现」看门狗。`didConnect` 里调，`linkState = .ready` 时撤销。
+    private func armDiscoverTimeout() {
+        discoverTimeoutTask?.cancel()
+        // 配对时要弹 PASSKEY 框，5–15s 属正常，给更宽的窗口
+        let secs: TimeInterval = pairingMode ? 30 : 15
+        discoverTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            discoverTimeoutTask = nil
+            guard self.linkState == .discovering else { return }
+            self.note("服务发现超时（\(Int(secs))s 未完成）→ 放弃并重扫", level: .warning)
+            self.linkState = .failed
+            if let q = self.peripheral {
+                self.suppressAutoReconnect = false   // 让 didDisconnect 正常收尾 + 重扫
+                self.central.cancelPeripheralConnection(q)
+            } else {
+                self.resumeScanAfterDisconnect()
+            }
+        }
+    }
+
+    private func cancelDiscoverTimeout() {
+        discoverTimeoutTask?.cancel()
+        discoverTimeoutTask = nil
+    }
+
     public func disconnect() {
         // ★ 手动断开：抑制自动重连（否则 didDisconnectPeripheral 会立刻重连回来）
         //
@@ -660,6 +686,18 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 连接阶段超时（秒）。正常连接 < 1s，留足余量。
     private static let connectTimeoutSeconds: TimeInterval = 10
+
+    /// 服务发现阶段超时（秒）。
+    ///
+    /// 「发现服务」(`.discovering`) 正常只存在 **0.04–0.17 秒**（日志实证），
+    /// 配对弹 PASSKEY 框时会拉长到 5–15 秒。所以这里给 15 秒（配对 30 秒）。
+    ///
+    /// 没有它的话，`didDiscoverServices` 回调不来（车端忙 / 上一次会话没释放 /
+    /// 信号弱到 GATT 请求无响应）就会**永久停在「发现服务」**：
+    /// `connectRemembered()` 对 `.discovering` 返回 true 却不做事，
+    /// `autoConnect()` 早退，用户点任何按钮都变成「连接后自动执行」然后石沉大海。
+    /// 实测 2026-10-29 19:05–19:06 就是这个状态。
+    private var discoverTimeoutTask: Task<Void, Never>?
 
     /// 配对扫描前复位连接相关状态，确保进入「干净扫描」。
     ///
@@ -1123,6 +1161,7 @@ extension BLECentral: CBCentralManagerDelegate {
             //     **原 App 连接后从不 readRSSI**（readRSSI 只在主 App 层），
             //     所以这里也不做 RSSI 轮询 —— 周期 readRSSI 会干扰 6 位码配对协商。
             note("已连接，发现服务中（只查目标 Service 抢时间）")
+            armDiscoverTimeout()
             // 只发现目标服务，避免枚举全部服务浪费时间
             peripheral.discoverServices([GATT.serviceUUID])
         }
@@ -1135,6 +1174,7 @@ extension BLECentral: CBCentralManagerDelegate {
     ) {
         MainActor.assumeIsolated {
             cancelConnectTimeout()
+            cancelDiscoverTimeout()
             linkState = .failed
             note("连接失败：\(error?.localizedDescription ?? "未知")", level: .error)
 
@@ -1173,6 +1213,7 @@ extension BLECentral: CBCentralManagerDelegate {
 
             BackgroundMonitor.shared.noteDisconnect()
             cancelConnectTimeout()
+            cancelDiscoverTimeout()
             linkState = .disconnected
             writeChar = nil
             notifyChar = nil
@@ -1395,6 +1436,7 @@ extension BLECentral: CBPeripheralDelegate {
                 return
             }
             if characteristic.isNotifying {
+                cancelDiscoverTimeout()
                 linkState = .ready
                 // ★ 对应原 App 的 `Notification updated for %@ device.`——
                 //   订阅成功即链路已加密（SMP bonding 完成），是车端受理
