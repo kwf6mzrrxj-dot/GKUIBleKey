@@ -481,24 +481,39 @@ struct RootView: View {
                 Button {
                     model.sendPreAuthNow()
                 } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
                         Image(systemName: "key.radiowaves.forward.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("准备点火").font(.subheadline.weight(.medium))
+                            .font(.system(size: 18))
+                            .foregroundStyle(.cyan)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("准备点火")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                             Text("上车前点一下，让车端先认出手机")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    // ★ 与上下两行**同一套**外观（2026-10-30 修复「圆角对不上」）。
+                    //
+                    // 原来这里用 `.buttonStyle(.glass)` —— 那是系统定义的玻璃按钮，
+                    // 圆角/内边距由系统给，和 `passiveEntryCard` / `statusRow`
+                    // 手写的 `.glassEffect(.regular, in: .rect(cornerRadius: 14))`
+                    // 对不上：同一列三个卡片，中间那个圆角明显不同。
+                    // 现在改成和它们逐项一致：图标 18pt / frame 24、
+                    // 内边距 h16 v12、圆角 14、`.buttonStyle(.plain)`。
+                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    .contentShape(.rect(cornerRadius: 14))
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.plain)
             }
 
             // 密钥状态（未配对时整行可点，引导去绑定）

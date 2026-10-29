@@ -5,6 +5,41 @@
 
 ---
 
+## v6.5（2026-10-30）—— 「准备点火」圆角与上下两行对不上
+
+用户反馈「准备点火那一栏跟上下圆角对不上」。
+
+### 根因：同一列三个卡片用了两套外观系统
+
+| 行 | 外观来源 | 圆角 |
+|---|---|---|
+| 无感进入（`passiveEntryCard`） | 手写 `.glassEffect(.regular, in: .rect(cornerRadius: 14))` | **14** |
+| **准备点火** | `.buttonStyle(.glass)` ← 系统玻璃**按钮**样式 | **系统决定** |
+| 数字钥匙（`statusRow`） | 手写 `.glassEffect(.regular, in: .rect(cornerRadius: 14))` | **14** |
+
+`.buttonStyle(.glass)` 是 iOS 26 的系统按钮样式，圆角与内边距都由系统给，
+和手写的 `cornerRadius: 14` 必然对不上 —— 中间那个卡片看起来「方一点」。
+
+### 修法：改成和上下逐项一致
+
+```swift
+.glassEffect(.regular, in: .rect(cornerRadius: 14))
+.contentShape(.rect(cornerRadius: 14))
+.buttonStyle(.plain)          // ← 不再用系统的 .glass
+```
+
+同时把内边距与图标尺寸也对齐（图标 18pt / `frame(width: 24)`、
+内边距 `h16 v12`、标题 `.subheadline.weight(.semibold)`）——
+原来它是 15pt 图标 + `h14 v10`，即使圆角改对了也会显得比其他行「小一号」。
+
+### 验证
+
+- `swiftc -typecheck`：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- **待实测**：装机后「无感进入 / 准备点火 / 数字钥匙」三行圆角与内边距应完全一致
+
+---
+
 ## v6.4（2026-10-30）—— 主界面溢出安全区：顶栏被压到状态栏、底部被切
 
 用户反馈「UI 超出安全区」，截图实证：顶栏「扫描中 / -100 dBm」和系统时间
