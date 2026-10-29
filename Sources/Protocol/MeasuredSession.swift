@@ -185,15 +185,28 @@ public final class MeasuredSession: ObservableObject {
 
     /// 用广播解密出的明文更新车辆状态（照原 App `parseBroadcastData:`）。
     ///
+    /// ## 状态未变化时不写日志（2026-10-29）
+    ///
+    /// 车端广播间隔 0.5–1 秒，而状态绝大多数时候不变。原来每帧都 append 一条
+    /// 「车辆状态更新」，实测一次会话 58 条里 **24 条是重复的同一份状态**，
+    /// 把真正要看的 01/02/03/04 全冲走了（用户贴的会话就是这种情况）。
+    ///
+    /// 现在只在**字段真的变了**才记一条，并带上变化前后的差异。
+    /// `statusUpdatedAt` 仍然每帧刷新 —— UI 的「X 秒前更新」靠它。
+    ///
     /// - Parameter plain: 解密后的 16 字节明文（`parseBroadcastData:` 的 `decryptData:withKey:` 结果）
     public func updateVehicleStatus(plain: [UInt8]) {
         guard plain.count >= 8 else { return }
         let s = VehicleStatus(decryptedPlain: plain)
+        let previous = status
         status = s
         statusUpdatedAt = Date()
-        // 带完整明文 + 状态字节二进制，实测时可逐位核对
-        // （区分「车端没报这个字段」与「我们位映射错了」）
-        append("车辆状态更新：\(s.summary)｜plain=\(s.hex)")
+        guard previous != s else { return }
+        if let p = previous {
+            append("车辆状态变化：\(p.summary) → \(s.summary)｜plain=\(s.hex)")
+        } else {
+            append("车辆状态（首帧）：\(s.summary)｜plain=\(s.hex)")
+        }
     }
 
     public init() {

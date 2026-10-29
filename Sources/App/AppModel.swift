@@ -1054,8 +1054,43 @@ public final class AppModel: ObservableObject {
         beginMeasuredAuth(action: action)
     }
 
-    /// 重新计算「点火位置验证」—— 纯本地 RSSI 判定，**不发送任何帧**。
+    /// **手动补发一次预认证 `0x0C`** —— 上车前点一下，提高点火命中率。
     ///
+    /// ## 为什么需要它
+    ///
+    /// 预认证的自动节奏是 **29 秒一次**（`PreAuthenticationController.retryInterval`，
+    /// 对齐原 App 实测的 30 秒周期）。但用户上车、踩刹车、按启动按钮是**随机时刻**，
+    /// 如果车端只认「最近 N 秒内收到过 0x0C」，命中率就只有 N/30 —— 这正是
+    /// 「试好多次才打得着火」的数学原因。
+    ///
+    /// 这个入口让用户在**上车前**主动打一次招呼，把等待窗口压到最短。
+    /// 它不做任何新协议动作：只是把定时器该发的那一帧**提前**发出去。
+    ///
+    /// - Note: 复用当前链路；若链路未就绪，会走 `pendingPreAuth` 挂起并在
+    ///   `.ready` 后补发，不会丢。
+    public func sendPreAuthNow() {
+        guard hasLocalKey else {
+            statusLine = "尚未配对，无法预认证"
+            return
+        }
+        guard preAuth.isEnabled else {
+            statusLine = "预认证保活未开启：先到「开发者 → 预认证保活」打开"
+            return
+        }
+        guard !listenOnly else {
+            statusLine = "只读监听模式：不会发送任何指令"
+            return
+        }
+        guard !isLockedOut else {
+            statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
+            return
+        }
+        measured.recordNote("手动补发预认证（用户请求，不等 29s 定时）")
+        statusLine = "正在向车端打招呼（预认证 0x0C）…"
+        beginMeasuredAuth(asPreAuthentication: true)
+    }
+
+    /// 重新计算「点火位置验证」—— 纯本地 RSSI 判定，**不发送任何帧**。    ///
     /// 对应 `-[IBVehicle checkRssiForPassiveStart]` @`0xac04`：
     /// 用最近若干次 RSSI 采样的接近偏移做差比较（见 `PassiveStartJudge`），
     /// 结果只决定「是否允许触发被动启动」，与本 App 是否发命令无关。

@@ -445,6 +445,35 @@ struct RootView: View {
             // 无感进入（PE：靠近车辆拉门把手解锁）总开关
             passiveEntryCard
 
+            // ★ 点火前主动打招呼（2026-10-29）
+            //
+            // 预认证的自动节奏是 29 秒一次，而用户上车按按钮是随机时刻 ——
+            // 这就是「试好多次才打不着」的数学原因。这个按钮把该发的
+            // 0x0C 提前发一次，不做任何新协议动作。
+            if model.hasLocalKey, model.preAuth.isEnabled {
+                Button {
+                    model.sendPreAuthNow()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "key.radiowaves.forward.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("准备点火").font(.subheadline.weight(.medium))
+                            Text("上车前点一下，让车端先认出手机")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+            }
+
             // 密钥状态（未配对时整行可点，引导去绑定）
             //
             // ★ 用 `hasLocalKey`（内存 + Keychain 双查）而不是 `measured.keys`：
