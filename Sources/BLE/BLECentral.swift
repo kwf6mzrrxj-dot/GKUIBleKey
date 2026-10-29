@@ -103,6 +103,12 @@ public final class BLECentral: NSObject, ObservableObject {
     /// 上层的发送路径不止 `perform` 一条（预认证、配对、被动回 03）。
     public var listenOnly = false
 
+    /// 本次连接里成功写出的帧数。
+    ///
+    /// 用来区分「正常命令往返后的断开」（车端每条命令都断，属预期）
+    /// 与「连上却一帧没发就被踢」（异常，需要计入防死循环的冷却）。
+    private var sentFramesThisConnection = 0
+
     /// 当前设备的 CIDPU（从广播名解析，如 `InBlue3f26c66ac89ad4` → `c89ad4`）
     @Published public private(set) var currentCidpu = ""
 
@@ -815,6 +821,7 @@ public final class BLECentral: NSObject, ObservableObject {
         FileLogger.shared.debug("→ \(FrameCodec.hexString(bytes))"
                                + " [\(type == .withoutResponse ? "Command" : "Request")]", module: "TX")
         trimStream()
+        sentFramesThisConnection += 1
         lastMessage = "已发送 \(bytes.count) 字节"
         return true
     }
@@ -1141,6 +1148,7 @@ extension BLECentral: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             BackgroundMonitor.shared.noteConnect()
             cancelConnectTimeout()
+            sentFramesThisConnection = 0     // 每轮连接重新计数
             linkState = .discovering
             // ★ 连接已建立 → 消费掉「一次性强制连接」标志。
             //
@@ -1287,7 +1295,16 @@ extension BLECentral: CBCentralManagerDelegate {
         let now = Date()
         let lived = connectedAt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
         connectedAt = nil
-        if lived < 3.0 {
+        let sentThisRound = sentFramesThisConnection
+        sentFramesThisConnection = 0
+        // ★ 只有「**空连接**」（连上却一帧没发就被踢）才算异常快速断开（2026-10-29）
+        //
+        // 车端的正常行为是：**每执行完一条命令就主动断开**（发完 0x05 后约 0.1 秒），
+        // 所以正常的命令往返也常常只有 0.5–1.5 秒存活。原来只看 `lived < 3.0`，
+        // 会把每一次正常控车/预认证都记成「快速断开」—— 预认证每 29 秒一轮，
+        // 5 轮（约 2.5 分钟）后必然触发「暂停重扫 30 秒」，
+        // 表现为**扫描莫名其妙停半分钟、之后一直连不上**。
+        if lived < 3.0 && sentThisRound == 0 {
             quickDisconnectCount += 1
         } else {
             quickDisconnectCount = 0
@@ -1295,7 +1312,8 @@ extension BLECentral: CBCentralManagerDelegate {
         if quickDisconnectCount >= 5 {
             quickDisconnectCount = 0
             scanCooldownTask?.cancel()
-            note("连续 \(5) 次 3 秒内断开 → 暂停重扫 30 秒（防死循环）", level: .warning)
+            note("连续 \(5) 次「连上但一帧未发」就被断开 → 暂停重扫 30 秒（防死循环）",
+                 level: .warning)
             scanCooldownTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard let self, !Task.isCancelled else { return }

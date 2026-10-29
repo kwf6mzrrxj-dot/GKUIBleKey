@@ -134,8 +134,18 @@ public final class PreAuthenticationController: ObservableObject {
     public func setEnabled(_ on: Bool) {
         isEnabled = on
         UserDefaults.standard.set(on, forKey: Self.enabledKey)
-        if on { onLog?("预认证已开启（进入区域后每隔 6.5s/29s 发 0x0C）") }
-        else { stop() }
+        if on {
+            onLog?("预认证已开启（进入区域后每隔 6.5s/29s 发 0x0C）")
+            // ★ 人已经在区域内 → 立刻启动一轮（2026-10-29）
+            //
+            // 否则 `updateArea(true)` 会因 `inArea == isInArea` 直接 return，
+            // 用户必须走出区域再走回来才会触发 —— 表现为「开关打开了但一点动静没有」。
+            // 之前靠「断连时 resetEdge 清 isInArea」歪打正着掩盖了这个问题，
+            // 那个 resetEdge 已经因为把节奏压成 5 秒一轮而被移除。
+            if isInArea { launchPreAuthentication() }
+        } else {
+            stop()
+        }
     }
 
     // MARK: - ① 区域判定（checkRssiForPassiveStart: 的两条分支）

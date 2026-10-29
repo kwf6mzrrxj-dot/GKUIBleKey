@@ -292,14 +292,20 @@ public final class AppModel: ObservableObject {
             self?.beginMeasuredAuth(asPreAuthentication: true)
         }
 
-        // ★ 出范围（9 秒无数据）→ 复位预认证边沿。
-        //   对应原 App `-[VCBDevice resetWithTimeout]` @`0x9fb4` →
-        //   `deviceWhentOutOfRange` → `-[IBVehicle vehicleWentOutOfRange]` @`0xa800`。
-        //   我们原先只在「断连」时复位，连着但走远的场景不会复位，
-        //   导致回来不再触发一次被动进入。
+        // ★ 出范围（9 秒无车端数据）—— 只记日志，**不**复位预认证边沿
+        //
+        // 对应原 App `-[VCBDevice resetWithTimeout]` @`0x9fb4` →
+        // `deviceWhentOutOfRange` → `-[IBVehicle vehicleWentOutOfRange]` @`0xa800`。
+        //
+        // ⚠️ 不能在这里 `resetEdge()`（2026-10-29）：预认证是 **29 秒一轮**，
+        //   车端每轮发完就断开，所以「9 秒没有数据」在正常节奏下**必然成立**。
+        //   拿它当「人走远了」会每轮都把 `isInArea` 清零，下一帧广播又重新
+        //   launch —— 节奏照样被压成几秒一轮。
+        //
+        //   「是否在区域内」只由 RSSI 判定（`preAuth.updateArea`）负责，
+        //   那才是和"人"有关的量；链路空闲不是。
         ble.onWentOutOfRange = { [weak self] in
-            self?.preAuth.resetEdge()
-            self?.measured.recordNote("出范围：已复位被动进入/预认证的边沿状态")
+            self?.measured.recordNote("出范围：9 秒无车端数据（链路空闲，不复位区域状态）")
         }
 
         // ★ 链路就绪 → ① 有挂起的控车动作则自动执行；② 配对流程在等则发 0x0D；③ 补发预认证
@@ -365,11 +371,30 @@ public final class AppModel: ObservableObject {
         //   ```
         //   实测日志里「start sending passive start commands」与
         //   「stop sending passive start commands」出现在**同一毫秒**，就是这个。
+        // ★★★ 断连 **不**复位预认证的边沿状态（2026-10-29 修复）
+        //
+        // 原来这里调 `preAuth.resetEdge()`，它会把 `isInArea` 和 `didStart`
+        // 一起清零。但车端**每执行完一条命令就主动断开**（发完 0x05 后 0.1 秒），
+        // 于是每轮预认证都会触发这条链：
+        //
+        // ```text
+        // 0x0C 完成 → didComplete() 排 29s 后重试
+        //   → 车端断开 → resetEdge() → isInArea=false, didStart=false
+        //   → 下一帧广播仍判「在区域内」→ true != false → 立刻再 launch
+        //   → 29 秒的节奏被压成 3–5 秒一轮
+        // ```
+        //
+        // 实测日志（21:14）就是这个样子：每 5 秒重连一次，连着发 5 轮后触发
+        // 「连续 5 次 3 秒内断开 → 暂停重扫 30 秒」。用户感受到的就是
+        // **「蓝牙一直在连、一直在断」**。
+        //
+        // 正确语义：**断连只说明链路没了，不说明人离开了区域。**
+        // 区域状态只由 RSSI 判定驱动（`preAuth.updateArea`），它自己会在
+        // 用户真的走远时收到 `false` 并 stop。
         ble.$linkState
             .filter { $0 == .disconnected || $0 == .failed }
             .sink { [weak self] _ in
-                self?.preAuth.resetEdge()
-                // ★ 断连时复位无感进入切换状态：避免切换请求悬空后开关一直转圈
+                // ★ 只复位无感进入切换状态：避免切换请求悬空后开关一直转圈
                 self?.passiveEntrySwitching = false
                 self?.pendingPassiveEntryValue = nil
             }
