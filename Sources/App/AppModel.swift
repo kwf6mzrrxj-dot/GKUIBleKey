@@ -281,6 +281,17 @@ public final class AppModel: ObservableObject {
                     self.pendingActionAfterConnect = nil
                     self.measured.recordNote("链路已就绪，自动执行「\(action.label)」")
                     self.perform(action)
+                    return
+                }
+                // ★ 预认证在「未连接」时被挂起 → 这里补发。
+                //
+                // 不补这一步的话，预认证永远发不出去：它的触发点是"进入区域"，
+                // 那时链路没连上，`beginMeasuredAuth` 的 `guard isWriteReady`
+                // 会直接丢弃，之后没有任何地方会重试。
+                if self.pendingPreAuth {
+                    self.pendingPreAuth = false
+                    self.measured.recordNote("链路已就绪，补发预认证（0x0C）")
+                    self.beginMeasuredAuth(asPreAuthentication: true)
                 }
             }
             .store(in: &cancellables)
@@ -565,11 +576,16 @@ public final class AppModel: ObservableObject {
               ble.linkState != .connecting,
               ble.linkState != .discovering else { return }
         // ★ 本地无密钥 = 原 App 的「未配对」状态 → 自动等配对
-        if measured.keys == nil, !pairingArmed {
-            pairingArmed = true
-            appendPairingLog(
-                "本地无密钥（keys=0）→ 自动进入配对等待："
-                + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
+        if measured.keys == nil {
+            if !pairingArmed {
+                pairingArmed = true
+                appendPairingLog(
+                    "本地无密钥（keys=0）→ 自动进入配对等待："
+                    + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
+            }
+            // 配对必须「主动连接」：v4.4 起扫描命中不再自动连（避免空连接
+            // 被车端 2 秒踢掉），所以这里显式置位。
+            ble.forceConnectOnce = true
         }
         ble.adoptConnectedPeripheral()      // 已连着就直接用（不 connect、不 cancel）
         if ble.linkState == .discovering || ble.linkState == .ready { return }
@@ -796,6 +812,22 @@ public final class AppModel: ObservableObject {
 
     /// 用户点了按钮但当时链路未就绪 → 挂在这里，等 `.ready` 后自动执行。
     @Published public private(set) var pendingActionAfterConnect: IBCommandType?
+
+    /// 预认证「等链路就绪再发」的挂起标志。
+    ///
+    /// ## 为什么必须有它
+    ///
+    /// 预认证的触发时机是「进入被动启动区域」（`preAuth.onSend`），
+    /// 那一刻链路通常**还没连上**。而 `beginMeasuredAuth` 开头有
+    /// `guard ble.isWriteReady`，未就绪就直接 return —— 于是这一轮预认证
+    /// 被**静默丢弃**，等链路就绪后也没有人再触发它。
+    ///
+    /// 实测后果（2026-10-29 日志）：
+    /// - 预认证从"进入区域"到"离开区域"一次 `0x0C` 都没发出去
+    /// - 车端因此始终不认为"钥匙在场" → **点火不了**、拉门把手不解锁
+    ///
+    /// 现在改成：未就绪时置位并主动连接，`.ready` 回调里补发。
+    private var pendingPreAuth = false
 
     /// ★ **所有车控动作的唯一入口**。
     ///
@@ -1028,7 +1060,24 @@ public final class AppModel: ObservableObject {
     public func beginMeasuredAuth(action: IBCommandType? = nil,
                                   asPreAuthentication: Bool = false) {
         guard ble.isWriteReady else {
-            statusLine = "写特征未就绪，无法发起鉴权"
+            if asPreAuthentication {
+                // ★★ 预认证**不能丢**：它的触发时机（刚进入被动启动区域）
+                //    几乎必然早于链路建立。原来的 `return` 等于把这一轮预认证
+                //    悄无声息地扔掉，之后没有任何地方会重试 —— 表现为
+                //    「预认证一直没发出去 → 车端不认为钥匙在场 → 点火不了」。
+                pendingPreAuth = true
+                ble.forceConnectOnce = true
+                if ble.connectRemembered() {
+                    statusLine = "预认证待发：正在连接车辆…"
+                    measured.recordNote("预认证挂起（链路未就绪）→ 直接连已知设备，就绪后补发")
+                } else {
+                    ble.startScan()
+                    statusLine = "预认证待发：扫描车辆模块…"
+                    measured.recordNote("预认证挂起（链路未就绪且无已知设备）→ 开始扫描")
+                }
+            } else {
+                statusLine = "写特征未就绪，无法发起鉴权"
+            }
             return
         }
         // ★ 防爆破：预认证与手动动作都要走同一道闸

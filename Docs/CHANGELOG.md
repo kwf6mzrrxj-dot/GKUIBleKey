@@ -5,6 +5,91 @@
 
 ---
 
+## v4.4（2026-10-29）—— 修「总是断联 / 点火不了 / 无感进入无效」：同一个根因
+
+用户在 3.4 上反馈三件事，拉日志后确认**是同一个 bug 的三张面孔**。
+
+### 日志证据（3.4 实测，2026-10-29 17:33）
+
+```log
+17:32:26.526  start sending passive start commands
+17:32:26.526  stop sending passive start commands     ← 立刻停
+17:33:02.512  正在连接 InBlue3f26c66ac89ad4…
+17:33:03.252  链路就绪：订阅成功，耗时 0.06s
+17:33:05.151  已断开：The specified device has disconnected from us.   ← 2 秒后
+17:33:20.351  正在连接 …                              ← 15 秒冷却后又连
+17:33:23.002  已断开 …                                ← 又断
+```
+
+两次连接之间**一帧都没有发**。车端等约 2 秒就把链路踢掉。
+
+### 根因一：扫描命中就无条件连接 → 空连接循环
+
+v3.1 引入「扫描常开」时，`didDiscover` 里写的是「命中本车 + 不在 15 秒冷却期」就 `connect`。
+
+但车端**不接受空闲连接**：连上不给业务帧，约 2 秒主动断开。于是形成
+「连 → 断 → 冷却 15 秒 → 又连 → 又断」的循环，用户看到的就是「总是断联」。
+
+原 App 从不这样 —— 它的每次连接都对应一条要发的命令
+（日志里 `Request for connection` 与 `Data to send` 总是成对出现）。
+
+**修法**：`didDiscover` 里加 `&& forceConnectOnce`，改成**按需连接**。
+谁要发帧谁先置位；普通扫描只更新状态和 RSSI，不主动连。
+
+### 根因二：预认证在链路就绪前被静默丢弃 → 点火不了
+
+```swift
+public func beginMeasuredAuth(..., asPreAuthentication: Bool = false) {
+    guard ble.isWriteReady else {
+        statusLine = "写特征未就绪，无法发起鉴权"
+        return          // ← 预认证在这里被扔掉，之后没人重试
+    }
+```
+
+预认证的触发时机是「刚进入被动启动区域」，那一刻链路**几乎必然还没连上**。
+于是这一轮预认证被丢弃，`.ready` 回调只处理 `pairingArmed` 和
+`pendingActionAfterConnect`，**没有任何分支会重试预认证**。
+
+结果：`0x0C` 一次都没发出去 → 车端始终不认为「钥匙在场」→
+**点火不了**，拉门把手也不解锁（无感进入看起来「没用」）。
+
+**修法**：
+
+```swift
+guard ble.isWriteReady else {
+    if asPreAuthentication {
+        pendingPreAuth = true
+        ble.forceConnectOnce = true
+        ble.connectRemembered()      // 不等扫描，直接连已知设备
+    }
+    return
+}
+```
+
+`.ready` 回调里补一个分支（优先级：配对 > 用户动作 > 预认证），并记录
+`链路已就绪，补发预认证（0x0C）`。
+
+### 根因三：配对路径同样依赖「扫到就连」
+
+`autoConnect()` 里 `keys == nil` 会置 `pairingArmed`，但 v4.4 之后
+扫到不再自动连，所以必须同时置 `forceConnectOnce = true`，否则配对也会卡住。
+
+### 所以三个现象的关系
+
+```
+按需连接（修一）  → 不再空连、不再无谓断链
+     ↓
+预认证能发出（修二）→ 车端认为钥匙在场
+     ↓
+点火 / 无感进入才有基础（修三补配对）
+```
+
+### 版本
+
+**4.4 / build 44**，`xcodebuild` **0 error 0 warning**，已装 iPhone 17 Pro。
+
+---
+
 ## v4.3（2026-10-29）—— 密钥外置（安全）+ 代码上 GitHub
 
 ### 一、内置钥匙凭据移出源码

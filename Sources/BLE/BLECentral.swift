@@ -956,8 +956,26 @@ extension BLECentral: CBCentralManagerDelegate {
             }
 
             // 原 App 没有「广播带 Service 就直连」这一步 —— 判定只看厂商数据，
-            // 因此这里也只在**判定命中**时自动连接（弱信号按原规则跳过）。
-            if hit && !weak {
+            // 因此这里也只在**判定命中**时考虑连接（弱信号按原规则跳过）。
+            //
+            // ★★★ 关键修正（v4.4）：只有 `forceConnectOnce` 为真才连接。
+            //
+            // 之前是「命中本车 + 不在 15 秒冷却期」就连 —— 结果形成
+            // **每 15 秒一次的空连接**：
+            //
+            // ```log
+            // 17:33:02.512  正在连接
+            // 17:33:03.252  链路就绪（订阅 0.06s）
+            // 17:33:05.151  已断开：The specified device has disconnected from us.
+            // ```
+            //
+            // 连上之后**一帧都没发**，车端等约 2 秒就把链路踢掉。用户看到的就是
+            // 「总是断联」，而预认证/控车根本没机会执行。
+            //
+            // 原 App 从不这样：它每次连接都是为了发某个命令
+            // （日志里「Request for connection → Data to send」总是成对出现）。
+            // 所以改成**按需连接**：谁要发帧，谁先置 `forceConnectOnce`。
+            if hit && !weak && forceConnectOnce {
                 // ★ 冷却判断：车端刚主动断开时只扫描、不立刻重连。
                 //
                 // 原 App 的真实节奏（`xiaoka_vcc.log`）：
