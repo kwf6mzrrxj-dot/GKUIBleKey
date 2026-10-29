@@ -395,11 +395,13 @@ struct RootView: View {
             }
         }
         .buttonStyle(.plain)
-        // ★ 不再按「是否推荐」调暗 —— 之前非推荐的那个按钮会掉到 0.75，
-        //   看起来像 disabled（截图里「闭锁」就是灰的），但其实是可点的。
-        //   现在两个主按钮同亮度，只有「推荐」那个多一圈描边 + 角标。
-        //   未连接时轻微变淡（0.7）作为「需要先连」的提示，仍可点击。
-        .opacity(model.ble.isWriteReady ? 1 : 0.7)
+        // ★ 不再按任何状态调暗（2026-10-29）。
+        //
+        // 之前是 `.opacity(isWriteReady ? 1 : 0.55/0.7)` —— 未连接时按钮发灰，
+        // 用户第一反应就是"按钮坏了/不能点"。但 v5.0 之后点它真的有效：
+        // `perform` 会挂起动作、自动连接、就绪后执行。
+        // **能点的按钮就不该画成不能点**，否则等于把功能藏起来。
+        // 连接状态请看顶部胶囊（未连接/连接中/已连接），那才是它该在的地方。
     }
 
     private func secondaryAction(
@@ -427,7 +429,7 @@ struct RootView: View {
             .frame(maxWidth: .infinity, minHeight: 60)
         }
         .buttonStyle(.glass)
-        .opacity(model.ble.isWriteReady ? 1 : 0.55)
+        // 同主按钮：不调暗。能点就画成能点。
     }
 
     // MARK: - 状态区
@@ -849,7 +851,8 @@ struct PassiveStartDetailView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.glassProminent)
-                        .opacity(model.ble.isWriteReady ? 1 : 0.55)
+                        // 不按连接状态调暗：点它会给出明确原因（calibHint），
+                        // 比把按钮画灰让人以为坏了要好。
                     }
 
                     Button {
