@@ -178,8 +178,15 @@ struct PairingView: View {
                 if isWorking {
                     ProgressView().controlSize(.small).tint(.cyan)
                 } else {
-                    Image(systemName: hasVehicle ? "checkmark.circle.fill" : "bluetooth")
-                        .foregroundStyle(hasVehicle ? .green : .cyan)
+                    // 绿勾只在**链路真的就绪**时给；已绑定但没连是常态，
+                    // 用钥匙图标 + 次要色，别让人以为连接掉了。
+                    let ready = hasVehicle && model.ble.linkState == .ready
+                    Image(systemName: hasVehicle
+                          ? (ready ? "checkmark.circle.fill" : "key.fill")
+                          : "bluetooth")
+                        .foregroundStyle(hasVehicle
+                                         ? (ready ? Color.green : Color.secondary)
+                                         : Color.cyan)
                 }
                 Text(statusText)
                     .font(.subheadline)
@@ -260,15 +267,28 @@ struct PairingView: View {
     }
 
     private var statusText: String {
-        if hasVehicle { return "蓝牙已连接车辆" }
+        // ★ 已绑定 ≠ 蓝牙连着（2026-10-30 修复）。
+        //
+        // `hasVehicle` 是 `AppModel.hasLocalKey`（Keychain 里有密钥），
+        // 而车端**每执行完一条命令就主动断开**，所以已绑定用户的链路
+        // 绝大多数时间是断的 —— 此时顶部胶囊写「未连接」、这里却写
+        // 「蓝牙已连接车辆」并配绿勾，两块自相矛盾。
+        if hasVehicle {
+            return model.ble.linkState == .ready ? "蓝牙已连接车辆" : "钥匙已就绪 · 车辆未连接"
+        }
         if model.ble.isWriteReady { return "蓝牙已连接，正在登记…" }
         if model.pairingArmed { return "蓝牙正在连接车辆" }
         return "点击此处重新连接车辆"
     }
 
     private var stateDetail: String {
+        // ★ 不能用 `receivedKeyData.count`（2026-10-30 修复）。
+        //
+        // 那是**本次会话**收到的 0x0E 帧，App 重启后为空 ——
+        // 已配对用户下次打开本页会看到「配对完成，车端已下发密钥（0B）」，
+        // 与上面 `hasVehicle` 的注释自己声明的原则正好矛盾。
         if hasVehicle {
-            return "配对完成，车端已下发密钥（\(model.measured.receivedKeyData.count)B）"
+            return "配对完成，密钥已保存在本机（Keychain）。车端连接是按需建立的，平时断开是正常的。"
         }
         return "初次连接车辆，请在 4s 店工作人员的协助下完成配对"
     }

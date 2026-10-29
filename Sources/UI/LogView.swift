@@ -159,7 +159,7 @@ struct LogView: View {
 
     private var emptyHint: String {
         switch source {
-        case .measured: return "还没有实测会话记录。\n连上车辆后点「解锁」或「点火位置验证」，这里会显示 01→02→03→04 的逐步日志。"
+        case .measured: return "还没有实测会话记录。\n连上车辆后点「解锁」或「准备点火」，这里会显示 01→02→03→04 的逐步日志。"
         case .raw:      return "还没有收发数据。\n连上车辆模块后，这里会显示每一帧的 hex。"
         case .pairing:  return "还没有配对记录。\n点首页「配对」发起首次绑定后会记录在这里。"
         }

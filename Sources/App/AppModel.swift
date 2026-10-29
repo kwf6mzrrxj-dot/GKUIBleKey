@@ -918,9 +918,23 @@ public final class AppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.commandTimeoutTask = nil
+            // ★ 先判断这一轮是不是预认证：预认证轮次 `pendingAction == nil`
+            //   （`preparePreAuthentication()` 会把它清掉），用户命令则非 nil。
+            let wasPreAuth = (self.measured.pendingAction == nil)
             self.measured.commandTimedOut()
             // 超时 = 本轮结束 → 释放后台执行权，别一直占着（见 `beginPreAuthBackgroundTask`）
             self.endPreAuthBackgroundTask()
+            // ★★ 预认证轮次超时也要「排下一轮」（2026-10-30 修复）。
+            //
+            // 原来只有**收到 04** 的分支才调 `preAuth.didComplete()`。
+            // 车端收下 `0x0C` 却不回 `04`（挑战不匹配 / 丢包 / 车端忙）时：
+            // 没有 `04` → 没有 `didComplete()` → **没有下一次 29 秒定时器** →
+            // 续发只能等下一帧广播来触发 `tickIfNeeded()`。
+            // 前台没事（0.5 秒就有一帧），**后台广播稀疏到 10–31 秒甚至更久时，
+            // 「位置没动、预认证却断了几分钟」就是这么来的** —— 点火抽奖的一个来源。
+            if wasPreAuth {
+                self.preAuth.didComplete()
+            }
             self.statusLine = "❌ \(what) 超时（\(Int(seconds))s，code 690）"
             // ★★★ 超时必须**收口所有「等待中」的状态**（2026-10-29 修复）。
             //
@@ -1285,6 +1299,22 @@ public final class AppModel: ObservableObject {
             resolveIntent(false)
             return
         }
+        // ★★ 上一轮「用户命令」还在途 → 不要打断（2026-10-30 修复）。
+        //
+        // 链路就绪时连点两次按钮，原来会直接再走一遍 `beginMeasuredAuth`：
+        // `resetCommandOnly()` + `resetPacketCounter()` 把 `lastPacket` 归零、
+        // 把上一轮的 `rnd1` 冲掉。于是车端回的是**第一轮**的 `02`，
+        // 而 `buildAuth3` 用的是**第二轮**的 `rnd1` → 挑战自校验必失败 →
+        // 记一次 `recordAuthFailure`。连点 5 次即 60 秒锁定，
+        // 用户看到「连续失败 N/5 → 已锁定」，以为钥匙坏了。
+        //
+        // 只拦**用户命令**在途（`measured.pendingAction != nil`）；
+        // 预认证轮次（`pendingAction == nil`）允许被打断 —— 用户意图优先。
+        if measured.pendingAction != nil, commandTimeoutTask != nil {
+            statusLine = "上一轮「\(measured.pendingAction?.label ?? "命令")」仍在执行，请稍候"
+            resolveIntent(false)
+            return
+        }
         guard ble.isWriteReady else {
             // ★ 未连接时不再只是弹提示 —— 记住动作、强制连一次，链路就绪后自动执行。
             //
@@ -1626,10 +1656,14 @@ public final class AppModel: ObservableObject {
                 // 撤掉了 4 秒超时。不收口的话：`pendingAction` 永不复位、
                 // 预认证的 `didComplete()` 永不触发 → 29 秒续发链彻底停摆。
                 if measured.phase == .failed {
+                    // 先取「是不是预认证轮次」——`abortRound` 会把 pendingAction 清掉
+                    let wasPreAuth = (measured.pendingAction == nil)
                     measured.abortRound("下行帧被拒（命令 0x\(String(format: "%02X", cmd))）")
                     resolveIntent(false)
                     // 本轮中止 → 释放后台执行权
                     endPreAuthBackgroundTask()
+                    // ★ 同超时分支：预认证轮次中止也要排下一轮，否则续发链停摆
+                    if wasPreAuth { preAuth.didComplete() }
                     if pendingPassiveEntryValue != nil {
                         settlePassiveEntryToggle(.refused(0x2BB))
                     }

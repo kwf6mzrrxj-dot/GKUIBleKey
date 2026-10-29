@@ -653,12 +653,33 @@ public final class BLECentral: NSObject, ObservableObject {
         //   即**只有断开态才发起连接**，已连接/连接中不重复 connect。
         if p.state != .disconnected {
             if p.state == .connected {
+                // ★ 已经是同一条就绪链路 → 什么都不用做（2026-10-30 修复）。
+                //
+                // 原来这里无条件重新 `discoverServices` + `setNotifyValue`，
+                // 导致 `.ready` 被**打回** `.discovering`。触发链：
+                // ```text
+                // ready 后 resumeScanIfNeeded() 仍在扫描（这是刻意的）
+                //   → didDiscover 又扫到本车
+                //   → forceConnectOnce 之前没清（复用分支不会走 didConnect）
+                //   → 再进这里 → linkState 从 ready 打回 discovering
+                //   → 重复 discoverServices / setNotifyValue
+                //   → 若 didUpdateNotificationState 不回（已 notifying 的特征
+                //      iOS 可能不回调）→ 15s 后把一条好链路 cancel 掉
+                // ```
+                if linkState == .ready, peripheral === p {
+                    forceConnectOnce = false
+                    return
+                }
                 // 已连接：直接进入服务发现（复用现有连接，不 cancel、不重连）
                 note("设备已连接，直接发现服务")
                 linkState = .discovering
                 peripheral = p
                 p.delegate = self
                 p.discoverServices([GATT.serviceUUID])
+                // ★ 必须清「一次性强制连接」标志：这条分支不会触发 `didConnect`，
+                //   而 `didConnect` 曾是唯一的清零点 —— 标志残留会配合
+                //   `resumeScanIfNeeded` 形成上面那个反复降级的循环。
+                forceConnectOnce = false
                 // ★ 必须起看门狗（2026-10-29 全域审查补）。
                 //
                 // 这是**高频活路径**：车端每条命令后主动断开，但 iOS 侧可能
@@ -690,6 +711,29 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 起「连接阶段」看门狗。只覆盖 `.connecting`，不管 `.discovering`
     /// （订阅慢是正常现象，配对弹 PASSKEY 框时实测可到 5–15s）。
+    /// 取消连接后若 1.5 秒仍停在 `.failed`，说明 `didDisconnect` /
+    /// `didFailToConnect` **一个都没来** —— 自己收尾，别把链路留在无人看守的死态。
+    ///
+    /// ## 为什么需要（2026-10-30）
+    ///
+    /// 两个超时看门狗存在的**唯一理由**就是「回调一个都不来」。但同一段失败
+    /// 同样会让 `cancelPeripheralConnection` 不产生回调（对**尚未建立**的
+    /// `.connecting` 尤其如此）：此时看门狗已消耗完、`linkState = .failed`、
+    /// 扫描没重启、也没有任何计时器 —— **完全无出路**。
+    /// 日志里会写「放弃并重扫」，但实际并没有重扫。
+    private func scheduleLinkCleanupFallback() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard let self, self.linkState == .failed else { return }
+            self.note("取消连接后 1.5s 未收到断开回调 → 自行收尾并重扫", level: .warning)
+            self.peripheral = nil
+            self.writeChar = nil
+            self.notifyChar = nil
+            self.linkState = .idle
+            self.resumeScanAfterDisconnect()
+        }
+    }
+
     private func armConnectTimeout() {
         connectTimeoutTask?.cancel()
         connectTimeoutTask = Task { @MainActor [weak self] in
@@ -703,6 +747,8 @@ public final class BLECentral: NSObject, ObservableObject {
             if let q = self.peripheral {
                 self.suppressAutoReconnect = false   // 让 didDisconnect 正常收尾 + 重扫
                 self.central.cancelPeripheralConnection(q)
+                // ★ 回调可能永远不来（见 scheduleLinkCleanupFallback）
+                self.scheduleLinkCleanupFallback()
             } else {
                 self.resumeScanAfterDisconnect()
             }
@@ -729,6 +775,8 @@ public final class BLECentral: NSObject, ObservableObject {
             if let q = self.peripheral {
                 self.suppressAutoReconnect = false   // 让 didDisconnect 正常收尾 + 重扫
                 self.central.cancelPeripheralConnection(q)
+                // ★ 回调可能永远不来（见 scheduleLinkCleanupFallback）
+                self.scheduleLinkCleanupFallback()
             } else {
                 self.resumeScanAfterDisconnect()
             }
@@ -1119,7 +1167,20 @@ extension BLECentral: CBCentralManagerDelegate {
             let adv = verdict.advertisement
             // 原 App 会**直接丢弃**非 Valeo 设备；这里保留在列表里只为诊断，
             // 但 `isLikelyTarget` 严格按原规则给值。
-            let hit = (identity != .notValeo)
+            // ★★★ **只有「本车」和「归属未确认」才算命中**（2026-10-30 修复）。
+            //
+            // 原写法 `identity != .notValeo` 把 `.otherValeoVehicle`（cryptedID
+            // 用本车 cidpu 校验**失败** = 确认是别人的同款车）也算成命中，后果：
+            // 1. 停车场里只要有另一台同款车，用户点按钮就会**连上别人的车**；
+            // 2. `didConnect` 会把 `rememberedPeripheralID` 覆盖成别人车的
+            //    identifier → 此后 `connectRemembered()` 一直连错；
+            // 3. 往未授权的车发 `01` 鉴权帧，4 秒超时 690，用户那条指令丢掉；
+            // 4. 同一套 `hit` 还驱动 `rssi` 与 `onDualRSSI` → **邻居车的信号
+            //    会污染本车的区域判定/标定**，误触发预认证。
+            //
+            // `.valeoTarget` 必须保留：它是「魔数命中但没有 cidpu，无法确认归属」，
+            // 首次配对就是靠这条路径（没有 cidpu 就永远无法确认是本车）。
+            let hit = (identity == .ownVehicle || identity == .valeoTarget)
             let weak = Double(rssiValue) <= ValeoAdvMatch.rssiFloor
             // ★ 命中本车时更新 RSSI 显示值。原 App 连接后从不 readRSSI，
             //   所以 RSSI 只能来自广播回调 —— 一旦停止扫描或离开覆盖范围，
@@ -1140,7 +1201,10 @@ extension BLECentral: CBCentralManagerDelegate {
 
                 // ★ 分路 RSSI：按 antenna 字段高 4 位分路（0x80=天线1/0x40=天线2），
                 //   供标定流程（addRSSI: @0x801c）采集两路 RSSI。
-                if let antennaNo = adv.antennaNumber {
+                // ★ 只喂「本车 / 归属未确认」的分路 RSSI（2026-10-30）。
+                //   否则邻居同款车的 antenna/RSSI 会进到标定基准里，
+                //   把本车的区域阈值带偏。
+                if hit, let antennaNo = adv.antennaNumber {
                     onDualRSSI?(antennaNo, rssiValue)
                 }
 
@@ -1190,6 +1254,18 @@ extension BLECentral: CBCentralManagerDelegate {
             //     现在去掉 linkState 条件：只要配对等待中，就无条件连第一个发现的
             //     设备（autoConnectWhilePairing 连接后即置 false，只连一次）。
             if autoConnectWhilePairing {
+                // ★ 先确认 connect 会真的发起（2026-10-30 修复）。
+                //
+                // 原来先 `= false` 再 `connect()`，而 `connect()` 在 `p.state`
+                // 处于 `.connecting`（上一次取消留下的残留）时只打一条 warning
+                // 就返回 —— 连接从未发起，标志却已经没了。配对页此后不会再
+                // 自动连，永久停在「配对中：扫描并连接车辆模块…」，
+                // 而配对阶段本身没有独立看门狗。
+                guard peripheral.state == .disconnected || peripheral.state == .connected else {
+                    note("配对等待中但设备状态为 \(peripheral.state.rawValue)，保持标志等下一次广播",
+                         level: .warning)
+                    return
+                }
                 autoConnectWhilePairing = false       // 只连一次，避免连错多个
                 lastMessage = "配对中：自动连接 \(advName.isEmpty ? peripheralID.uuidString : advName) 以触发系统配对…"
                 connect(peripheral)
@@ -1317,6 +1393,23 @@ extension BLECentral: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             cancelConnectTimeout()
             cancelDiscoverTimeout()
+            // ★ 清「手动断开」抑制标志（2026-10-30 修复）。
+            //
+            // `disconnect()` / `cancelConnection()` 会置
+            // `suppressAutoReconnect = true`，而**只有 `didDisconnectPeripheral`
+            // 会消费它**。如果那次取消走的是 `didFailToConnect`（pending 连接
+            // 被取消时的常见结果），标志就残留了 —— 下一次**正常**连接执行完
+            // 命令、车端主动断开时，`didDisconnect` 命中抑制分支直接 `return`：
+            // 不重扫、也不清特征 → 链路显示"已断开"后不再恢复，
+            // 预认证的广播驱动一起停摆，直到用户手动点按钮。
+            suppressAutoReconnect = false
+            // 清连接残留：失败后若 `writeChar` 还挂着，`isWriteReady` 会为真，
+            // 上层就敢往一条死链路发帧（4 秒超时 690 的经典来源）。
+            if self.peripheral === peripheral {
+                self.peripheral = nil
+                writeChar = nil
+                notifyChar = nil
+            }
             linkState = .failed
             note("连接失败：\(error?.localizedDescription ?? "未知")", level: .error)
 
@@ -1549,6 +1642,18 @@ extension BLECentral: CBPeripheralDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
+            // ★ 只处理「当前外设」的回调（2026-10-30 修复）。
+            //
+            // 配对页「退出→重进」或断开后立刻重连时，旧连接的 delegate 仍是 self，
+            // 它迟到的 `isNotifying == true` 会被当成**当前**链路订阅成功，
+            // 直接把 `linkState` 置成 `.ready` —— 于是上层以为可以发帧，
+            // 实际上发出去的是那条已经废弃的链路。
+            guard let tracked = self.peripheral,
+                  peripheral.identifier == tracked.identifier else {
+                note("忽略非当前外设的订阅回调（\(peripheral.identifier.uuidString.prefix(8))）",
+                     level: .warning)
+                return
+            }
             // ★ 订阅耗时 —— 判断 bonding 状态最可靠的量化指标
             //   （原 App 日志 344 次订阅：中位数 0.056s，配对时 5–15s）
             let elapsed = notifyRequestedAt.map { Date().timeIntervalSince($0) } ?? -1
@@ -1587,7 +1692,13 @@ extension BLECentral: CBPeripheralDelegate {
                 central.cancelPeripheralConnection(peripheral)
                 return
             }
-            if characteristic.isNotifying {
+            // ★ 必须是「我们订阅的那个特征」且「写特征已就位」才置 ready。
+            //
+            // 原来只看 `isNotifying`：若车端固件里没有写特征 F000FF11（或服务
+            // 发现被截断），仍会置 `.ready` 并广播出去 → 上层立刻取走挂起动作
+            // → `perform` 发现 `isWriteReady == false` → 重新挂起 →
+            // 15 秒后才由看门狗收口。用户看到「链路就绪」但点了没反应。
+            if characteristic.isNotifying, characteristic === notifyChar, writeChar != nil {
                 cancelDiscoverTimeout()
                 linkState = .ready
                 // ★ 对应原 App 的 `Notification updated for %@ device.`——
@@ -1612,6 +1723,13 @@ extension BLECentral: CBPeripheralDelegate {
         error: Error?
     ) {
         MainActor.assumeIsolated {
+            // ★ 只接受「当前外设」的数据（2026-10-30 修复）。
+            //
+            // 旧连接迟到的帧会被喂进 `MeasuredSession`：单调序号校验失败 →
+            // `abortRound` 把**当前这一轮**判成"乱序/非法"，或者更糟 ——
+            // 一个迟到的 `02` 挑战让当前轮用错 rnd1 回 `03`。
+            guard let tracked = self.peripheral,
+                  peripheral.identifier == tracked.identifier else { return }
             guard error == nil, let data = characteristic.value, !data.isEmpty else { return }
             let bytes = [UInt8](data)
             // ★ 收到数据即重置「出范围」计时（照 VCBDevice resetWithTimeout @0x9fb4）

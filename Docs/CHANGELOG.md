@@ -5,6 +5,144 @@
 
 ---
 
+## v6.8（2026-10-30）—— 全量排查：BLE 10 处 + 界面文字 12 处
+
+用户要求「排查所有问题和 bug，包括界面 UI 映射文字提示，尤其蓝牙 BLE 连接和调用」。
+两路并行审查（BLE 调用链 / UI 文字与状态映射），逐条回源码核对后修 **22 处**。
+
+### 一、BLE：最严重的一条会连错车
+
+**① `hit` 把「别人的同款车」也当成命中**
+
+```swift
+let hit = (identity != .notValeo)      // ← 错
+```
+
+`Identity` 有 4 个值：`ownVehicle` / `valeoTarget` / `otherValeoVehicle` / `notValeo`。
+`otherValeoVehicle` 是 **cryptedID 用本车 cidpu 校验失败** —— 明确不是本车。
+但 `!= .notValeo` 把它也算命中，于是：
+
+- 停车场里另一台同款车就能通过 `if hit && !weak && forceConnectOnce` → **连上别人的车**
+- `didConnect` 把 `rememberedPeripheralID` 覆盖成别人车 → 此后 `connectRemembered()` 一直连错
+- 往未授权车辆发 `01` 鉴权帧，4 秒超时 690
+- 同一套 `hit` 还驱动 `rssi` / `onDualRSSI` → **邻居车的信号污染本车区域判定与标定**
+
+修：
+
+```swift
+let hit = (identity == .ownVehicle || identity == .valeoTarget)
+```
+
+`.valeoTarget` 必须保留 —— 它是「魔数命中但没有 cidpu，无法确认归属」，
+首次配对就是靠这条路径。分路 RSSI 也加了 `hit` 条件。
+
+**② `perform` 没有「本轮在途」守卫 → 连点两次就锁定 60 秒**
+
+链路就绪时连点「闭锁→解锁」，第二次会直接再走 `beginMeasuredAuth`：
+`resetCommandOnly()` + `resetPacketCounter()` 把 `lastPacket` 归零、`rnd1` 冲掉。
+车端回的是**第一轮**的 `02`，而 `buildAuth3` 用**第二轮**的 `rnd1` →
+挑战自校验必失败 → 记一次 `recordAuthFailure`。**连点 5 次 = 60 秒锁定**，
+用户看到「连续失败 N/5 → 已锁定」，以为钥匙坏了。
+
+修：`measured.pendingAction != nil && commandTimeoutTask != nil` 时拦截并提示
+「上一轮「X」仍在执行，请稍候」。预认证轮次（`pendingAction == nil`）允许被打断 ——
+用户意图优先。
+
+**③ `connect()` 复用分支不清 `forceConnectOnce` → `.ready` 被反复打回 `.discovering`**
+
+触发链：`ready` 后 `resumeScanIfNeeded()` 仍在扫描（刻意）→ `didDiscover` 又扫到本车
+→ `forceConnectOnce` 没清（复用分支不走 `didConnect`）→ 再进复用分支
+→ `linkState` 从 `.ready` 打回 `.discovering`、重复 `discoverServices`/`setNotifyValue`
+→ 若 `didUpdateNotificationState` 不回（已 notifying 的特征 iOS 可能不回调）
+→ 15 秒后把**一条好链路** cancel 掉。
+
+修：复用分支清 `forceConnectOnce`，并加 `if linkState == .ready, peripheral === p { return }` 早退。
+
+**④ `didFailToConnect` 不清 `suppressAutoReconnect` → 下一次断开不重扫**
+
+`disconnect()`/`cancelConnection()` 置的抑制标志**只有 `didDisconnectPeripheral` 会消费**。
+若那次取消走的是 `didFailToConnect`，标志残留 → 下一次**正常**命令执行完、车端主动断开时，
+`didDisconnect` 命中抑制分支直接 `return`：不重扫、也不清特征 →
+链路显示「已断开」后不再恢复，预认证的广播驱动一起停摆。
+
+修：`didFailToConnect` 里补 `suppressAutoReconnect = false` + 清 `peripheral`/`writeChar`/`notifyChar`。
+
+**⑤ 预认证轮次超时/中止后不排下一轮**
+
+`preAuth.didComplete()` **只**在收到 `04` 的分支里调用。车端收下 `0x0C` 却不回 `04` 时：
+没有 `04` → 没有 `didComplete()` → **没有下一次 29 秒定时器** → 续发只能等广播触发
+`tickIfNeeded()`。前台没事，**后台广播稀疏到 10–31 秒甚至更久时，
+「位置没动、预认证却断了几分钟」就是这么来的**。
+
+修：超时与 `abortRound` 分支都判断 `wasPreAuth`（`pendingAction == nil`）并补 `didComplete()`。
+
+**⑥ 订阅/数据回调缺外设身份校验**
+
+配对页「退出→重进」或断开后立刻重连时，旧连接的 delegate 仍是 self：
+- 旧连接迟到的 `isNotifying == true` 会被当成**当前**链路订阅成功 → 直接置 `.ready`
+- 旧连接迟到的数据帧会喂进 `MeasuredSession` → 序号校验失败把**当前轮**判成乱序
+
+修：`didUpdateNotificationStateFor` / `didUpdateValueFor` 都加
+`guard let tracked = self.peripheral, peripheral.identifier == tracked.identifier`。
+
+**⑦ 订阅成功不校验写特征 → 假就绪**
+
+原来 `if characteristic.isNotifying` 就置 `.ready`。若车端固件里没有写特征
+`F000FF11`（或服务发现被截断），仍会置 ready → 上层取走挂起动作 →
+`perform` 发现 `isWriteReady == false` → 重新挂起 → 15 秒后才由看门狗收口。
+用户看到「链路就绪」但点了没反应。
+
+修：`characteristic.isNotifying, characteristic === notifyChar, writeChar != nil` 三者都满足才置 ready。
+
+**⑧ 拆链路径无人收尾**
+
+两个超时看门狗存在的**唯一理由**就是「回调一个都不来」。但同一段失败同样会让
+`cancelPeripheralConnection` 不产生回调（对**尚未建立**的 `.connecting` 尤其如此）：
+看门狗已消耗完、`linkState = .failed`、扫描没重启、没有计时器 —— **完全无出路**。
+日志写着「放弃并重扫」，实际没重扫。
+
+修：新增 `scheduleLinkCleanupFallback()`，两条超时路径 cancel 后挂 1.5 秒兜底，
+仍是 `.failed` 就自己清状态 + 重扫。
+
+**⑨ 配对标志在连接真正发起前就被消费**
+
+`autoConnectWhilePairing = false` 先执行，再 `connect()`；而 `connect()` 在
+`p.state == .connecting`（上次取消残留）时只打警告就返回 → 连接从未发起、
+标志却没了 → 配对页永久停在「配对中：扫描并连接车辆模块…」（配对阶段无独立看门狗）。
+
+修：先 `guard peripheral.state == .disconnected || .connected`，不满足就保留标志等下一帧广播。
+
+### 二、界面文字与状态映射：12 处
+
+| # | 位置 | 原来 | 现在 |
+|---|---|---|---|
+| 1 | 配对页 `statusText` | 已绑定就写「**蓝牙已连接车辆**」+ 绿勾（实际链路绝大多数时间是断的） | 按 `linkState == .ready` 区分：「蓝牙已连接车辆」/「钥匙已就绪 · 车辆未连接」 |
+| 2 | 配对页 `stateDetail` | 「车端已下发密钥（**0B**）」——用的是会话级 `receivedKeyData`，重启后为空 | 「密钥已保存在本机（Keychain）。车端连接是按需建立的，平时断开是正常的」 |
+| 3 | 密钥页「内置钥匙」 | 无钥匙时显示「当前生效：**非内置钥匙**」（暗示有别人的钥匙在生效） | 三态：没有钥匙（未绑定）/ 内置钥匙 / 自行配对的钥匙 |
+| 4 | 诊断页「续发状态」 | 「进行中（**0s** 周期）」——`timeBetweenPassiveStart` 初值 0，只有收到 04 才变 29 | 首轮显示「进行中（首轮，之后 29s 一轮）」 |
+| 5 | 诊断页「已发次数」 | 实为**发起**次数（计数在交帧前 +1，之后可能因未就绪/锁定/完整性根本没发） | 改「已发起次数」+ 标注「（含未发出）」 |
+| 6 | 诊断页「在点火区域」 | 保活关闭时恒显示「否（不在区域不发帧）」——与位置无关 | 关闭时显示「未判定（保活已关闭）」；开启时括号改为「自动续发需在区域内」 |
+| 7 | 诊断页「当前 RSSI」 | 显示的是广播单值，而判定用的是**双天线合成值**，可差 3 dB 以上 | 拆成「合成 RSSI（判定用）」+「广播 RSSI（单天线）」 |
+| 8 | 诊断页「发现设备数」 | `candidates` 从不清空 → 是**本进程累计**，会出现「扫描回调 0」+「发现 7 台」的自相矛盾 | 改「累计设备（本进程）」 |
+| 9 | 日志页空态提示 | 建议点「点火位置验证」，但那个页面**不发任何帧** | 改「准备点火」（会走完整 01→02→03→04） |
+| 10 | 右上角菜单 | 「车辆已绑定 · 管理与**解绑**」实际跳开发者菜单，**里面没有解绑入口** | 直接跳密钥页（解绑在「危险操作」里） |
+| 11 | 车辆详情「连接状态」 | 「蓝牙连接 **iPhone**」语序错，且用 `isWriteReady` 判定（discovering 时就为真） | 「已连接车辆（可发命令）」/「已握手，未就绪」/「未连接（扫描中）」 |
+| 12 | 无感进入副标题 | 开启就承诺「靠近车辆时拉门把手解锁」——实际还要求预认证保活 + RSSI 已标定，默认都不满足 | 「已开启，但预认证保活未开、RSSI 未标定—— 现在不会自动解锁」 |
+
+### 验证
+
+- `swiftc -typecheck`：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- **装机待用户解锁手机**
+- **待实测**：
+  1. 停车场里（有同款车）点按钮，应只连本车 —— 日志里会出现
+     「匹配：… → 其他 Valeo 车辆」但不进入连接
+  2. 连点两次控车按钮，第二次应提示「上一轮「X」仍在执行，请稍候」，不再累积失败计数
+  3. 已绑定状态打开配对页，应显示「钥匙已就绪 · 车辆未连接」，不再谎报「蓝牙已连接」
+  4. 诊断页「续发状态」不再出现「0s 周期」
+
+---
+
 ## v6.7（2026-10-30）—— 「后台执行权为什么是无」：标签有歧义，且真有一处漏申请
 
 用户看诊断页问「后台执行权为啥是无」（截图：已发次数 0、最近一次发送「还没发过」、

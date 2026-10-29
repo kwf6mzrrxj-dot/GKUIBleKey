@@ -38,6 +38,22 @@ struct DiagnosticsView: View {
 
     // MARK: - ★ 预认证 / 点火（「打不着火」时第一个要看的地方）
 
+    /// 预认证续发间隔的展示文案。
+    ///
+    /// `timeBetweenPassiveStart` 的初值是 **0**，只有一轮 `0x0C` 收到 `04`
+    /// 之后 `PreAuthenticationController.didComplete()` 才会把它设成 29。
+    /// 首轮未完成（甚至每轮都超时、永远完不成）时，原来会一直显示
+    /// 「进行中（0s 周期）」—— 看起来像配错了一个零间隔。
+    private var preAuthIntervalText: String {
+        guard model.preAuth.didStart else { return "未启动" }
+        let configured = model.preAuth.timeBetweenPassiveStart
+        if configured > 0 {
+            return String(format: "进行中（%.0fs 一轮）", configured)
+        }
+        return String(format: "进行中（首轮，之后 %.0fs 一轮）",
+                      PreAuthenticationController.retryInterval)
+    }
+
     /// 预认证（`0x0C`）是「让车端认出手机在场」的唯一手段，
     /// 它不发出去，踩刹车按启动按钮就是白按。
     ///
@@ -47,12 +63,14 @@ struct DiagnosticsView: View {
         card("预认证 / 点火") {
             VStack(alignment: .leading, spacing: 8) {
                 readonlyRow("保活开关", model.preAuth.isEnabled ? "已开启" : "已关闭（不会发 0x0C）")
-                readonlyRow("已发次数", "\(model.preAuth.sentCount)")
-                readonlyRow("在点火区域", model.preAuth.isInArea ? "是" : "否（不在区域不发帧）")
-                readonlyRow("续发状态", model.preAuth.didStart
-                            ? String(format: "进行中（%.0fs 周期）",
-                                     model.preAuth.timeBetweenPassiveStart)
-                            : "未启动")
+                // ★ 计数在「定时器到点、准备交帧」时就 +1，之后 `beginMeasuredAuth`
+                        //   仍可能因「写特征未就绪 / 已锁定 / 密钥完整性未通过 / 只读监听」
+                        //   根本没发出帧 —— 所以这是「发起次数」，不是「已发出帧数」。
+                        readonlyRow("已发起次数", "\(model.preAuth.sentCount)（含未发出）")
+                readonlyRow("在点火区域", !model.preAuth.isEnabled
+                            ? "未判定（保活已关闭）"
+                            : (model.preAuth.isInArea ? "是" : "否（自动续发需在区域内）"))
+                readonlyRow("续发状态", preAuthIntervalText)
                 Divider()
                 // ★ 后台保活三件套（2026-10-29）：判断「切后台还在不在维持」
                 //
@@ -76,7 +94,10 @@ struct DiagnosticsView: View {
                             ? "\(model.passiveStart.calibration ?? 0)"
                             : "未标定（区域判定永不成立）")
                 readonlyRow("区域阈值", "\(model.passiveStart.threshold)")
-                readonlyRow("当前 RSSI", model.ble.rssi.map { "\($0)" } ?? "—")
+                // ★ 判定用的是双天线**合成** dB 值，不是下面这个单值广播 RSSI。
+                        //   两者可差 3 dB 以上，拿它跟阈值比对会得出相反结论。
+                        readonlyRow("合成 RSSI（判定用）", model.passiveStart.summary)
+                        readonlyRow("广播 RSSI（单天线）", model.ble.rssi.map { "\($0) dBm" } ?? "—")
                 Text("判定式：合成 RSSI > 阈值 才算「在区域内」；"
                      + "在区域内且保活开启，才会按周期发 0x0C。")
                     .font(.caption2)
@@ -105,7 +126,10 @@ struct DiagnosticsView: View {
                 readonlyRow("位置权限", model.ble.locationAuthText)
                 readonlyRow("链路状态", model.ble.linkState.rawValue)
                 readonlyRow("写特征", model.ble.isWriteReady ? "已就绪" : "未就绪")
-                readonlyRow("发现设备数", "\(model.ble.candidates.count)")
+                // ★ candidates 从不清空（全项目无 `candidates = []`），
+                //   所以这是「本进程累计」，不是本次扫描的实时数量 ——
+                //   否则会出现「扫描回调 0」+「发现 7 台」的自相矛盾。
+                readonlyRow("累计设备（本进程）", "\(model.ble.candidates.count)")
                 // ★ 扫描回调计数：0 = 系统根本没回调（权限/适配器问题），
                 //   >0 但列表为空 = 回调来了、被过滤掉了（逻辑问题）。
                 //   这个区分是「扫不到车」时最先要看的一条。

@@ -179,7 +179,17 @@ struct KeyInspectorView: View {
                     Image(systemName: BuiltInKeys.isActive
                           ? "checkmark.seal.fill" : "seal")
                         .foregroundStyle(BuiltInKeys.isActive ? .green : .secondary)
-                    Text(BuiltInKeys.isActive ? "当前生效：内置钥匙" : "当前生效：非内置钥匙")
+                    // ★ 三态（2026-10-30 修复）。
+                    //
+                    // 原来只有「内置 / 非内置」两态，而 `BuiltInKeys.isActive`
+                    // 在 dk1 为空时返回 false —— 于是**解绑车辆清空 Keychain 后**，
+                    // 这里会显示「当前生效：非内置钥匙」，等于暗示"有一把别人的
+                    // 钥匙正在生效"，和同卡片下面「字段不全」自相矛盾。
+                    Text(!model.hasLocalKey
+                         ? "当前没有钥匙（未绑定）"
+                         : (BuiltInKeys.isActive
+                            ? "当前生效：内置钥匙"
+                            : "当前生效：自行配对的钥匙"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()

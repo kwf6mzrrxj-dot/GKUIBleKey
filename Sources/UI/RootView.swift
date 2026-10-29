@@ -149,7 +149,10 @@ struct RootView: View {
                 //   原来这一项常驻，已配对用户点进去只会弹「本地已有密钥」，
                 //   等于把已建立的配对关系重复展示成"可以再配一次"。
                 if model.hasLocalKey {
-                    Button { showDeveloper = true } label: {
+                    // 文案承诺「管理与解绑」，就得真的落到有解绑的那一页
+                    // （`KeyInspectorView` 的「危险操作」）。原来跳的是开发者菜单，
+                    // 里面根本没有解绑入口，用户会找到「断开连接」误以为就是它。
+                    Button { showKeys = true } label: {
                         Label("车辆已绑定 · 管理与解绑", systemImage: "key.fill")
                     }
                 } else {
@@ -574,6 +577,17 @@ struct RootView: View {
         return .secondary
     }
 
+    /// 无感进入的实际可生效性 —— 开关只是**车端受理过 0x11**，
+    /// 真正「拉门把手能解锁」还要求预认证保活开着、RSSI 已标定。
+    private var passiveEntrySubtitle: String {
+        guard model.passiveEntryEnabled else { return "手动控车（不自动解锁）" }
+        var missing: [String] = []
+        if !model.preAuth.isEnabled { missing.append("预认证保活未开") }
+        if !model.passiveStart.isCalibrated { missing.append("RSSI 未标定") }
+        guard !missing.isEmpty else { return "靠近车辆时拉门把手解锁" }
+        return "已开启，但\(missing.joined(separator: "、"))—— 现在不会自动解锁"
+    }
+
     /// 无感进入开关卡片：靠近车辆时拉门把手解锁。
     private var passiveEntryCard: some View {
         // ★ 统一用系统 `.buttonStyle(.glass)`（2026-10-30）。
@@ -599,9 +613,10 @@ struct RootView: View {
                     Text("无感进入")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(model.passiveEntryEnabled
-                         ? "靠近车辆时拉门把手解锁"
-                         : "手动控车（不自动解锁）")
+                    // ★ 开着开关 ≠ 真的会解锁（2026-10-30）：
+                    //   还要求「预认证保活已开」+「RSSI 已标定」，而这两项
+                    //   默认都不满足。原来直接承诺「拉门把手解锁」。
+                    Text(passiveEntrySubtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -1030,7 +1045,11 @@ struct VehicleDetailView: View {
                         Divider()
                         row("CIDPU（后 8 位）", cidpuText, mono: true)
                         Divider()
-                        row("连接状态", model.ble.isWriteReady ? "蓝牙连接 iPhone" : "未连接")
+                        row("连接状态", model.ble.linkState == .ready
+                            ? "已连接车辆（可发命令）"
+                            : (model.ble.isWriteReady
+                               ? "已握手，未就绪"
+                               : "未连接（\(model.ble.linkState.rawValue)）"))
                         Divider()
                         row("车辆型号", "博越 PRO")
                         Divider()
