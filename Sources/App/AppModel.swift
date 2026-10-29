@@ -152,8 +152,17 @@ public final class AppModel: ObservableObject {
             .store(in: &cancellables)
         NotificationCenter.default
             .publisher(for: UIApplication.didBecomeActiveNotification)
-            .sink { _ in
-                Task { @MainActor in BackgroundMonitor.shared.didBecomeActive() }
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    BackgroundMonitor.shared.didBecomeActive()
+                    // ★ 从后台挂起恢复 → 预认证若被中断，立刻续上（2026-10-29）
+                    //
+                    // iOS 挂起期间 29 秒的定时器不推进，而 v5.4 之后断连又不
+                    // 清 `isInArea`，`updateArea(true)` 会因状态相同直接 return ——
+                    // 结果就是**从后台回来后再也不发 0x0C**，
+                    // 表现为「无感进入不可用」「拉门把手不解锁」。
+                    self?.preAuth.resumeAfterSuspendIfNeeded()
+                }
             }
             .store(in: &cancellables)
 

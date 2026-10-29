@@ -188,6 +188,28 @@ public final class PreAuthenticationController: ObservableObject {
         }
     }
 
+    /// App 被系统挂起/终止后重新活跃时调用：把中断的预认证**立刻续上**。
+    ///
+    /// ## 为什么必须有这个
+    ///
+    /// 预认证是「车端认为钥匙在场」的唯一来源，而它的节奏靠 29 秒的
+    /// `Task.sleep`。iOS 在后台会把进程挂起（日志实证：心跳间隔 3 分 46 秒、
+    /// 进程被系统终止 13 分钟），**挂起期间这个定时器不推进**。
+    ///
+    /// 更麻烦的是 v5.4 之后：断连不再清 `isInArea`，所以从后台回来时
+    /// `isInArea` 仍是 `true` → `updateArea(true)` 会因 `inArea == isInArea`
+    /// 直接 return → **再也不会重新启动**，用户看到的就是「无感进入不可用」。
+    ///
+    /// 这里做一次显式补偿：只要有「已启用 + 在区域内 + 没在跑」这三个条件，
+    /// 就立刻启动一轮，不等下一个区域边沿。
+    public func resumeAfterSuspendIfNeeded() {
+        guard isEnabled else { return }
+        guard isInArea else { return }
+        guard !didStart else { return }
+        onLog?("恢复到前台：预认证曾因挂起中断 → 立即续上")
+        launchPreAuthentication()
+    }
+
     // MARK: - ⑤ didPassiveStartCompletedWithError:
 
     /// 一次预认证往返结束后的重试间隔。
