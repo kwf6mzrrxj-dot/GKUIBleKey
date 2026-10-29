@@ -106,6 +106,7 @@ tools/            同步脚本
 - `Docs/INBLUE_PROTOCOL_SPEC.md` —— 协议规范（帧格式、命令码、状态位定义）
 - `Docs/CHANGELOG.md` —— 逐版本变更（含踩过的坑）
 - `Docs/BIZ_AUDIT_v2.md` —— 与官方 App 的业务实现对照
+- `Docs/REVIEW_CHECKLIST.md` —— **改代码前必看**：从 30 个真实 bug 反推的审查清单
 
 ## 关于密钥
 
