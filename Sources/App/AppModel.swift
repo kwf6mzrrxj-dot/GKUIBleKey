@@ -320,16 +320,8 @@ public final class AppModel: ObservableObject {
             self?.measured.recordNote(line)
         }
         preAuth.onSend = { [weak self] in
-            // ★ 先申请后台执行时间，再发帧（2026-10-29，后台保活）。
-            //
-            // 后台被广播唤醒时，系统只给**几秒**执行时间。而一轮预认证是
-            // 「连接（1–2s）+ 01 → 02 → 03 → 04（0.5–1s）」，
-            // 中途被挂起就会半途而废：03 没发出 / 04 收不到 →
-            // `didComplete()` 不触发 → 这一轮白费，只能等下一个广播 tick。
-            //
-            // `beginBackgroundTask` 能争取到约 30 秒，足够走完一整轮。
-            self?.beginPreAuthBackgroundTask()
-            // 预认证 = 一次完整 `01→02→03(0x0C)→04`
+            // 后台执行权改在 `beginMeasuredAuth` 里统一申请（那是唯一入口，
+            // 连「挂起后补发」和「手动发送」也覆盖到）。这里不再重复申请。
             self?.beginMeasuredAuth(asPreAuthentication: true)
         }
 
@@ -1670,6 +1662,20 @@ public final class AppModel: ObservableObject {
     ///   **不会**沿用上一次的控车动作（否则定时预认证会误发锁/解锁）。
     public func beginMeasuredAuth(action: IBCommandType? = nil,
                                   asPreAuthentication: Bool = false) {
+        // ★★ 预认证**一进来就申请后台执行时间**（2026-10-30）。
+        //
+        // 必须放在最前面，包括「链路未就绪 → 挂起 → 等 `.ready` 补发」那条路 ——
+        // 因为连接（1–2 秒）+ 鉴权往返（0.5–1 秒）全程都需要后台执行权。
+        //
+        // 原来只在 `preAuth.onSend` 里申请，于是有两条路径**没有保护**：
+        //   · `.ready` 回调里的「补发预认证」—— 后台最常见的就是这条
+        //   · 诊断页手动「立即发送预认证」
+        // 表现为：后台唤醒后连接还没建完就被系统挂起，这一轮白费。
+        //
+        // 放在唯一入口后三条路径全覆盖，且 `beginPreAuthBackgroundTask`
+        // 内部有 `guard preAuthBGTask == .invalid`，重复调用无副作用。
+        if asPreAuthentication { beginPreAuthBackgroundTask() }
+
         guard ble.isWriteReady else {
             if asPreAuthentication {
                 // ★★ 预认证**不能丢**：它的触发时机（刚进入被动启动区域）

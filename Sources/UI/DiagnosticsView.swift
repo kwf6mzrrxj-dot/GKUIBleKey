@@ -61,9 +61,13 @@ struct DiagnosticsView: View {
                 readonlyRow("App 状态", BackgroundMonitor.shared.isInBackground
                             ? "后台（靠广播唤醒续发）"
                             : "前台")
-                readonlyRow("后台执行权", model.isHoldingPreAuthBackgroundTime
-                            ? "已持有（本轮 01→04 受保护）"
-                            : "无")
+                // ★「后台执行权」是**瞬时**的：只在一轮 01→04 往返期间持有，
+                //   收到 04 / 超时 / 中止就立刻释放。空闲时显示「无」是正常的，
+                //   不代表后台能力不可用 —— 所以标签写成「本轮后台保护」，
+                //   避免被误解成一个常驻开关。
+                readonlyRow("本轮后台保护", model.isHoldingPreAuthBackgroundTime
+                            ? "进行中（01→04 受保护）"
+                            : "无（空闲，正常）")
                 readonlyRow("最近一次发送", model.preAuth.lastSentAt.map {
                     String(format: "%.0f 秒前", Date().timeIntervalSince($0))
                 } ?? "还没发过")
@@ -75,6 +79,10 @@ struct DiagnosticsView: View {
                 readonlyRow("当前 RSSI", model.ble.rssi.map { "\($0)" } ?? "—")
                 Text("判定式：合成 RSSI > 阈值 才算「在区域内」；"
                      + "在区域内且保活开启，才会按周期发 0x0C。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("「本轮后台保护」只在一轮 01→04 往返期间出现，"
+                     + "收完 04 就释放 —— 空闲时是「无」属于正常。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Button {
