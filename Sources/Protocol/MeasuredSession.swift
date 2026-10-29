@@ -191,7 +191,9 @@ public final class MeasuredSession: ObservableObject {
         let s = VehicleStatus(decryptedPlain: plain)
         status = s
         statusUpdatedAt = Date()
-        append("车辆状态更新：\(s.summary)")
+        // 带完整明文 + 状态字节二进制，实测时可逐位核对
+        // （区分「车端没报这个字段」与「我们位映射错了」）
+        append("车辆状态更新：\(s.summary)｜plain=\(s.hex)")
     }
 
     public init() {

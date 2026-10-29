@@ -264,6 +264,12 @@ public enum SelfTest {
     /// 反汇编依据：`parseBroadcastData:` @`0x4bc0` 解密后，
     /// `[self parseStatus:[plain subdataWithRange:NSMakeRange(4,1)]]`，
     /// 而 `parseStatus:` @`0x4de4` 里 `substringWithRange:(7,1)` → `_isLocked`。
+    ///
+    /// ## 发动机（2026-10-29 修正后的关键回归）
+    /// `_isEnginRunning` 的 range 是 **{1,2}**（`0x5094 mov w2,#1` + `0x5098 mov w3,#2`），
+    /// 取两位后用 `strtol(_, NULL, 2)` 解析、`cmp #2` 判等 —— 只有 `10b` 算运行。
+    /// 旧实现取单 bit `bit5`，于是真车「发动机启动」时（bit6=1/bit5=0）
+    /// 恒判未启动，UI 只显示「上电」。这组用例把该错误钉死。
     static func testVehicleStatusBits() -> Result {
         func state(_ statusByte: UInt8) -> VehicleStatus {
             var p = [UInt8](repeating: 0, count: 16)
@@ -275,13 +281,48 @@ public enum SelfTest {
         let b = state(0x40)   // bit6=1，bit0=0 → 未锁
         let c = state(0x00)   // 全零 → 未锁
 
-        let ok = a.isLocked && !b.isLocked && !c.isLocked
+        let lockOK = a.isLocked && !b.isLocked && !c.isLocked
+
+        // ── 发动机 2 位编码 ────────────────────────────────
+        // 0x50 = 0101_0000：bit4(上电)=1，bit6:bit5 = 10b = 2 → 运行
+        let run   = state(0x50)
+        // 0x10 = 0001_0000：bit4=1，bit6:bit5 = 00b = 0 → 只上电没启动
+        let ignOnly = state(0x10)
+        // 0x20 = 0010_0000：bit6:bit5 = 01b = 1 → 不是运行（旧实现会误判为运行）
+        let code1 = state(0x20)
+        // 0x60 = 0110_0000：bit6:bit5 = 11b = 3 → 不是运行
+        let code3 = state(0x60)
+
+        let engOK = run.isEngineRunning && run.engineStateCode == 2
+            && !ignOnly.isEngineRunning && ignOnly.isIgnitionOn
+            && !code1.isEngineRunning && code1.engineStateCode == 1
+            && !code3.isEngineRunning && code3.engineStateCode == 3
+
+        // ── 引擎盖 = bin[0] = bit7（旧实现错取 bit6）────────
+        let hoodOpen   = state(0x00)   // bit7=0 → 引擎盖未关（开）
+        let hoodClosed = state(0x80)   // bit7=1 → 关闭
+        let hoodOK = hoodClosed.isHoodClosed && !hoodOpen.isHoodClosed
+
+        // ── 四门 + ACC 抽查 ───────────────────────────────
+        var p = [UInt8](repeating: 0, count: 16)
+        p[6] = 0x0F; p[7] = 0x01
+        let doors = VehicleStatus(decryptedPlain: p)
+        let doorOK = doors.isFLDoorClosed && doors.isFRDoorClosed
+            && doors.isRLDoorClosed && doors.isRRDoorClosed
+            && !doors.isFLDoorLocked && doors.isAccOn
+
+        let ok = lockOK && engOK && hoodOK && doorOK
+        let detail: String = ok
+            ? "锁 bit0；发动机 bit6:bit5 的 base-2 值==2；引擎盖 bit7；四门 bit0-3；ACC bit0 —— 全部吻合 parseStatus:/parseDoorsStatus:/parsePowerStatus:"
+            : "lock=\(lockOK) eng=\(engOK)(0x50=\(run.engineStateCode)/\(run.isEngineRunning) "
+              + "0x10=\(ignOnly.engineStateCode)/\(ignOnly.isEngineRunning) "
+              + "0x20=\(code1.engineStateCode)/\(code1.isEngineRunning) "
+              + "0x60=\(code3.engineStateCode)/\(code3.isEngineRunning)) "
+              + "hood=\(hoodOK) doors=\(doorOK)"
         return Result(
-            name: "状态位解析（parseStatus: bin[7]=plain[4] bit0）",
+            name: "状态位解析（parseStatus: 发动机为 2 位编码）",
             passed: ok,
-            detail: ok
-                ? "0x01→已锁、0x40→未锁、0x00→未锁（与 parseStatus: 的 (7,1) 一致）"
-                : "0x01=\(a.isLocked) 0x40=\(b.isLocked) 0x00=\(c.isLocked)")
+            detail: detail)
     }
 
     // MARK: - ★ 命令号表

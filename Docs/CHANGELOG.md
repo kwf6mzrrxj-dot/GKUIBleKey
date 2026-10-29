@@ -5,6 +5,56 @@
 
 ---
 
+## v4.5（2026-10-29）—— 修「发动机启动后只显示上电、发动机恒显示未启动」
+
+用户实测：**发动机启动后 UI 显示「已上电」，但「发动机」一直「未启动」**。
+
+### 根因：`_isEnginRunning` 是 **2 位编码**，被误实现成单 bit
+
+`parseStatus:` @`0x4de4` 的三次复核发现，前两次只看 `mov w2, #N`（location），
+漏了紧跟着的 `mov w3, #N`（length）：
+
+```asm
+0x502c: mov w2, #3
+0x5030: mov w3, #1        ; {3,1} → bit4  → _isIgnitionOn
+0x5094: mov w2, #1
+0x5098: mov w3, #2        ; {1,2} → bit6:bit5 两位！→ _isEnginRunning
+0x50c8: mov x1, #0
+0x50c4: mov w2, #2        ; strtol(_, NULL, 2)
+0x50dc: cmp x26, #2
+0x50e0: cset w8, eq       ; 只有 10b 算运行
+0x50f4: mov x2, #0 / w3=#1 ; {0,1} → bit7 → _isHoodClosed
+```
+
+| 编码 | bit6:bit5 | 判定 |
+|---|---|---|
+| 0 | `00` | 未运行 |
+| 1 | `01` | 未运行 |
+| **2** | **`10`** | **运行中** |
+| 3 | `11` | 未运行 |
+
+真车发动机启动时状态字节是 `bit4=1`（上电）+ `bit6=1/bit5=0`（eng=2）。
+旧代码取 `bit5` → 恒 false，于是「上电了但发动机未启动」。**完全对得上现象。**
+
+顺带修正 **`isHoodClosed` = bit7**（原来错取 bit6），并删掉并不存在的
+`reservedBit7` —— 8 位实际全部用满（7,6,5,4,3,[1..2],0）。
+
+### 改动
+
+- `VehicleStatus`：新增 `engineStateCode`（`(statusByte>>5)&0x03`），
+  `isEngineRunning = engineStateCode == 2`；`isHoodClosed` 改 bit7；删 `reservedBit7`。
+- `summary` 日志带 `eng=N`；`fullDescription` 增加 `status[4]` 的 8 位二进制串，
+  便于实测一眼区分「车端没报」还是「位映射错」。
+- `SelfTest.testVehicleStatusBits` 扩成回归用例：
+  0x50→运行、0x10→仅上电、0x20→编码1、0x60→编码3、0x80→引擎盖关、四门 + ACC。
+- `Docs/VEHICLE_STATUS.md` 表格按 `substringWithRange:` 真实 range 重写。
+
+### 验证
+
+- `swiftc -typecheck`（iOS 27 SDK，全 33 文件）：0 error。
+
+---
+
 ## v4.4（2026-10-29）—— 修「总是断联 / 点火不了 / 无感进入无效」：同一个根因
 
 用户在 3.4 上反馈三件事，拉日志后确认**是同一个 bug 的三张面孔**。

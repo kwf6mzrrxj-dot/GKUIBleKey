@@ -39,12 +39,16 @@ public struct VehicleStatus: Sendable, Equatable {
     public var isTrunkClosed: Bool
     /// bit4 —— `_isIgnitionOn`（上电 / 点火开关）
     public var isIgnitionOn: Bool
-    /// bit5 —— `_isEnginRunning`（发动机运行）
+    /// ★ `_isEnginRunning`（发动机运行）—— **取 bit6:bit5 两位组成的状态码，码值 == 2 才算运行**。
+    ///
+    /// 见 `engineStateCode`。不是单 bit。
     public var isEngineRunning: Bool
-    /// bit6 —— `_isHoodClosed`（引擎盖关闭）
+    /// ★ 发动机状态原始 2 位编码（`(statusByte >> 5) & 0x03`，取值 0…3）。
+    ///
+    /// 原 App 只判 `== 2`，其余三值一律视为未运行；这里保留原始值便于实测对照。
+    public var engineStateCode: UInt8
+    /// bit7（MSB）—— `_isHoodClosed`（引擎盖关闭）
     public var isHoodClosed: Bool
-    /// bit7 —— 未在 `parseStatus:` 取值（MSB）
-    public var reservedBit7: Bool
 
     // ── `parseDoorsStatus:`（plain[6]）四门 8 位 ────────────────
     /// 前左门关闭（bit0）
@@ -99,8 +103,8 @@ public struct VehicleStatus: Sendable, Equatable {
         isTrunkClosed   = s["isTrunkClosed"] ?? false
         isIgnitionOn    = s["isIgnitionOn"] ?? false
         isEngineRunning = s["isEngineRunning"] ?? false
+        engineStateCode = Self.engineStateCode(statusByte)
         isHoodClosed    = s["isHoodClosed"] ?? false
-        reservedBit7    = s["reservedBit7"] ?? false
 
         isFLDoorClosed  = d["isFLDoorClosed"] ?? false
         isFRDoorClosed  = d["isFRDoorClosed"] ?? false
@@ -172,10 +176,25 @@ public struct VehicleStatus: Sendable, Equatable {
 
     /// `parseStatus:` @`0x4de4` 的单字节位映射。
     ///
-    /// 反汇编：`substringWithRange:(7,1)`→`_isLocked`、`(6,1)`→`_isDoorClosed`、
-    /// `(5,1)`→`_isTruckLocked`、`(4,1)`→`_isTruckClosed`、`(3,1)`→`_isIgnitionOn`、
-    /// `(2,1)`→`_isEnginRunning`、`(1,1)`→`_isHoodClosed`。
-    /// 因 `hexToBinary` 高位在前，`(loc,1)` 即 **bit(loc)**（LSB=0）。
+    /// ## 反汇编（2026-10-29 三次复核，前两次漏了位宽）
+    ///
+    /// | 指令 | `substringWithRange:` | 取值 | 落到 ivar |
+    /// |---|---|---|---|
+    /// | `0x4e64` | `{7,1}` | bit0 | `_isLocked` |
+    /// | `0x4ee8` | `{6,1}` | bit1 | `_isDoorClosed` |
+    /// | `0x4f54` | `{5,1}` | bit2 | `_isTruckLocked` |
+    /// | `0x4fc0` | `{4,1}` | bit3 | `_isTruckClosed` |
+    /// | `0x502c` | `{3,1}` | bit4 | `_isIgnitionOn` |
+    /// | `0x5094` | **`{1,2}`** | **bit6:bit5 两位** | `_isEnginRunning` |
+    /// | `0x50f4` | `{0,1}` | bit7 | `_isHoodClosed` |
+    ///
+    /// ⚠️ **发动机不是单 bit**：`0x5098` 是 `mov w3, #2`（长度 2），
+    /// 取 `bin[1..3)` 后用 `0x50c8 mov x1, #0` + `0x50c4 mov w2, #2`
+    /// 调 `strtol(str, NULL, 2)`（基 2），再 `cmp x26, #2` / `cset w8, eq`。
+    /// 即 **`10`(二进制) 才算运行**，`00`/`01`/`11` 都是未运行。
+    ///
+    /// 之前误当成 `(2,1)`→bit5、`(1,1)`→bit6，导致**发动机启动时只显示「上电」、
+    /// 发动机仍显示「未启动」**（真车就是 bit4=1 且 bit6=1/bit5=0）。
     public static func decodeStatusByte(_ b: UInt8) -> [String: Bool] {
         func bit(_ i: Int) -> Bool { (b >> UInt8(i)) & 1 == 1 }
         return [
@@ -184,10 +203,17 @@ public struct VehicleStatus: Sendable, Equatable {
             "isTrunkLocked": bit(2),   // loc 5 → bit2
             "isTrunkClosed": bit(3),   // loc 4 → bit3
             "isIgnitionOn": bit(4),    // loc 3 → bit4
-            "isEngineRunning": bit(5), // loc 2 → bit5
-            "isHoodClosed": bit(6),    // loc 1 → bit6
-            "reservedBit7": bit(7),    // loc 0 → bit7（未取值）
+            "isEngineRunning": engineStateCode(b) == 2, // loc {1,2} → bit6:bit5，base-2 == 2
+            "isHoodClosed": bit(7),    // loc 0 → bit7
         ]
+    }
+
+    /// 发动机状态 2 位编码：`bin[1..3)` 的二进制值 = `bit6*2 + bit5`。
+    ///
+    /// 对应反汇编 `substringWithRange:{1,2}` → `strtol(_, NULL, 2)`。
+    /// 原 App 的唯一判据是 `== 2`（`cmp x26, #2` / `cset w8, eq`）。
+    public static func engineStateCode(_ b: UInt8) -> UInt8 {
+        (b >> 5) & 0x03
     }
 
     /// `parseDoorsStatus:` @`0x5274` 的单字节位映射。
@@ -227,7 +253,8 @@ public struct VehicleStatus: Sendable, Equatable {
         var parts: [String] = []
         parts.append(isLocked ? "已锁" : "未锁")
         parts.append(isIgnitionOn ? "上电" : "未上电")
-        parts.append(isEngineRunning ? "发动机运行" : "发动机停")
+        // 带上 engine 原始 2 位编码，实测时一条日志就能判断是「车没报」还是「位映射错」
+        parts.append(isEngineRunning ? "发动机运行" : "发动机停(eng=\(engineStateCode))")
         parts.append(isAccOn ? "ACC开" : "ACC关")
         if !isTrunkClosed { parts.append("后备箱开") }
         return parts.joined(separator: " · ")
@@ -238,11 +265,20 @@ public struct VehicleStatus: Sendable, Equatable {
     /// 逐字段可读明细（全部字段，来自反汇编）
     public var fullDescription: String {
         var lines: [String] = ["原始明文：\(hex)"]
+        lines.append("status[4]=\(String(format: "%02X", raw.count > 4 ? raw[4] : 0)) "
+                     + "bin=\(raw.count > 4 ? Self.decodeStatusBin(raw[4]) : "-")")
         lines.append("门锁=\(isLocked) 车门关=\(isDoorClosed) 后备箱锁=\(isTrunkLocked) 后备箱关=\(isTrunkClosed)")
-        lines.append("上电=\(isIgnitionOn) 发动机=\(isEngineRunning) 引擎盖关=\(isHoodClosed) ACC=\(isAccOn)")
+        lines.append("上电=\(isIgnitionOn) 发动机=\(isEngineRunning)(eng=\(engineStateCode)) 引擎盖关=\(isHoodClosed) ACC=\(isAccOn)")
         lines.append("四门：FL=\(isFLDoorClosed) FR=\(isFRDoorClosed) RL=\(isRLDoorClosed) RR=\(isRRDoorClosed)")
         lines.append("oemID=\(String(format: "%02X", oemID)) randomNumber=\(FrameCodec.hexString(randomNumber))")
         return lines.joined(separator: "\n")
+    }
+
+    /// `status[4]` 的 8 位二进制串（高位在前），等价 `hexToBinary:` 单个字符的展开。
+    /// 例如 `0x41` → `"01000001"`：bit6=1、bit5=0 → eng=2（运行中）。
+    public static func decodeStatusBin(_ b: UInt8) -> String {
+        let s = String(b, radix: 2)
+        return String(repeating: "0", count: max(0, 8 - s.count)) + s
     }
 }
 

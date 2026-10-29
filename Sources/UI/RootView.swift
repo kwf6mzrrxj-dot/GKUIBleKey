@@ -951,7 +951,9 @@ struct VehicleDetailView: View {
             ("车门", s.isDoorClosed ? "已关" : "未关", s.isDoorClosed),
             ("后备箱", s.isTrunkClosed ? "已关" : "打开", s.isTrunkClosed),
             ("上电", s.isIgnitionOn ? "已上电" : "未上电", s.isIgnitionOn),
-            ("发动机", s.isEngineRunning ? "运行中" : "停止", s.isEngineRunning),
+            // 发动机取 bit6:bit5 两位编码，==2 才运行（照原 App strtol(base2)==2）；
+            // 未运行时把原始编码带出来，方便判断是车端没报还是位映射问题。
+            ("发动机", s.isEngineRunning ? "运行中" : "停止 (e\(s.engineStateCode))", s.isEngineRunning),
             ("ACC", s.isAccOn ? "开" : "关", s.isAccOn),
         ]
         return LazyVGrid(columns: cols, spacing: 10) {
