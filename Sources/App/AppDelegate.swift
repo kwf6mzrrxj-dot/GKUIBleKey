@@ -38,7 +38,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         guard url.scheme?.lowercased() == "gkuiblekey" else { return false }
-        AppModel.shared.handleExternalURL(url)
+        // `fromDelegate: true` → 标记「这是冷启动的首次投递」，
+        // 让随后可能补发的 SwiftUI `.onOpenURL` 被去重（见 AppModel 里的说明）。
+        AppModel.shared.handleExternalURL(url, fromDelegate: true)
         return true
     }
 }

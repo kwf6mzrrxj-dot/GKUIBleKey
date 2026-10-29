@@ -332,6 +332,14 @@ public final class BLECentral: NSObject, ObservableObject {
             lastMessage = "已从系统恢复连接（\(p.name ?? "无名")），无需重连"
             // 服务/特征可能已被系统缓存，直接走发现流程（发现已是幂等的）
             p.discoverServices([GATT.serviceUUID])
+            // ★ 同样要看门狗（2026-10-29 全域审查补）。
+            //
+            // 当前**没有**启用 `CBCentralManagerOptionRestoreIdentifierKey`，
+            // 所以 `willRestoreState` 这条路径在现有配置下不会触发；
+            // 但代码在这儿、逻辑是活的 —— 一旦以后开启状态恢复，
+            // 没有看门狗就会永久 `.discovering`（和 adopt 那个坑一模一样）。
+            // 保持三条 discovering 入口的写法一致，避免下次再漏。
+            armDiscoverTimeout()
         }
     }
 
@@ -651,6 +659,16 @@ public final class BLECentral: NSObject, ObservableObject {
                 peripheral = p
                 p.delegate = self
                 p.discoverServices([GATT.serviceUUID])
+                // ★ 必须起看门狗（2026-10-29 全域审查补）。
+                //
+                // 这是**高频活路径**：车端每条命令后主动断开，但 iOS 侧可能
+                // 还认为「连着」（`p.state == .connected`），下次 `connect()`
+                // 就走这条复用分支。若 `discoverServices` 的回调不来
+                // （车端上一次会话没释放 / 信号弱到 GATT 请求无响应），
+                // 就会永久停在 `.discovering`：
+                // `connectRemembered()` 判僵尸态、`autoConnect()` 早退、
+                // 用户点按钮全部石沉大海。
+                armDiscoverTimeout()
             } else {
                 note("设备状态 \(p.state.rawValue)（连接中），跳过重复连接", level: .warning)
             }
@@ -735,6 +753,34 @@ public final class BLECentral: NSObject, ObservableObject {
         } else {
             suppressAutoReconnect = false
         }
+    }
+
+    /// 强制拆掉当前链路并重新扫描 —— **不管链路处于什么状态**。
+    ///
+    /// ## 为什么不直接 `disconnect()` + `startScan()`
+    ///
+    /// `disconnect()` 在确实连着时会置 `suppressAutoReconnect = true`，
+    /// 于是异步的 `didDisconnectPeripheral` 走抑制分支**直接 return，不重扫**；
+    /// 而紧跟着的 `startScan()` 又把 `linkState` 改成 `.scanning`，
+    /// 随后 `didDisconnect` 再把它覆盖成 `.disconnected` —— 扫描在跑、界面显示
+    /// 「已断开」，状态自相矛盾。
+    ///
+    /// 这里按「有没有活跃连接」分成两条正确的路径：
+    /// - 有连接 → 不抑制，取消后让 `didDisconnect` 走**正常收尾 + 重扫**
+    /// - 无连接 → 直接清干净并立即重扫
+    public func resetLinkAndRescan() {
+        cancelConnectTimeout()
+        cancelDiscoverTimeout()
+        suppressAutoReconnect = false          // 让 didDisconnect 正常收尾 + 重扫
+        if let p = peripheral, p.state != .disconnected {
+            central.cancelPeripheralConnection(p)
+            return                             // 交给 didDisconnect → resumeScanAfterDisconnect
+        }
+        peripheral = nil
+        writeChar = nil
+        notifyChar = nil
+        linkState = .idle
+        resumeScanAfterDisconnect()
     }
 
     /// 当前连接中的外设（供配对流程主动断开用）。

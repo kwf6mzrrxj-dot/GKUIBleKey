@@ -333,6 +333,20 @@ public final class MeasuredSession: ObservableObject {
                 append("   ❌ 挑战自校验失败：算出 \(FrameCodec.hexString(m.computed))，车端期望 \(FrameCodec.hexString(m.expected))")
                 append("      自校验用的 RND1/enc1 与 01 帧同源，失败说明 01 占位或 RND1 处理有错（"
                        + "2026-10-25 曾因配对占位 RND1 错位 2 字节导致此处必失败 + 车端秒断）")
+                // ★★ 自校验失败 → **不发帧**（2026-10-29 全域审查修复）。
+                //
+                // 反汇编 `0x12498` 用 `isEqualToData:` 比较失败后直接返回 nil，
+                // 根本不把 03 写出去。我们原来只记一条日志、照样 `return m.frame`，
+                // 等于把一个明知错误的响应送给车端：
+                // - 车端按「鉴权失败」计数并主动断链（这就是「连上秒断」的来源之一）
+                // - 本地却把 `phase` 设成「已发操作3」，界面看起来一切正常，
+                //   要等 4 秒超时才报错，原因还归错成「车端没回」
+                // 失败就停在本地，让上层立刻拿到明确结论。
+                append("   ⏹ 已按反汇编中止：不发 03（错误响应不送车端）")
+                challengeVerified = false
+                phase = .failed
+                lastResult = .refused(0x278)        // 原 App：Wrong challenge
+                return []
             }
             append("   \(FrameCodec.hexString(m.frame))")
             return m.frame
@@ -495,7 +509,16 @@ public final class MeasuredSession: ObservableObject {
     public func commandTimedOut() {
         phase = .failed
         lastResult = .timedOut
-        lastStatusCode = 0x00
+        // ★ 不能写 `0x00`（2026-10-29 全域审查修复）。
+        //
+        // `0x00` 在整套代码里的语义是「车端回 04 成功」，
+        // `AppModel` 会据此渲染「鉴权：失败（成功）」；同时它会让
+        // 「超时」看起来像拿到了成功回执，掩盖真实原因。
+        // 置 nil 表示「本轮没有拿到车端结果字节」。
+        lastStatusCode = nil
+        // 清掉本轮鉴权上下文，避免迟到的 02 用上一轮的 rnd1 回一个错的 03
+        rnd1 = []
+        challengeVerified = false
         append("❌ 命令超时：Timeout to send command is reached. code 690")
         append("   原 App 此时只回报失败，不断开连接（closeConnexionForCommand 的 didNeedReconnect=false 分支）")
     }
@@ -507,6 +530,30 @@ public final class MeasuredSession: ObservableObject {
     /// 反汇编给出的 location 全部以「含命令号 `0x0E` 的帧头」为基准：
     /// `Dk1`=[1,17)、`sd`=[17,21)、`ed`=[21,25)、`RndTRx`=[25,28)、
     /// `rights`=[28,29)、`keyType`=[29,30)、`CkTRxSP`=[30,46)、尾部 16B=[46,62)。
+    /// 本轮鉴权被**中止**（下行帧被拒：乱序 / 长度不符 / 非法命令）——
+    /// 不是超时，但同样必须收口所有等待状态。
+    ///
+    /// ## 为什么需要（2026-10-29 全域审查）
+    ///
+    /// `handle` 拒绝一帧时只设 `phase = .failed` 就 `return nil`。
+    /// 而 `AppModel` 在分发前已经 `cancelCommandTimeout()` 了，于是：
+    /// - 没有 `03` 要发（`handle` 返回 nil）
+    /// - 没有 `04` 可处理（被拒的不是 04）
+    /// - 4 秒超时**已经被取消**
+    ///
+    /// 结果是 `pendingAction` 永不复位、`preAuth.didComplete()` 永不触发，
+    /// 预认证续发链直接死掉，界面只剩一句「鉴权：失败」。
+    /// 这就是「拒绝帧 → 静默停摆」的完整链条。
+    public func abortRound(_ reason: String) {
+        phase = .failed
+        lastResult = .refused(0x2BB)      // 原 App：Send command failed
+        lastStatusCode = nil              // 本轮没拿到车端结果字节
+        rnd1 = []
+        challengeVerified = false
+        pendingAction = nil
+        append("⏹ 本轮中止：\(reason)")
+    }
+
     /// 保存 `0x0E` 下发的密钥帧（照 `saveKeysData:` @`0x12660`）。
     ///
     /// - Returns: 是否**真的按反汇编切分并落库**。返回 `false` 时只留了原始
@@ -517,7 +564,15 @@ public final class MeasuredSession: ObservableObject {
     /// 主界面却仍是「尚未绑定车辆」（`keys == nil`）。典型的假成功。
     @discardableResult
     private func saveKeyData(_ payload: [UInt8]) -> Bool {
-        let frame: [UInt8] = payload.first == 0x0E ? payload : [0x0E] + payload
+        // ★★ 无条件补帧头（2026-10-29 全域审查修复）。
+        //
+        // `payload` 来自 `MeasuredFrame.decode`，命令号已被剥掉，
+        // 首字节是 **`Dk1[0]`** 而不是 `0x0E`。
+        // 原来写成 `payload.first == 0x0E ? payload : [0x0E] + payload`，
+        // 于是 `Dk1[0] == 0x0E` 时（约 1/256）不补帧头 → 只有 61B →
+        // 切分失败 → 用户看到「配对失败」，而且 `.core` 里还留了一条
+        // 少一个字节的错帧。重试若拿到同一把钥匙会**永久**失败。
+        let frame: [UInt8] = [0x0E] + payload
         append("   密钥帧长度 \(frame.count)B（标准 \(InBlueAuth.keyFrameLength)B）")
 
         guard let k = InBlueAuth.parseKeyFrame(frame) else {

@@ -132,13 +132,23 @@ public enum InBlueAuth {
     /// `setObject:forKey:` 里 `x2 = 七元子字典`、`x3 = hexString(该 16 字节)`，
     /// 即 `keysData[cidpu] = {Dk1, sd, ed, CkTRxSP, RndTRx, rights, keyType}`。
     /// 所以 **cidpu 就是这 16 字节的 hex 字符串**（32 字符）。
-    public static func parseKeyFrame(_ input: [UInt8]) -> Keys? {
-        let frame: [UInt8]
-        if input.first == 0x0E {
-            frame = input
-        } else {
-            frame = [0x0E] + input
-        }
+    /// 切分 `0x0E` 密钥帧。**必须传含命令号 `0x0E` 的完整 62 字节帧。**
+    ///
+    /// ## ⚠️ 这里原来做「猜帧头」，是个真 bug（2026-10-29 全域审查）
+    ///
+    /// 原写法：
+    /// ```swift
+    /// if input.first == 0x0E { frame = input } else { frame = [0x0E] + input }
+    /// ```
+    /// 但 `MeasuredFrame.decode` 已经把命令号剥掉了，所以调用方传进来的
+    /// 首字节是 **`Dk1[0]`**。当 `Dk1[0]` 恰好等于 `0x0E` 时（密钥随机，
+    /// 约 **1/256**），会被误判成「已经带帧头」→ 实际只有 61B →
+    /// 下面对不上 62B 直接返回 nil → **配对失败**。
+    ///
+    /// 现在改成严格校验：首字节不是 `0x0E` 一律返回 nil，由调用方负责补帧头。
+    /// 「猜」在这里没有正当性 —— 帧头是确定的，猜错只会被误解成别的原因。
+    public static func parseKeyFrame(_ frame: [UInt8]) -> Keys? {
+        guard frame.first == 0x0E else { return nil }
         guard frame.count >= keyFrameLength else { return nil }
 
         func slice(_ loc: Int, _ len: Int) -> [UInt8] {

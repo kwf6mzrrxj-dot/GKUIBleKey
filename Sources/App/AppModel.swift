@@ -372,6 +372,18 @@ public final class AppModel: ObservableObject {
                 // 会直接丢弃，之后没有任何地方会重试。
                 if self.pendingPreAuth {
                     self.pendingPreAuth = false
+                    // ★ 补发前复查条件（2026-10-29 全域审查补）。
+                    //
+                    // `pendingPreAuth` 可能在链路就绪前挂了很久，这段时间里
+                    // 用户可能已经关掉保活、或人已经走远。原来无条件补发，
+                    // 会出现「关掉预认证后仍然发了一帧 0x0C」——
+                    // 用户看着开关是关的，车端却认为钥匙在场。
+                    guard self.preAuth.isEnabled, self.passiveStart.isInPassiveStartArea else {
+                        self.measured.recordNote(
+                            "挂起的预认证已失效（保活=\(self.preAuth.isEnabled ? "开" : "关")"
+                            + " / 在区域内=\(self.passiveStart.isInPassiveStartArea)）→ 放弃补发")
+                        return
+                    }
                     self.measured.recordNote("链路已就绪，补发预认证（0x0C）")
                     self.beginMeasuredAuth(asPreAuthentication: true)
                 }
@@ -651,6 +663,33 @@ public final class AppModel: ObservableObject {
     /// `+[IBMessageFactory pairingMessage]` @0x13afc 的 37 字节格式。
     ///
     /// ★ 系统配对框是 iOS 自动弹的（访问加密特征时要求输 6 位码），App 不参与。
+    /// 关闭配对页时的收尾 —— 把「正在等配对」的状态放掉。
+    ///
+    /// ## 为什么需要（2026-10-29 全域审查）
+    ///
+    /// `startFullPairing()` 会置 `pairingArmed = true`（`didSet` 同步
+    /// `ble.pairingMode`）。清它的地方原本只有四处：配对帧真发出去、
+    /// 4 秒命令超时、`0x0E` 解析失败、解绑 —— **用户直接关掉配对页不在其中**。
+    ///
+    /// 而配对阶段没有独立看门狗（4 秒超时要等 `0x0D` 真正发出去才起表），
+    /// 所以「车端没开配对窗口 / 车不在附近」时打开页面再关掉，会留下：
+    /// - 顶部胶囊永久显示「配对中」（`linkStateText` 先判 `pairingArmed`）
+    /// - 车图永久停在配对闪灯动画
+    /// - `ble.pairingMode = true` → 连接失败后会无条件连「下一个扫到的设备」
+    ///
+    /// 已经配对成功（`hasLocalKey`）时**不清** —— 那是有效结果，必须保留。
+    public func cancelPairingIfNeeded() {
+        guard !hasLocalKey else { return }
+        guard pairingArmed || ble.autoConnectWhilePairing || pairing.state != .idle else {
+            return
+        }
+        pairingArmed = false                 // didSet → ble.pairingMode = false
+        ble.autoConnectWhilePairing = false
+        pairing.resetForNewAttempt()
+        pairingBlockedReason = nil
+        appendPairingLog("已关闭配对页 → 取消本次配对等待（未配对成功，不留残留状态）")
+    }
+
     public func startFullPairing(force: Bool = false) {
         // ★★★ 本地已有密钥时**不发** 0x0D —— 这是原 App 的真实行为
         //
@@ -1109,22 +1148,21 @@ public final class AppModel: ObservableObject {
     ///
     /// 走到这里时 App 已在前台，`perform` 若是未连接会自动挂起并连接，
     /// 不会因为后台限制丢帧。
-    public func handleExternalURL(_ url: URL) {
+    /// - Parameter fromDelegate: 是否来自 UIKit 的 `application(_:open:)`。
+    ///   该入口**只在 App 未运行时**参与，所以它出现就代表这是冷启动的首次投递。
+    public func handleExternalURL(_ url: URL, fromDelegate: Bool = false) {
         guard url.scheme?.lowercased() == "gkuiblekey" else { return }
 
-        // ★ 去重：同一个 URL 1.5 秒内只执行一次。
-        //
-        // 现在有**两个**入口会送 URL（UIKit `application(_:open:)` 与
-        // SwiftUI `.onOpenURL`）。冷启动时系统可能两条都触发，
-        // 而「后备箱」这种 toggle 命令执行两次就会开了又关。
-        let now = Date()
-        if let last = lastExternalURL,
-           last.url == url,
-           now.timeIntervalSince(last.at) < 1.5 {
-            measured.recordNote("控件 URL 重复投递，已忽略（\(url.host ?? "-")）")
+        // ★ 冷启动补发去重（只在这个窗口内生效，理由见 `coldStartURLWindowEnd`）
+        if fromDelegate {
+            coldStartURLWindowEnd = Date().addingTimeInterval(1.0)
+        } else if let end = coldStartURLWindowEnd,
+                  Date() < end,
+                  lastExternalURL == url {
+            measured.recordNote("控件 URL 重复投递（冷启动补发），已忽略：\(url.host ?? "-")")
             return
         }
-        lastExternalURL = (url, now)
+        lastExternalURL = url
 
         let action: IBCommandType?
         switch url.host?.lowercased() {
@@ -1175,8 +1213,21 @@ public final class AppModel: ObservableObject {
     /// 留足重连一次的余量。
     private static let pendingActionWaitSeconds: TimeInterval = 15
 
-    /// 上一次处理过的控件 URL（用于双入口去重，见 `handleExternalURL`）。
-    private var lastExternalURL: (url: URL, at: Date)?
+    /// 上一次处理过的控件 URL（用于冷启动双入口去重，见 `handleExternalURL`）。
+    private var lastExternalURL: URL?
+
+    /// 「冷启动补发窗口」的截止时刻。
+    ///
+    /// iOS 的 URL 投递规则决定了**只有冷启动**才会重复：
+    /// - App 未运行 → `application(_:open:options:)`（UIKit）投递，
+    ///   随后 SwiftUI 的 `.onOpenURL` 可能再补一次同一个 URL
+    /// - App 已在运行 → URL 只经 `UIScene.openURLContexts` 投递，
+    ///   **不经过** `application(_:open:)`，因此不可能重复
+    ///
+    /// 所以只在 delegate 参与（= 冷启动）后开一个短窗口去重；
+    /// 热启动时窗口不存在，用户连点几次都会真的执行 ——
+    /// 「点了没反应再点一次」是常见操作，不能被去重逻辑吃掉。
+    private var coldStartURLWindowEnd: Date?
 
     /// 预认证「等链路就绪再发」的挂起标志。
     ///
@@ -1205,12 +1256,18 @@ public final class AppModel: ObservableObject {
     public func perform(_ action: IBCommandType) {
         guard !listenOnly else {
             statusLine = "只读监听模式：不会发送任何指令"
+            // ★ 结束 Intent 等待（2026-10-29 全域审查补）。
+            //   否则 Siri 会白等满 12 秒，最后报「请确认蓝牙已开启、且在车辆附近」——
+            //   真实原因是「只读模式开着」，用户会去反复开关蓝牙。
+            resolveIntent(false)
             return
         }
         // ★ 防爆破锁定：此前只记录 `lockoutRemaining` 却没有拦截，
         //   等于锁定形同虚设。这里在唯一入口处硬拦截。
         guard !isLockedOut else {
             statusLine = "已锁定：连续失败 \(consecutiveAuthFailures) 次，\(lockoutRemaining)s 后可重试"
+            // ★ 同上：立刻让 Siri 拿到失败，并把真实原因说清楚
+            resolveIntent(false)
             return
         }
         guard ble.isWriteReady else {
@@ -1266,9 +1323,10 @@ public final class AppModel: ObservableObject {
             self.measured.recordNote(
                 "挂起动作超时（\(Int(Self.pendingActionWaitSeconds))s 链路未就绪）"
                 + "→ 放弃「\(action.label)」，断开重扫")
-            // 主动把僵住的链路拆掉，让下一次点击从干净状态开始
-            self.ble.disconnect()
-            self.ble.startScan()
+            // 主动把僵住的链路拆掉，让下一次点击从干净状态开始。
+            // 用 `resetLinkAndRescan()` 而不是 `disconnect()+startScan()`：
+            // 后者的抑制标志会让 didDisconnect 直接 return，状态与扫描脱节。
+            self.ble.resetLinkAndRescan()
         }
     }
 
@@ -1500,6 +1558,19 @@ public final class AppModel: ObservableObject {
                         : "车端已配对手机：\(measured.pairedDeviceNames.joined(separator: ", "))"
                     return
                 }
+                // ★★ 帧被拒 → 本轮已死，必须收口（2026-10-29 全域审查补）。
+                //
+                // `measured.handle` 因乱序 / 长度不符 / 非法命令返回 nil 时
+                // 只把 `phase` 设成 `.failed`；而上面已经 `cancelCommandTimeout()`
+                // 撤掉了 4 秒超时。不收口的话：`pendingAction` 永不复位、
+                // 预认证的 `didComplete()` 永不触发 → 29 秒续发链彻底停摆。
+                if measured.phase == .failed {
+                    measured.abortRound("下行帧被拒（命令 0x\(String(format: "%02X", cmd))）")
+                    resolveIntent(false)
+                    if pendingPassiveEntryValue != nil {
+                        settlePassiveEntryToggle(.refused(0x2BB))
+                    }
+                }
                 statusLine = "鉴权：\(measured.phase.rawValue)"
                 if let code = measured.lastStatusCode {
                     statusLine += code == 0x00 ? "（成功）" : "（失败码 \(String(format: "%02X", code))）"
@@ -1705,6 +1776,20 @@ public final class AppModel: ObservableObject {
     private func resolveIntent(_ ok: Bool) {
         guard let cont = intentContinuation else { return }
         intentContinuation = nil
+        // ★★ 推进代号，让这一轮留下的 12 秒兜底定时器**立刻失效**
+        //   （2026-10-29 全域审查修复）。
+        //
+        // 原来只清续体、不推进代号，于是定时器 12 秒后醒来时
+        // `intentGeneration == gen` 仍然成立，会执行那段「放弃挂起动作」：
+        // ```text
+        // 0s   Siri「解锁」→ gen=1，定时器 T1 挂在 12s
+        // 3s   收到 04 成功 → resolveIntent(true)，T1 仍活着
+        // 5s   用户点「闭锁」→ pendingActionAfterConnect = 闭锁 + 15s 看门狗
+        // 12s  T1 醒来 → 清掉「闭锁」并 cancelPendingActionWatchdog()
+        //      → 命令一帧未发，界面又停在「正在连接，就绪后自动执行…」
+        // ```
+        // 症状和 v6.1 修的「点了没反应」一模一样，只是换了个入口。
+        intentGeneration &+= 1
         cont.resume(returning: ok)
     }
 

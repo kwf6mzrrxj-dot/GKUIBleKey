@@ -339,8 +339,18 @@ public enum SelfTest {
         // 62B：长度刚好 → 必须能切出完整字段
         var exactFrame = [UInt8](repeating: 0x11, count: InBlueAuth.keyFrameLength)
         exactFrame[0] = 0x0E
+        // ★ 62B 但首字节不是 0x0E → 必须 nil（2026-10-29 新增护栏）
+        //
+        // 拦住的是这个真 bug：`saveKeyData` 收到的 payload 已被
+        // `MeasuredFrame.decode` 剥掉命令号，首字节是 **`Dk1[0]`**。
+        // 原来 `parseKeyFrame` 会「猜帧头」（`first == 0x0E ? 原样 : 补一个`），
+        // 于是 `Dk1[0] == 0x0E` 时（约 1/256）不补 → 只有 61B → 配对失败。
+        // 现在要求必须显式带帧头，猜错一律拒绝。
+        var noHeader = [UInt8](repeating: 0x11, count: InBlueAuth.keyFrameLength)
+        noHeader[0] = 0xAA
 
         let shortNil = InBlueAuth.parseKeyFrame(shortFrame) == nil
+        let noHeaderNil = InBlueAuth.parseKeyFrame(noHeader) == nil
         let exact = InBlueAuth.parseKeyFrame(exactFrame)
         let exactOK = exact != nil
         let fieldLensOK = exact.map {
@@ -348,11 +358,11 @@ public enum SelfTest {
                 && $0.sd.count == 4 && $0.rndTRx.count == 3
         } ?? false
 
-        let ok = shortNil && exactOK && fieldLensOK
+        let ok = shortNil && noHeaderNil && exactOK && fieldLensOK
         let detail: String = ok
-            ? "40B 短帧 → nil（会被判配对失败）；62B 标准帧 → dk1/ckTRxSP/tail 各 16B"
-            : "shortNil=\(shortNil) exactOK=\(exactOK) fieldLensOK=\(fieldLensOK)"
-        return Result(name: "0x0E 密钥帧长度守卫（短帧不得判成功）",
+            ? "40B 短帧 / 62B 缺帧头 → nil；62B 标准帧 → dk1/ckTRxSP/tail 各 16B"
+            : "shortNil=\(shortNil) noHeaderNil=\(noHeaderNil) exactOK=\(exactOK) fieldLensOK=\(fieldLensOK)"
+        return Result(name: "0x0E 密钥帧长度与帧头守卫（短帧/缺帧头不得判成功）",
                       passed: ok, detail: detail)
     }
 

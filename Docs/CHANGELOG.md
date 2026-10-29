@@ -5,6 +5,110 @@
 
 ---
 
+## v6.2（2026-10-29）—— 全域审查：9 处缺陷，含 3 处「用户以为成功/以为失败但实际相反」
+
+用户要求「彻底再审查一遍」。这轮除了复验 v6.1，还按「所有状态赋值点 × 看门狗配对」
+「所有挂起标志 × 超时兜底」「所有入口 × 守卫覆盖」三条轴机械扫描，再逐条回源码核对。
+
+### P0：会造成错误结果或不可逆损失
+
+**① `parseKeyFrame` 猜帧头 → 1/256 概率配对失败**
+
+`saveKeyData` 收到的 `payload` 已被 `MeasuredFrame.decode` 剥掉命令号，
+首字节是 **`Dk1[0]`**。而它做了：
+
+```swift
+let frame = payload.first == 0x0E ? payload : [0x0E] + payload
+```
+
+`Dk1` 是随机的 → 约 **1/256** 的新钥匙首字节恰好是 `0x0E` → 不补帧头 →
+只有 61B → 切分失败 → 用户看到「配对失败」，`.core` 里还留一条少一字节的错帧。
+**重试若拿到同一把钥匙会永久失败。**
+
+修：`saveKeyData` 无条件补帧头；`parseKeyFrame` 改为**严格校验**首字节必须是
+`0x0E`，不再猜。自检用例加「62B 但缺帧头 → 必须 nil」的护栏。
+
+**② Intent 的 12 秒兜底定时器不随轮次失效 → 误杀 12 秒内的新动作**
+
+`resolveIntent` 只清续体、**不推进 `intentGeneration`**，于是上一轮的定时器
+12 秒后醒来时 `intentGeneration == gen` 仍然成立：
+
+```text
+0s   Siri「解锁」→ gen=1，定时器 T1 挂在 12s
+3s   收到 04 成功 → resolveIntent(true)，T1 仍活着
+5s   用户点「闭锁」→ 挂起 + 15s 看门狗
+12s  T1 醒来 → 清掉「闭锁」并 cancelPendingActionWatchdog()
+     → 一帧未发，界面又停在「正在连接，就绪后自动执行…」
+```
+
+症状和 v6.1 修的「点了没反应」一模一样，只是换了入口。
+
+修：`resolveIntent` 里 `intentGeneration &+= 1`。
+
+**③ 「重新应用内置钥匙」不重算完整性 → 解绑后所有控车被拦死**
+
+解绑 → `deleteVehicle()` 末尾 `verifyKeyIntegrity()` 因 communicationKey 为空把
+`keyIntegrityOK` 置 false → 用户立刻点「重新应用内置钥匙」（这个按钮的注释
+就写着「解绑之后想立刻恢复内置钥匙」）→ 钥匙确实写进 Keychain、
+`hasLocalKey` 也变 true，**但 `keyIntegrityOK` 仍是 false** →
+`beginMeasuredAuth` 的 `guard keyIntegrityOK != false` 拦下每一帧。
+只得到「密钥完整性校验未通过」，只能重启或走一次备份恢复。
+
+修：补 `model.verifyKeyIntegrity()`（「从备份恢复」那条分支早就这么做了）。
+
+### P1：状态收口 / 静默失败
+
+| # | 位置 | 问题 | 修法 |
+|---|---|---|---|
+| ④ | `buildAuth3` | 挑战自校验失败**仍把 03 发出去**（反汇编 `0x12498` 是 `isEqualToData:` 失败即返回 nil 不发帧）→ 车端按鉴权失败计数并断链，本地还把 `phase` 设成「已发操作3」 | 自校验失败 → 记日志 + `phase = .failed` + `return []`，不发帧 |
+| ⑤ | `commandTimedOut` | `lastStatusCode = 0x00` —— 而 `0x00` 的语义是「车端回 04 成功」→ 界面渲染成「鉴权：失败（成功）」 | 置 `nil`；同时清 `rnd1` / `challengeVerified`，避免迟到的 02 用上轮 `rnd1` 回一个错的 03 |
+| ⑥ | `handleIncomingFrame` | 帧被判乱序时 `handle` 只设 `phase = .failed` 返回 nil，**而 4 秒超时已在分发前被 cancel** → `pendingAction` 不复位、`preAuth.didComplete()` 永不触发 → 预认证续发链死掉 | 新增 `abortRound(_:)`；检测到 `phase == .failed` 时收口 + `resolveIntent(false)` + 复位无感开关 |
+| ⑦ | `perform` 两个前置 guard | `listenOnly` / 锁定状态直接 return，不结束 Intent → Siri 白等 12 秒，最后报「请确认蓝牙已开启、且在车辆附近」，真实原因完全没说 | 两处 `return` 前加 `resolveIntent(false)` |
+| ⑧ | `.ready` 的 `pendingPreAuth` 分支 | 挂起期间用户可能已关掉保活或走远，补发时**不复查** → 「开关是关的，车端却认为钥匙在场」 | 补发前 guard `preAuth.isEnabled && passiveStart.isInPassiveStartArea` |
+
+### P2：补齐 v6.1 漏掉的两条 discovering 入口
+
+v6.1 只给 `adoptConnectedPeripheral` 补了看门狗，但 `linkState = .discovering`
+一共有 **4 个赋值点**，另外两处也没有（机械扫描发现）：
+
+| 位置 | 场景 | 风险 |
+|---|---|---|
+| `connect()` 的「设备已连接 → 直接发现服务」分支 | **高频活路径**：车端断开后 iOS 仍认为连着时就走这里 | 回调不来 → 永久 discovering → 点按钮石沉大海 |
+| `willRestoreState`（系统状态恢复） | 当前未启用 `RestoreIdentifier`，暂不触发 | 一旦启用就有同样的坑 |
+
+两处都补 `armDiscoverTimeout()`，四条入口写法统一。
+
+### P3：UI 收尾与自审（v6.1 自己引入的）
+
+| # | 问题 | 修法 |
+|---|---|---|
+| ⑨ | 关闭配对页不清理：`pairingArmed` 残留 → 顶部胶囊永久「配对中」、车图永久停在配对动画、`ble.pairingMode = true` 会连错车 | 新增 `cancelPairingIfNeeded()` + `PairingView.onDisappear`（已配对成功时不清） |
+| ⑩ | v6.1 加的 URL 去重窗口 1.5 秒**会吃掉用户正常连点**（点解锁没反应再点一次） | 只对**冷启动**去重：`application(_:open:)` 只在 App 未运行时参与，由它开 1 秒窗口挡掉 `onOpenURL` 的补发；热启动不挡 |
+| ⑪ | v6.1 看门狗里用 `disconnect()+startScan()`：`disconnect` 置 `suppressAutoReconnect = true`，`didDisconnect` 直接 return 不重扫，而 `startScan` 又把状态改成 `.scanning`，随后被覆盖成 `.disconnected` —— 扫描在跑、界面显示已断开 | 新增 `resetLinkAndRescan()`：有连接走不抑制的正常收尾 → 重扫；无连接直接清干净再重扫 |
+
+### 运行时实证（v6.1 的修复在真机生效）
+
+```text
+22:14:28.691 [WARN] [链路] 链路停在「发现服务」但没有超时看门狗（僵尸态） → 清理后重新发起连接
+22:14:28.692 [DK] · 未连接（scanning）→ 连接后自动执行「开窗」
+```
+
+以前这个状态会静默卡死到用户杀 App；现在能自己检测并恢复。
+
+### 验证
+
+- `swiftc -typecheck`：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- 装机 + 启动成功（v6.2 / build 62）
+- 自检新增护栏：`0x0E 密钥帧长度与帧头守卫`
+- **待实测（L4）**：
+  1. 车旁点控制中心「解锁」→ 日志应有 `链路就绪 → 挂起项：action=解锁` +
+     `链路已就绪，自动执行「解锁」` + `04 结果：成功（00）`
+  2. 解绑 → 立刻点「重新应用内置钥匙」→ **应能正常控车**（不再报完整性未通过）
+  3. 打开配对页再关掉 → 顶部胶囊应回到「扫描中/未连接」，不再显示「配对中」
+
+---
+
 ## v6.1（2026-10-29）—— 「控制中心点了没反应」：三层死锁，全修
 
 用户报「在控制中心点了没反应」。拉 22:00:32 的日志，问题不在控件本身 ——

@@ -198,6 +198,17 @@ struct KeyInspectorView: View {
                 Button {
                     if BuiltInKeys.apply() {
                         model.measured.reloadKeys()
+                        // ★ 必须重算完整性（2026-10-29 全域审查修复）。
+                        //
+                        // 少了这一句会出现：解绑车辆 → `deleteVehicle()` 里
+                        // `verifyKeyIntegrity()` 因 communicationKey 为空把
+                        // `keyIntegrityOK` 置 false → 立刻点「重新应用内置钥匙」
+                        // → 钥匙确实写进了 Keychain、`hasLocalKey` 也变 true，
+                        // 但 `keyIntegrityOK` 仍是 false →
+                        // `beginMeasuredAuth` 的 `guard keyIntegrityOK != false`
+                        // 把**每一次控车**都拦下，只能重启 App 才能恢复。
+                        // （「从备份恢复」那条分支早就这么做了，这里漏了。）
+                        model.verifyKeyIntegrity()
                         refreshTick += 1
                         backupResult = "✅ 已写入内置钥匙"
                     } else {

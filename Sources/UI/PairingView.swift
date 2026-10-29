@@ -73,6 +73,20 @@ struct PairingView: View {
         .onChange(of: model.pairingBlockedReason) { _, newValue in
             if let r = newValue { statusHint = r }
         }
+        // ★ 关闭页面必须收尾（2026-10-29 全域审查补）。
+        //
+        // `startFullPairing()` 会置 `pairingArmed = true`（连带
+        // `ble.pairingMode = true`），而清它的地方只有「配对帧真发出去」
+        // 「30 秒命令超时」「0x0E 解析失败」「解绑」四处 ——
+        // **用户直接关掉本页不在其中**，且配对阶段没有独立看门狗
+        // （4 秒命令超时要等 0x0D 发出去才起表）。
+        //
+        // 于是车端没开配对窗口 / 车不在附近时打开再关掉，会留下：
+        // - `RootView.linkStateText` 先判 `pairingArmed` → 顶部胶囊永久「配对中」
+        // - `carStage` 同样 → 车图永久停在配对闪灯动画
+        // - `ble.pairingMode = true` → 连接失败后会无条件连「下一个扫到的
+        //   Valeo 设备」，停车场里可能连错车
+        .onDisappear { model.cancelPairingIfNeeded() }
         .alert("提示", isPresented: Binding(
             get: { statusHint != nil },
             set: { if !$0 { statusHint = nil } }
