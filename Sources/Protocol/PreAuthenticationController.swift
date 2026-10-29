@@ -176,16 +176,53 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - ③ launchPassiveEntryCommands
 
+    /// 上一次真正把 `0x0C` 交出去的时刻（事件驱动补发的判据）
+    private var lastSentAt: Date?
+    /// 正在排/发（防止广播高频触发反复 cancel 定时器）
+    private var isSending = false
+
     private func launchEntryCommands() {
         guard isEnabled, didStart else { return }
         cancelPending()
+        isSending = true
         // `0xb584` 断开立即发；`0xb590` 已连接延迟 1 秒
         schedule(after: Self.connectedDelay) { [weak self] in
-            guard let self, self.didStart else { return }
+            guard let self, self.didStart else {
+                self?.isSending = false
+                return
+            }
             self.sentCount += 1
+            self.lastSentAt = Date()
             self.onLog?("send prehauthentication command（0x0C，#\(self.sentCount)）")
             self.onSend?()
+            self.isSending = false
         }
+    }
+
+    /// **事件驱动补发** —— 每收到一帧广播就调一次。
+    ///
+    /// ## 为什么不能只靠定时器（2026-10-29，关键教训）
+    ///
+    /// 原厂 App 在 **iOS 26 上能稳定点火，在 iOS 27 上同样"抽奖"**
+    /// （用户实测）。同一个 App、同一辆车，差别只在系统版本 ——
+    /// 说明 iOS 27 把后台的 BLE 唤醒压得更狠，**`Task.sleep` 在后台基本不推进**。
+    ///
+    /// 定时器不可靠，但**广播还会来**（`bluetooth-central` 后台模式保证
+    /// 收到广播会唤醒 App 一小段时间）。所以把「该不该发」从"等时间到"
+    /// 改成"有广播就看一眼"：
+    ///
+    /// - 前台：广播 0.5 秒一帧，补发精度 ≈ 0.5 秒
+    /// - 后台：广播可能 10 秒一帧，最坏晚 10 秒补发 —— 仍在车端有效期内
+    ///
+    /// 定时器保留作兜底（前台精确、后台失效都不影响结果）。
+    public func tickIfNeeded() {
+        guard isEnabled, isInArea, didStart else { return }
+        guard !isSending else { return }
+        guard let last = lastSentAt else { return }
+        let elapsed = Date().timeIntervalSince(last)
+        guard elapsed >= Self.retryInterval else { return }
+        onLog?(String(format: "广播唤醒：距上次 0x0C 已 %.0f 秒（定时器未推进）→ 提前补发", elapsed))
+        launchEntryCommands()
     }
 
     /// App 被系统挂起/终止后重新活跃时调用：把中断的预认证**立刻续上**。

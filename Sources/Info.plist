@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>5.7</string>
+	<string>5.8</string>
 	<key>CFBundleVersion</key>
-	<string>57</string>
+	<string>58</string>
 
 	<!-- 蓝牙权限说明：与功能一致，用户可理解 -->
 	<key>NSBluetoothAlwaysUsageDescription</key>

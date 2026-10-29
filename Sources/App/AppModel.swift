@@ -289,6 +289,13 @@ public final class AppModel: ObservableObject {
                 // ★ 把判定结果交给预认证控制器（对应 checkRssiForPassiveStart:
                 //   的 launchPrehautentification / stopPreAuthentication 两条分支）
                 self.preAuth.updateArea(self.passiveStart.isInPassiveStartArea)
+                // ★★★ 事件驱动补发（2026-10-29，针对 iOS 27）
+                //
+                // 原厂 App 在 iOS 26 上点火稳定、在 iOS 27 上同样"抽奖"，
+                // 说明 iOS 27 把后台 BLE 唤醒压得更狠，29 秒的 `Task.sleep`
+                // 在后台基本不推进。但**广播还会来** —— 每来一帧就问一次
+                // 「距上次 0x0C 是否已经超期」，超了就补，不再死等定时器。
+                self.preAuth.tickIfNeeded()
             }
             .store(in: &cancellables)
 
