@@ -5,7 +5,73 @@
 
 ---
 
-## v5.9（2026-10-29）—— Live Activity：拿后台蓝牙权限（代码完成，待签名启用）
+## v6.0（2026-10-29）—— 控制中心 / 锁屏控件（解锁、闭锁、寻车）
+
+用户问「能不能直接在控制中心展示解锁闭锁按钮」——**能**，已实现三个控件。
+
+### 做法：`OpenURLIntent` + URL scheme
+
+控件必须声明在 Widget 扩展里，而车控逻辑（`AppModel` → `BLECentral` → 加密帧）
+只能跑在主 App。所以不能让扩展直接调业务代码。
+
+用系统自带的 `OpenURLIntent`，声明时**不引用任何业务类型**：
+
+```swift
+ControlWidgetButton(action: OpenURLIntent(URL(string: "gkuiblekey://lock")!)) {
+    Label("闭锁", systemImage: "lock.fill")
+}
+```
+
+点一下 → 系统带 URL 打开 App → `onOpenURL` → `AppModel.handleExternalURL` → `perform`。
+
+副作用是「点控件会打开 App」，但这恰好是**可靠性最高**的路径：
+App 在前台，BLE 权限完整，不用赌后台调度。
+
+### 新增
+
+| 项 | 内容 |
+|---|---|
+| `Sources/Widget/VehicleControlWidget.swift` | 闭锁 / 解锁 / 寻车三个控件 |
+| `GKUIBleKeyWidgetBundle` | 注册控件 |
+| `Sources/Info.plist` | `CFBundleURLTypes` → `gkuiblekey` scheme |
+| `GKUIBleKeyApp` | `.onOpenURL { model.handleExternalURL($0) }` |
+| `AppModel.handleExternalURL` | 解析 `lock/unlock/trunk/find/windowup/windowdown` |
+
+**用法**：控制中心 → 编辑 → 添加「车辆闭锁 / 车辆解锁 / 寻车」；也支持锁屏替换按钮。
+
+### 顺带修掉一个真缺陷：Live Activity 在后台启动必然失败
+
+首次装好后日志报：
+
+```text
+Live Activity 启动失败：未能完成该操作。Target is not foreground
+```
+
+`Activity.request` **只能在 App 前台调用**。而 App 被 Siri / 控件 / 静默唤醒时是
+后台启动，那时启动会失败 —— 也就是**后台权限根本没拿到**。
+
+顺带还暴露了另一个问题：失败后每次状态变化都重试，日志被刷屏。
+
+改动：
+- `startOrUpdate` 改为返回 `Bool`
+- 失败记 `liveActivityFailedAt`，**30 秒退避**内不重试
+- `didBecomeActive` 用 `force: true` 清标记重试 —— 回前台是唯一可靠时机
+
+### 验证
+
+- `xcodebuild build`：**BUILD SUCCEEDED**（含 Widget 扩展）
+- 装机后实测 URL 链路，日志确认：
+
+```text
+21:57:46.643 [DK] · 控制中心控件 → 解锁
+21:57:46.643 [DK] · 未连接（discovering）→ 连接后自动执行「解锁」
+```
+
+- **待实测**：把控件加到控制中心，点一下应完成解锁/闭锁
+
+---
+
+## v5.9（2026-10-29）—— Live Activity：拿后台蓝牙权限（已启用）
 
 用户实测给出决定性线索：**同一份原厂 App 在 iOS 26 稳定点火、在 iOS 27 抽奖。**
 

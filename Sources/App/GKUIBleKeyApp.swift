@@ -19,6 +19,13 @@ struct GKUIBleKeyApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                // ★ 控制中心 / 锁屏控件的入口（`gkuiblekey://lock` 等）
+                //
+                // 控件那边用的是系统 `OpenURLIntent`：点一下先把 App 带到前台，
+                // 再执行车控 —— 这条路径不依赖任何后台调度，是可靠性最高的。
+                .onOpenURL { url in
+                    model.handleExternalURL(url)
+                }
         }
     }
 }

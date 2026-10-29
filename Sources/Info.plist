@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>5.9</string>
+	<string>6.0</string>
 	<key>CFBundleVersion</key>
-	<string>59</string>
+	<string>60</string>
 
 	<!-- 蓝牙权限说明：与功能一致，用户可理解 -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -32,6 +32,20 @@
 	<array>
 		<string>bluetooth-central</string>
 		<string>location</string>
+	</array>
+
+	<!-- 控制中心 / 锁屏控件通过 URL 唤起 App 执行车控
+	     （控件声明在 Widget 扩展，业务逻辑只能在主 App，见 VehicleControlWidget） -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.mmxisme.gkuiblekey</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gkuiblekey</string>
+			</array>
+		</dict>
 	</array>
 
 	<!-- ★ Live Activity —— 不只是展示，是后台蓝牙权限的开关

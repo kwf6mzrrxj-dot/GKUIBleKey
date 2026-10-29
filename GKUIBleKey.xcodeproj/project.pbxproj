@@ -15,6 +15,7 @@
 		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
 		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
 		3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */; };
+		3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
 		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
 		4DEE5D8FFEDFC8411E75569E /* builtin-keys.txt in Resources */ = {isa = PBXBuildFile; fileRef = 03B476E9C21E7763239DBD3E /* builtin-keys.txt */; };
@@ -86,6 +87,7 @@
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
 		1DE4B7AED8424488DFF8B585 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
+		2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleControlWidget.swift; sourceTree = "<group>"; };
 		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
 		32D87676E2E2A3F87BF5416C /* RelayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayGuard.swift; sourceTree = "<group>"; };
@@ -268,6 +270,7 @@
 			children = (
 				0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */,
 				77FEC857107D5DBD3B471511 /* Info.plist */,
+				2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */,
 				912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */,
 			);
 			path = Widget;
@@ -405,6 +408,7 @@
 			files = (
 				F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */,
 				F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */,
+				3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */,
 				CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -29,27 +29,29 @@ public final class LiveActivityController {
     ///
     /// App 被系统重启后 `activity` 是 nil，但系统里可能还留着上一次的活动，
     /// 所以先扫一遍 `Activity.activities` 复用，避免锁屏上堆两个卡片。
+    /// - Returns: 是否「已在运行或刚启动成功」。调用方据此决定要不要退避重试。
+    @discardableResult
     public func startOrUpdate(
         vehicleName: String,
         state: VehicleActivityAttributes.ContentState
-    ) {
+    ) -> Bool {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             FileLogger.shared.warning(
                 "Live Activity 被系统关闭（设置 → 蓝牙钥匙 → 实时活动），后台 BLE 权限降级",
                 module: "保活")
-            return
+            return false
         }
 
         let content = ActivityContent(state: state, staleDate: nil)
 
         if let a = activity {
             Task { @MainActor in await a.update(content) }
-            return
+            return true
         }
         if let existing = Activity<VehicleActivityAttributes>.activities.first {
             activity = existing
             Task { @MainActor in await existing.update(content) }
-            return
+            return true
         }
         do {
             activity = try Activity.request(
@@ -58,10 +60,14 @@ public final class LiveActivityController {
                 pushType: nil)
             FileLogger.shared.info(
                 "Live Activity 已启动（后台 BLE 权限提升为前台同级）", module: "保活")
+            return true
         } catch {
+            // 最常见的是 `Target is not foreground` —— App 被后台唤醒时无法 request，
+            // 只能等下次回到前台再试（见 AppModel.refreshLiveActivity 的退避）。
             FileLogger.shared.warning(
-                "Live Activity 启动失败：\(error.localizedDescription)（后台扫描会被系统合并）",
+                "Live Activity 启动失败：\(error.localizedDescription)（后台扫描会被合并）",
                 module: "保活")
+            return false
         }
     }
 

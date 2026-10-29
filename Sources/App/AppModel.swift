@@ -162,6 +162,10 @@ public final class AppModel: ObservableObject {
                     // 结果就是**从后台回来后再也不发 0x0C**，
                     // 表现为「无感进入不可用」「拉门把手不解锁」。
                     self?.preAuth.resumeAfterSuspendIfNeeded()
+                    // ★ 回前台是启动 Live Activity 的唯一可靠时机
+                    //   （`Activity.request` 在后台会报 `Target is not foreground`）。
+                    //   `force` 会清掉失败退避标记，重新尝试。
+                    self?.refreshLiveActivity(force: true)
                 }
             }
             .store(in: &cancellables)
@@ -1047,13 +1051,21 @@ public final class AppModel: ObservableObject {
     ///
     /// 加 2 秒节流：`linkState` 在连接/断开时会连续变化多次，
     /// 而 Live Activity 的更新本身有系统级频率限制，没必要每次都推。
+    ///
+    /// ⚠️ **`Activity.request` 必须在前台调用**（实测报
+    /// `Target is not foreground`）。App 被 Siri / 静默唤醒时是后台启动，
+    /// 那时启动必然失败 —— 所以失败后 30 秒内不重试，等 `didBecomeActive`
+    /// 用 `force` 参数重来。
     private var lastLiveActivityRefresh = Date.distantPast
+    private var liveActivityFailedAt: Date?
 
-    private func refreshLiveActivity() {
+    private func refreshLiveActivity(force: Bool = false) {
         guard preAuth.isEnabled else {
             liveActivity.end()
             return
         }
+        if force { liveActivityFailedAt = nil }
+        if let t = liveActivityFailedAt, Date().timeIntervalSince(t) < 30 { return }
         if liveActivity.isRunning,
            Date().timeIntervalSince(lastLiveActivityRefresh) < 2 {
             return
@@ -1072,13 +1084,46 @@ public final class AppModel: ObservableObject {
         }
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
-        liveActivity.startOrUpdate(
+        let ok = liveActivity.startOrUpdate(
             vehicleName: name,
             state: VehicleActivityAttributes.ContentState(
                 isLocked: measured.status?.isLocked,
                 isConnected: ble.linkState == .ready,
                 lastPreAuthAt: preAuth.lastSentAt,
                 statusText: text))
+        if !ok {
+            // 前台没启动成功通常只有两种原因：系统关了实时活动权限，
+            // 或者当前不是前台（`Target is not foreground`）。
+            // 记下时间做 30 秒退避，回前台时用 force 重试。
+            liveActivityFailedAt = Date()
+        }
+    }
+
+    /// 处理外部 URL —— 控制中心 / 锁屏控件（`gkuiblekey://lock` 等）与快捷指令共用。
+    ///
+    /// 控件声明在 Widget 扩展里，而车控逻辑只能跑在主 App，
+    /// 所以路径是：`OpenURLIntent` → 打开 App → `onOpenURL` → 这里 → `perform`。
+    ///
+    /// 走到这里时 App 已在前台，`perform` 若是未连接会自动挂起并连接，
+    /// 不会因为后台限制丢帧。
+    public func handleExternalURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "gkuiblekey" else { return }
+        let action: IBCommandType?
+        switch url.host?.lowercased() {
+        case "lock":    action = .lock
+        case "unlock":  action = .unlock
+        case "trunk":   action = .openCloseTrunk
+        case "find":    action = .panic
+        case "windowup":   action = .windowUp
+        case "windowdown": action = .windowDown
+        default:        action = nil
+        }
+        guard let action else {
+            statusLine = "无法识别的控件指令：\(url.absoluteString)"
+            return
+        }
+        measured.recordNote("控制中心控件 → \(action.label)")
+        perform(action)
     }
 
     private var cancellables = Set<AnyCancellable>()
