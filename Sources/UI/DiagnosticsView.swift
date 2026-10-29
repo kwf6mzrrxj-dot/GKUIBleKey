@@ -17,6 +17,7 @@ struct DiagnosticsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     bleStatusSection
+                    preAuthSection
                     selfTestSection
                     streamSection
                     logSection
@@ -31,6 +32,44 @@ struct DiagnosticsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+        }
+    }
+
+    // MARK: - ★ 预认证 / 点火（「打不着火」时第一个要看的地方）
+
+    /// 预认证（`0x0C`）是「让车端认出手机在场」的唯一手段，
+    /// 它不发出去，踩刹车按启动按钮就是白按。
+    ///
+    /// 之前这些状态**一处都没显示**，用户只能问"是不是预认证的问题"、
+    /// 而界面上完全看不出来 —— 现在全部摊开。
+    private var preAuthSection: some View {
+        card("预认证 / 点火") {
+            VStack(alignment: .leading, spacing: 8) {
+                readonlyRow("保活开关", model.preAuth.isEnabled ? "已开启" : "已关闭（不会发 0x0C）")
+                readonlyRow("已发次数", "\(model.preAuth.sentCount)")
+                readonlyRow("在点火区域", model.preAuth.isInArea ? "是" : "否（不在区域不发帧）")
+                readonlyRow("续发状态", model.preAuth.didStart
+                            ? String(format: "进行中（%.0fs 周期）",
+                                     model.preAuth.timeBetweenPassiveStart)
+                            : "未启动")
+                Divider()
+                readonlyRow("RSSI 标定值", model.passiveStart.isCalibrated
+                            ? "\(model.passiveStart.calibration ?? 0)"
+                            : "未标定（区域判定永不成立）")
+                readonlyRow("区域阈值", "\(model.passiveStart.threshold)")
+                readonlyRow("当前 RSSI", model.ble.rssi.map { "\($0)" } ?? "—")
+                Text("判定式：合成 RSSI > 阈值 才算「在区域内」；"
+                     + "在区域内且保活开启，才会按周期发 0x0C。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Button {
+                    model.sendPreAuthNow()
+                } label: {
+                    Label("立即发送预认证（0x0C）", systemImage: "key.radiowaves.forward")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
             }
         }
     }
