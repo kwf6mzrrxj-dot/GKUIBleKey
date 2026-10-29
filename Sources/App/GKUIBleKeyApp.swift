@@ -9,6 +9,10 @@ struct GKUIBleKeyApp: App {
     /// 同时抢同一台车 → 连接互相打断。
     @StateObject private var model = AppModel.shared
 
+    /// ★ UIKit 层 URL 入口 —— 比 `.onOpenURL` 更可靠（冷启动不漏投）。
+    /// 两者都保留，去重在 `AppModel.handleExternalURL` 里做。
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     init() {
         // ★ 尽早载入日志配置（级别 / 单文件大小 / 保留天数），
         //   以便 App 启动阶段产生的日志就按用户配置过滤与轮转。

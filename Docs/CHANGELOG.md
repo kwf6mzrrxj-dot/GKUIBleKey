@@ -5,6 +5,93 @@
 
 ---
 
+## v6.1（2026-10-29）—— 「控制中心点了没反应」：三层死锁，全修
+
+用户报「在控制中心点了没反应」。拉 22:00:32 的日志，问题不在控件本身 ——
+URL **确实到了**（`控制中心控件 → 锁车`），但动作挂起后**永久悬空**：
+
+```text
+22:00:32.118  进程启动 #14（控件冷启动 App）
+22:00:32.232  控制中心控件 → 锁车
+22:00:32.232  未连接（discovering）→ 连接后自动执行「锁车」
+22:00:46.882  ⬇️ 进入后台（前台停留 15 秒）
+              ↑ 14 秒里零连接事件、零超时、零失败
+```
+
+### 根因：三层叠加的死锁
+
+**① `adoptConnectedPeripheral()` 没有超时看门狗（主因）**
+
+App 冷启动时，`autoConnect()` 会调 `adoptConnectedPeripheral()` 接管
+**上一个进程遗留的系统级 BLE 连接**，并置 `linkState = .discovering`：
+
+```swift
+p.discoverServices([GATT.serviceUUID])
+return true          // ← 没有 armDiscoverTimeout()
+```
+
+`didConnect` 那条路径有 `armDiscoverTimeout()`，这条**漏了**。
+而「系统恢复的连接」是重新 retrieve 的对象，`discoverServices` 的回调
+**不保证会来**（服务已缓存 / 车端上次会话未释放 / delegate 刚挂上）。
+于是永久停在 `.discovering`，且没有任何机制会把它拉出来。
+
+**② `connectRemembered()` 对僵尸态返回 true，等于欺骗上层**
+
+```swift
+case .ready, .connecting, .discovering:
+    return true      // ← 看起来在忙，其实什么都没在跑
+```
+
+`perform` 因此跳过 `startScan()`：
+
+```swift
+if !ble.connectRemembered() {      // 返回 true
+    ... ble.startScan()            // 永不执行
+}
+```
+
+→ **既不连接也不扫描**，动作永远躺在那儿。
+
+**③ 挂起动作没有任何超时**
+
+`pendingActionAfterConnect` 只在 `.ready` 里被取走。上游不推进，它就永远悬空，
+UI 只有一句「正在连接，就绪后自动执行…」—— 用户看到的就是「点了没反应」。
+
+### 修法（三道防线）
+
+| 层 | 改动 |
+|---|---|
+| ① | `adoptConnectedPeripheral` 补 `armDiscoverTimeout()`，和 `didConnect` 对齐 |
+| ② | `connectRemembered` 改用**看门狗是否在跑**判活跃：没看门狗 = 僵尸态 → 清链（`peripheral`/`writeChar` 置空、`.idle`）并返回 false，让上层重新 `startScan()` |
+| ③ | 新增 `pendingActionWatchdog`：挂起后 **15 秒**必给结论 —— 清挂起、`statusLine` 明确写「❌ 15 秒内没连上车辆，「X」未执行」、断开重扫 |
+
+顺带修「假就绪」：`linkState == .ready` 但 `writeChar == nil`（订阅失败 /
+`prepareForPairingScan` 后）时，原来直接返回 true 会让上层白等 15 秒。
+现在直接判假就绪、拆链重连，把等待从 15 秒缩到 1 秒。
+
+### 另一个独立缺陷：冷启动 URL 可能漏投
+
+日志里 `21:59:33` 有一次冷启动（进程 #12）、App 也确实到了前台，
+**却没有任何 URL 记录**。SwiftUI 的 `.onOpenURL` 在冷启动场景存在漏投。
+
+新增 `AppDelegate.application(_:open:options:)` 作为 UIKit 层兜底入口
+（iOS 26 已把 `OpenURLOptionsKey` 标弃用，但 SwiftUI 生命周期下没有
+`UISceneDelegate` 可挂，用 `@available(iOS, deprecated: 26.0)` 显式标注「故意使用」）。
+
+两条路径都保留，`handleExternalURL` 内部做 **1.5 秒同 URL 去重** ——
+否则「后备箱」这种 toggle 命令被投两次就会开了又关。
+
+### 验证
+
+- `swiftc -typecheck`：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- 已装机 v6.1 / build 61
+- **待实测（L4，需解锁手机）**：点控制中心「解锁」，日志应出现
+  `链路就绪 → 挂起项：action=解锁` 与 `链路已就绪，自动执行「解锁」`；
+  若 15 秒内没连上，必须出现明确的超时提示而**不再是静默**
+
+---
+
 ## v6.0（2026-10-29）—— 控制中心 / 锁屏控件（解锁、闭锁、寻车）
 
 用户问「能不能直接在控制中心展示解锁闭锁按钮」——**能**，已实现三个控件。

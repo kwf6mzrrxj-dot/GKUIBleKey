@@ -353,6 +353,8 @@ public final class AppModel: ObservableObject {
                 // ① 用户动作优先（明确意图 > 自动流程）
                 if let action = self.pendingActionAfterConnect {
                     self.pendingActionAfterConnect = nil
+                    // 取走了 → 看门狗收工，别再报一次「超时未执行」
+                    self.cancelPendingActionWatchdog()
                     self.measured.recordNote("链路已就绪，自动执行「\(action.label)」")
                     self.perform(action)
                     return
@@ -1003,6 +1005,7 @@ public final class AppModel: ObservableObject {
         passiveEntryEnabled = false
         pendingAction = nil
         pendingActionAfterConnect = nil
+        cancelPendingActionWatchdog()
         pendingPreAuth = false
         pendingPassiveEntryValue = nil
         passiveEntrySwitching = false
@@ -1108,6 +1111,21 @@ public final class AppModel: ObservableObject {
     /// 不会因为后台限制丢帧。
     public func handleExternalURL(_ url: URL) {
         guard url.scheme?.lowercased() == "gkuiblekey" else { return }
+
+        // ★ 去重：同一个 URL 1.5 秒内只执行一次。
+        //
+        // 现在有**两个**入口会送 URL（UIKit `application(_:open:)` 与
+        // SwiftUI `.onOpenURL`）。冷启动时系统可能两条都触发，
+        // 而「后备箱」这种 toggle 命令执行两次就会开了又关。
+        let now = Date()
+        if let last = lastExternalURL,
+           last.url == url,
+           now.timeIntervalSince(last.at) < 1.5 {
+            measured.recordNote("控件 URL 重复投递，已忽略（\(url.host ?? "-")）")
+            return
+        }
+        lastExternalURL = (url, now)
+
         let action: IBCommandType?
         switch url.host?.lowercased() {
         case "lock":    action = .lock
@@ -1135,6 +1153,30 @@ public final class AppModel: ObservableObject {
 
     /// 用户点了按钮但当时链路未就绪 → 挂在这里，等 `.ready` 后自动执行。
     @Published public private(set) var pendingActionAfterConnect: IBCommandType?
+
+    /// ★ 挂起动作的看门狗：**保证「点了按钮」永远不会静默悬空**。
+    ///
+    /// ## 为什么必须有
+    ///
+    /// 「挂起 + 等链路就绪后执行」这条路径依赖**别的组件**把链路推起来。
+    /// 一旦那个组件不推进（看门狗漏挂、回调丢失、僵尸态判断错误），
+    /// 动作就永远躺在 `pendingActionAfterConnect` 里，而 UI 只有一句
+    /// 「正在连接，就绪后自动执行…」，用户看到的就是**点了没反应**。
+    ///
+    /// 实测（2026-10-29 22:00:32）：`adoptConnectedPeripheral` 接管了系统
+    /// 遗留连接、置 `.discovering` 却没起超时 → 14 秒零事件零超时 →
+    /// 控制中心点「闭锁」完全无响应。
+    ///
+    /// 这条看门狗是**最后一道**：不管上游因为什么原因没把链路带起来，
+    /// 15 秒后一定给用户一个明确结论（成功在 `.ready` 里取走，失败在这里）。
+    private var pendingActionWatchdog: Task<Void, Never>?
+
+    /// 挂起动作最多等多久（秒）。连接 1–2s + 服务发现 0.2s + 鉴权 0.3s，
+    /// 留足重连一次的余量。
+    private static let pendingActionWaitSeconds: TimeInterval = 15
+
+    /// 上一次处理过的控件 URL（用于双入口去重，见 `handleExternalURL`）。
+    private var lastExternalURL: (url: URL, at: Date)?
 
     /// 预认证「等链路就绪再发」的挂起标志。
     ///
@@ -1190,6 +1232,7 @@ public final class AppModel: ObservableObject {
             }
             pendingActionAfterConnect = action
             ble.forceConnectOnce = true          // 无视冷却，扫到就立刻连
+            armPendingActionWatchdog(action)
             // ★ 优先「直接连已知设备」——不等扫描广播，省掉 1–2 秒
             //   （车端每条命令执行完就断开，靠扫描等广播会很慢）
             if !ble.connectRemembered() {
@@ -1204,6 +1247,35 @@ public final class AppModel: ObservableObject {
         }
         pendingAction = action
         beginMeasuredAuth(action: action)
+    }
+
+    /// 起「挂起动作」看门狗 —— 见 `pendingActionWatchdog` 的说明。
+    private func armPendingActionWatchdog(_ action: IBCommandType) {
+        pendingActionWatchdog?.cancel()
+        pendingActionWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(Self.pendingActionWaitSeconds * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            self.pendingActionWatchdog = nil
+            // 已经被 `.ready` 取走执行了 → 不打扰
+            guard self.pendingActionAfterConnect == action else { return }
+
+            self.pendingActionAfterConnect = nil
+            self.statusLine = "❌ \(Int(Self.pendingActionWaitSeconds)) 秒内没连上车辆，"
+                + "「\(action.label)」未执行。请靠近车辆后重试"
+            self.measured.recordNote(
+                "挂起动作超时（\(Int(Self.pendingActionWaitSeconds))s 链路未就绪）"
+                + "→ 放弃「\(action.label)」，断开重扫")
+            // 主动把僵住的链路拆掉，让下一次点击从干净状态开始
+            self.ble.disconnect()
+            self.ble.startScan()
+        }
+    }
+
+    /// 取走/放弃挂起动作时都要取消看门狗，避免它事后再报一次超时。
+    private func cancelPendingActionWatchdog() {
+        pendingActionWatchdog?.cancel()
+        pendingActionWatchdog = nil
     }
 
     /// **手动补发一次预认证 `0x0C`** —— 上车前点一下，提高点火命中率。
@@ -1621,6 +1693,7 @@ public final class AppModel: ObservableObject {
                 //   用户重试一次，后备箱这种 toggle 命令就会被翻两次。
                 if self.pendingActionAfterConnect != nil {
                     self.pendingActionAfterConnect = nil
+                    self.cancelPendingActionWatchdog()
                     self.measured.recordNote("Intent 超时，已放弃挂起的「\(action.label)」")
                 }
                 self.resolveIntent(false)

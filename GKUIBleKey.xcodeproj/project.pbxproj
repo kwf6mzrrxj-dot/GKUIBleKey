@@ -14,6 +14,7 @@
 		27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
 		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
+		35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7581756575E39739261B2253 /* AppDelegate.swift */; };
 		3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */; };
 		3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
@@ -97,6 +98,7 @@
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
 		6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLogFloatingView.swift; sourceTree = "<group>"; };
+		7581756575E39739261B2253 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		77FEC857107D5DBD3B471511 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		787E575EA2239FE9C258C166 /* car_on.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_on.png; sourceTree = "<group>"; };
 		79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValeoAdvMatch.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 		66682E538DBE5A237064BF73 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				7581756575E39739261B2253 /* AppDelegate.swift */,
 				BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */,
 				7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */,
 			);
@@ -417,6 +420,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */,
 				C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */,
 				5A5F177B77B566D517418361 /* AppModel.swift in Sources */,
 				289A7C95DC5F829282241571 /* BLECentral.swift in Sources */,

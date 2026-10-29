@@ -559,8 +559,55 @@ public final class BLECentral: NSObject, ObservableObject {
     public func connectRemembered() -> Bool {
         guard central.state == .poweredOn else { return false }
         switch linkState {
-        case .ready, .connecting, .discovering:
-            return true                      // 已经在连或已连，无需重复
+        case .ready:
+            // ★ 「标记为就绪」不等于「真的可写」。
+            //
+            // `writeChar` 会在订阅失败、`prepareForPairingScan`、特征回调异常
+            // 等场景下被清空，而 `linkState` 可能还停在 `.ready`。
+            // 此时若直接返回 true，上层 `perform` 会挂起动作、等一个
+            // **永远不会到来的** `.ready` 事件（状态没变就不会再发），
+            // 只能靠 15 秒看门狗兜底 —— 白等，体验差。
+            //
+            // 这里直接判「假就绪」并拆链重连，把 15 秒缩短成 1 秒。
+            guard writeChar != nil else {
+                note("链路标记「就绪」但写特征缺失（假就绪）→ 断开重连", level: .warning)
+                if let q = peripheral, q.state != .disconnected {
+                    suppressAutoReconnect = false
+                    central.cancelPeripheralConnection(q)
+                }
+                peripheral = nil
+                notifyChar = nil
+                linkState = .idle
+                return false
+            }
+            return true                      // 已连且可写，无需重复
+        case .connecting, .discovering:
+            // ★★ 「看起来在忙」不等于「真的在推进」。
+            //
+            // 判据是**看门狗是否在跑**：只有超时任务存在，才说明这条流程
+            // 有人管、到点会自动收尾。没有看门狗却停在 connecting/discovering
+            // = 僵尸态（回调丢了、流程悬空），此时返回 true 就是欺骗上层：
+            // `perform` 会以为「正在连」而跳过 `startScan()`，
+            // **既不连接也不扫描，动作永久悬空** —— 用户看到「点了没反应」。
+            //
+            // 实测（22:00:32）：`adoptConnectedPeripheral` 接管了系统遗留连接，
+            // 置 discovering 却没起看门狗 → 14 秒零事件、零超时。
+            if connectTimeoutTask != nil || discoverTimeoutTask != nil {
+                return true
+            }
+            note("链路停在「\(linkState.rawValue)」但没有超时看门狗（僵尸态）"
+                 + " → 清理后重新发起连接", level: .warning)
+            cancelConnectTimeout()
+            cancelDiscoverTimeout()
+            if let q = peripheral {
+                suppressAutoReconnect = false   // 让 didDisconnect 正常收尾 + 重扫
+                central.cancelPeripheralConnection(q)
+            }
+            peripheral = nil
+            writeChar = nil
+            notifyChar = nil
+            linkState = .idle
+            return false
         default:
             break
         }
@@ -1167,6 +1214,21 @@ extension BLECentral: CBCentralManagerDelegate {
         linkState = .discovering
         lastMessage = "已接管系统连接（\(p.name ?? "无名")），发现服务中…"
         p.discoverServices([GATT.serviceUUID])
+        // ★★ 必须和 `didConnect` 一样起看门狗（2026-10-29 实测漏了这条）。
+        //
+        // 「系统恢复的连接」是**上一个进程遗留**的：新进程的 `CBPeripheral`
+        // 是重新 retrieve 出来的对象，`discoverServices` 的回调**不保证会来**
+        // （服务已在系统缓存里 / 车端上一次会话没释放 / delegate 刚挂上）。
+        //
+        // 没有看门狗时实测后果（22:00:32 日志）：
+        // ```text
+        // 22:00:32.118  进程启动 #14
+        // 22:00:32.232  控制中心控件 → 锁车
+        // 22:00:32.232  未连接（discovering）→ 连接后自动执行「锁车」
+        // 22:00:46.882  ［14 秒内零连接事件、零超时］→ 进后台，动作永久悬空
+        // ```
+        // 用户看到的就是「点了没反应」。
+        armDiscoverTimeout()
         return true
     }
 
