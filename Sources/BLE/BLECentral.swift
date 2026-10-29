@@ -97,9 +97,6 @@ public final class BLECentral: NSObject, ObservableObject {
         UserDefaults.standard.removeObject(forKey: "gkuiblekey.lastPeripheral")
     }
 
-    /// 是否显示**全部**扫描到的设备（关闭时只显示疑似目标）
-    @Published public var showAllDevices = false
-
     /// 当前设备的 CIDPU（从广播名解析，如 `InBlue3f26c66ac89ad4` → `c89ad4`）
     @Published public private(set) var currentCidpu = ""
 
@@ -250,25 +247,19 @@ public final class BLECentral: NSObject, ObservableObject {
     /// 冷却定时器（连续快速断开 5 次后暂停重扫 30 秒）
     private var scanCooldownTask: Task<Void, Never>?
 
-    // ── 自动连接冷却（防止「连→断→扫→连」死循环）──────────────
-    //
-    /// 车端主动断开的时刻。`didDiscover` 里据此判断要不要立刻自动重连。
-    ///
-    /// ## 为什么需要
-    /// 原 App 每执行完一条命令，**车端会主动断开**（日志里 `0x05` 到达后
-    /// 0.2 秒就 `device is disconnected`）。而原 App 断开后只重扫，
-    /// **不会「扫到就立刻连」** —— 下一次连接是由用户操作或预认证触发的
-    /// （日志中「断开 → Stopping scan → Request for connection」之间有 6 秒间隔）。
-    ///
-    /// 我们原来是「命中本车就无条件 connect」，配合 v3.1 的扫描常开就变成：
-    /// 车端断开 → 重扫 → 立刻又连上 → 车端又断……死循环耗电并干扰车端会话。
-    private var lastDisconnectAt: Date?
-
-    /// 冷却时长（秒）。冷却期内只扫描、不自动重连。
-    private let autoConnectCooldownSeconds: TimeInterval = 15
-
     /// 强制连接一次（用户点了控车按钮 / 需要发帧时由上层置位）。
-    /// 置位后无视冷却，下一次扫到本车立刻连接，然后自动清掉。
+    ///
+    /// ## 为什么不是「扫到就立刻连」
+    /// 原 App 每执行完一条命令，**车端会主动断开**（日志里 `0x05` 到达后 0.2 秒
+    /// 就 `device is disconnected`），之后只重扫、不自动重连；下一次连接由
+    /// 用户操作或预认证触发（日志里「断开 → Stopping scan → Request for
+    /// connection」之间有 6 秒间隔）。
+    ///
+    /// 我们早期是「命中本车就无条件 connect」，配合扫描常开变成
+    /// 「车端断开 → 重扫 → 立刻又连上 → 车端又断」的死循环，耗电且干扰车端会话。
+    /// 现在改为按需连接：谁要发帧，谁先置这个标志。
+    ///
+    /// 置位后下一次扫到本车立刻连接，`didConnect` 里自动清掉。
     public var forceConnectOnce = false
 
     // ── 出范围判定（照 `-[VCBDevice resetWithTimeout]` @`0x9fb4`）──────
@@ -375,14 +366,6 @@ public final class BLECentral: NSObject, ObservableObject {
         central.scanForPeripherals(withServices: [GATT.advServiceUUID],
                                    options: scanOptions)
         lastMessage = "✅ 扫描已启动（广播 Service = 10FF，AllowDuplicates=YES，适配器=\(st)）"
-    }
-
-    /// 手动清空设备列表（扫描不再自动清空，避免"扫一次列表就空"的误判）
-    public func clearCandidates() {
-        candidates.removeAll()
-        discoverCount = 0
-        lastDiscoveredName = ""
-        lastMessage = "已清空设备列表"
     }
 
     public func stopScan() {
@@ -779,7 +762,6 @@ public final class BLECentral: NSObject, ObservableObject {
     }
 
     public var isWriteReady: Bool { peripheral != nil && writeChar != nil }
-    public var isNotifyReady: Bool { notifyChar?.isNotifying == true }
 
     // MARK: - 内部
 
@@ -1051,24 +1033,6 @@ extension BLECentral: CBCentralManagerDelegate {
             // （日志里「Request for connection → Data to send」总是成对出现）。
             // 所以改成**按需连接**：谁要发帧，谁先置 `forceConnectOnce`。
             if hit && !weak && forceConnectOnce {
-                // ★ 冷却判断：车端刚主动断开时只扫描、不立刻重连。
-                //
-                // 原 App 的真实节奏（`xiaoka_vcc.log`）：
-                // ```
-                // 06:14:39.127  device is disconnected
-                // 06:14:45.492  Stopping scan
-                // 06:14:45.494  Request for connection     ← 隔 6 秒，且是用户操作触发
-                // ```
-                // 即**断开后不会「扫到就立刻连」**。我们原来是无条件 connect，
-                // 配合扫描常开会形成「连→断→扫→连」死循环。
-                //
-                // 用户主动操作时上层会置 `forceConnectOnce = true`，不受此限制。
-                if !forceConnectOnce,
-                   let t = lastDisconnectAt,
-                   Date().timeIntervalSince(t) < autoConnectCooldownSeconds {
-                    // 冷却中：RSSI / 车辆状态照常更新（前面已处理），只是不重连
-                    return
-                }
                 forceConnectOnce = false
                 // 本车优先：已经有归属结论时直接连；未确认归属也连（这是配对新设备的场景）
                 lastMessage = "发现目标设备 \(advName.isEmpty ? peripheralID.uuidString : advName)"
@@ -1254,7 +1218,6 @@ extension BLECentral: CBCentralManagerDelegate {
     /// 这里加一条温和的门槛：**3 秒内断开累计 5 次**就暂停 30 秒再恢复。
     /// 正常使用（每条命令一次连接）永远不会触发。
     private func resumeScanAfterDisconnect() {
-        lastDisconnectAt = Date()        // ← 自动重连冷却的计时起点
         guard central.state == .poweredOn else {
             note("断开后未重扫：蓝牙适配器 \(stateText(central.state))", level: .warning)
             return

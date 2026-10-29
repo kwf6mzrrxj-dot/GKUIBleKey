@@ -45,6 +45,13 @@ struct DiagnosticsView: View {
                 readonlyRow("链路状态", model.ble.linkState.rawValue)
                 readonlyRow("写特征", model.ble.isWriteReady ? "已就绪" : "未就绪")
                 readonlyRow("发现设备数", "\(model.ble.candidates.count)")
+                // ★ 扫描回调计数：0 = 系统根本没回调（权限/适配器问题），
+                //   >0 但列表为空 = 回调来了、被过滤掉了（逻辑问题）。
+                //   这个区分是「扫不到车」时最先要看的一条。
+                readonlyRow("扫描回调", model.ble.discoverCount == 0
+                            ? "0（系统未回调）" : "\(model.ble.discoverCount)")
+                readonlyRow("最近广播", model.ble.lastDiscoveredName.isEmpty
+                            ? "—" : model.ble.lastDiscoveredName)
                 Divider()
                 Text(model.ble.lastMessage).font(.caption2)
                     .foregroundStyle(.secondary)

@@ -246,12 +246,4 @@ public enum BuiltInKeys {
         UserDefaults.standard.set(appliedVersion, forKey: appliedFlagKey)
         return true
     }
-
-    /// 清除「已应用」标记 —— 解绑车辆时**不**调用（见下方说明）。
-    ///
-    /// 解绑后应该是干净的无密钥状态，让用户能直接走自己的配对流程；
-    /// 想改回内置钥匙，点「重新应用内置钥匙」按钮即可（`apply()` 不看标记）。
-    public static func resetAppliedFlag() {
-        UserDefaults.standard.removeObject(forKey: appliedFlagKey)
-    }
 }

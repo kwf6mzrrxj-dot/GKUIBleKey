@@ -206,27 +206,6 @@ public final class KeyStore {
         }
     }
 
-    /// 读回 `IBSavedKeys` 归档（用于校验/导出比对）。
-    public func getIBSavedKeysArchive() -> [String: [String: String]]? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "IBSavedKeys",
-            kSecAttrAccount as String: "IBSavedKeys",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        // 用现代 API 解档（`unarchiveTopLevelObjectWithData:` 自 iOS 12 起废弃）。
-        // 允许的类覆盖嵌套结构：外层 NSDictionary → 内层 NSDictionary → NSString。
-        guard let obj = try? NSKeyedUnarchiver.unarchivedObject(
-            ofClasses: [NSDictionary.self, NSString.self, NSArray.self], from: data
-        ) else { return nil }
-        return obj as? [String: [String: String]]
-    }
-
-
     public func getString(_ key: Key) -> String? {
         get(key).flatMap { String(data: $0, encoding: .utf8) }
     }

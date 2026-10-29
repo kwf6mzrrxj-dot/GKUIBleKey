@@ -112,9 +112,4 @@ public enum IBCommandType: UInt8, CaseIterable, Sendable {
     /// 而不是让人以为还有第二层映射。所有 11 个命令都有值，
     /// 不存在"未确认所以拒发"的情况。
     public var controlCode: UInt8 { rawValue }
-
-    /// 是否为被动进入（无感）开关 —— 二者互斥，界面应成对展示
-    public var isPassiveEntryToggle: Bool {
-        self == .enablePassiveEntry || self == .disablePassiveEntry
-    }
 }

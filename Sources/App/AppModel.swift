@@ -69,7 +69,6 @@ public final class AppModel: ObservableObject {
     public let preAuth = PreAuthenticationController()
 
     @Published public var statusLine = "未连接"
-    @Published public var isBusy = false
     /// 是否已提示过「RSSI 未标定」（只提示一次）
     private var didWarnUncalibrated = false
 
@@ -244,6 +243,15 @@ public final class AppModel: ObservableObject {
             .sink { [weak self] (value: Int) in
                 guard let self else { return }
                 self.relayGuard.record(value)
+                // ★ 中继告警要落到日志里，否则这段检测等于不存在
+                //   （原来只 record 不读结果，每次 RSSI 回调都在做无用计算）。
+                //   只在告警内容变化时记，避免每 0.5s 刷屏。
+                if let alarm = self.relayGuard.alarm, alarm != self.lastRelayAlarm {
+                    self.lastRelayAlarm = alarm
+                    self.measured.recordNote("⚠️ 信号异常：\(alarm)")
+                } else if self.relayGuard.alarm == nil {
+                    self.lastRelayAlarm = nil
+                }
                 // ★ 点火位置验证：照原 App 的 checkRssiForPassiveStart
                 //   原 App 用 RSSI1/RSSI2 两个天线值；这里 BLE 只给一个，
                 //   先用同一个值填两路（待确认模块是否上报双路 RSSI）。
@@ -483,11 +491,6 @@ public final class AppModel: ObservableObject {
     }
 
     // MARK: - ★ 一键配对（真正的一步到底）
-
-    /// 配对时将使用的手机名（供界面展示）
-    public static var currentDeviceNameForPairing: String {
-        InBluePairing.currentDeviceName()
-    }
 
     private func appendPairingLog(_ s: String) {
         pairing.appendExternal("· \(s)")
@@ -836,6 +839,9 @@ public final class AppModel: ObservableObject {
 
     /// 中继攻击防护（基于 RSSI 突变检测）
     public let relayGuard = RelayGuard()
+
+    /// 上一次记录过的中继告警，用于去重（nil = 当前无告警）
+    private var lastRelayAlarm: String?
 
     private var cancellables = Set<AnyCancellable>()
 

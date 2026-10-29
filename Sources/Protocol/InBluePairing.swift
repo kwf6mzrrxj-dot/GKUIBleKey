@@ -40,7 +40,6 @@ public final class InBluePairing: ObservableObject {
     public enum State: String, Sendable {
         case idle = "空闲"
         case requestingPairing = "发送配对请求"
-        case awaitingConfirmation = "等待车端下发密钥"
         case succeeded = "配对成功"
         case failed = "配对失败"
     }

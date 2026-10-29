@@ -5,6 +5,91 @@
 
 ---
 
+## v4.8（2026-10-29）—— 系统性审查 + 死代码清理
+
+按「覆盖主要模块、检查逻辑/边界/错误处理/安全/可维护性」的要求全量过了一遍，
+并在不破坏功能的前提下移除无用代码。**净减 235 行**（-8 文件/成员的引用面）。
+
+### 一、审查范围
+
+| 层 | 文件 | 关注点 |
+|---|---|---|
+| BLE 传输 | `BLECentral`(1447) | 扫描/连接/断开状态机、分包、MTU、广播解析 |
+| 应用编排 | `AppModel`(1319) | 鉴权流程、超时、锁屏守卫、Intent、密钥完整性 |
+| 协议 | `MeasuredSession`(667)、`InBlueAuth`(375)、`InBluePairing`(168)、`ValeoAdvMatch`(263)、`VehicleStatus`(322)、`PassiveStart`(265)、`PreAuthenticationController`(283)、`ProtocolConstants`、`ErrorCodeTable`、`BroadcastParser`、`FrameCodec` | 帧构造/解析、位映射、区域判定、状态机 |
+| 密钥 | `KeyStore`(306)、`BuiltInKeys`(247) | Keychain 属性、指纹、内置钥匙自愈 |
+| UI | `RootView`(1046)、`PairingView`、`KeyInspectorView`、`DiagnosticsView`、`LogView`、`CarModelView`、`LiveLogFloatingView`、`FloatingWindowController` | 状态一致性、反馈闭环 |
+| 支撑 | `FileLogger`(442)、`BackgroundMonitor`(186)、`SelfTest`(407)、`CryptoBox`(143)、`RemoteGuard`、`VehicleProfile`、`AppInfo` | 日志、密码学、自检 |
+
+方法：静态扫描（零引用符号、只写不读字段、永不成立的分支、注释掉的代码、
+TODO 残留、重复表达式）+ 逐条回源码核对。**没有直接采信扫描结果** ——
+例如 `fullDescription` / `carArt` / `bits` 这类被点号访问或 SwiftUI 直接引用的，
+扫描会误报，都已人工确认。
+
+### 二、本轮修掉的问题
+
+| # | 位置 | 问题 |
+|---|---|---|
+| 1 | `BLECentral.didDiscover` | `if hit && !weak && forceConnectOnce { if !forceConnectOnce, … }` —— 嵌套条件自相矛盾，冷却分支**永不成立**，`lastDisconnectAt` / `autoConnectCooldownSeconds` 全是死变量。删除死分支与两个字段。 |
+| 2 | `AppModel` RSSI 订阅 | `relayGuard.record()` 只喂不读：`alarm` / `samples` 从无消费者，每次 RSSI 回调都在做无用计算。**改为接入**（告警变化时写进会话日志并去重），保留中继检测能力。 |
+| 3 | `DiagnosticsView` | `discoverCount` / `lastDiscoveredName` 只写不读，但它们的语义（0 = 系统没回调；>0 但列表空 = 被过滤）正是「扫不到车」时最该看的判据。**改为接入**诊断页。 |
+| 4 | `ProtocolConstants` | `controlCode` 的文档注释重复了一遍（复制粘贴残留），已去重。 |
+| 5 | `BLECentral` 字段区 | 删 `lastDisconnectAt` 时留下半截注释块（`// ── 自动连接冷却` + 残缺段落），已重写为完整的「为什么不是扫到就立刻连」。 |
+
+### 三、删除清单（均可逆，Git 历史可恢复）
+
+**整文件**
+- `Sources/UI/AboutView.swift`（153 行）—— 文件自己的注释就写着「当前没有任何入口
+  打开它（v2.9 起）……此文件保留备用」。版本号已并入开发者菜单底部，全项目零引用。
+
+**未引用成员**（零成员访问、零构造）
+
+| 位置 | 成员 | 判断依据 |
+|---|---|---|
+| `AppModel` | `isBusy` | 全项目无 `model.isBusy` |
+| `AppModel` | `currentDeviceNameForPairing` | 无引用；`InBluePairing.currentDeviceName()` 本身仍在用 |
+| `BLECentral` | `showAllDevices` | 无引用（`didDiscover` 的过滤不读它） |
+| `BLECentral` | `clearCandidates()` | 无调用方（`candidates` 本身被诊断页读取，保留） |
+| `BLECentral` | `isNotifyReady` | 无引用；链路就绪统一用 `isWriteReady` + `linkState` |
+| `BLECentral` | `lastDisconnectAt`、`autoConnectCooldownSeconds` | 仅被上面那个永不成立的分支读取 |
+| `BuiltInKeys` | `resetAppliedFlag()` | 无调用（注释本就写明解绑时不调用） |
+| `KeyStore` | `getIBSavedKeysArchive()` | 无调用（写入侧 `saveIBSavedKeys` 仍保留） |
+| `InBluePairing.State` | `case awaitingConfirmation` | 从未被赋值（配对只有 requesting → succeeded/failed） |
+| `ProtocolConstants` | `isPassiveEntryToggle` | 无引用（界面用 `passiveEntryEnabled` 布尔量） |
+| `VehicleStatus` | `isValid` | 无引用 |
+| `VehicleStatus` | `bits`、`toBits(_:)` | 原本只服务 `bitString`/`bitStringGrouped`，两者删除后成死链 |
+| `VehicleStatus` | `bitString`、`bitStringGrouped` | 无引用（诊断改用 `fullDescription` 的 `decodeStatusBin`） |
+| `VehicleStatus` | `lockMask` | 无引用（位映射已在 `decodeStatusByte` 内联表达） |
+| `ProtocolErrorCode` | `isRetryable` | 无引用（重试策略未按错误码分派） |
+| `ProtocolErrorCode` | `describeResultCode(_:)` | 无调用方的纯转发（`ErrorCodeTable` 本身仍被自检与 UI 使用） |
+| `RelayGuard` | `average`、`isSuspicious`、`bars`、`latest` | 无读取方；保留 `record`/`alarm`（已接入）与三个阈值 |
+
+### 四、**保留**的无引用项（附理由）
+
+| 项 | 为什么留 |
+|---|---|
+| `PassiveStartJudge.pondInToOut` | 反汇编 `IBVehicle` 的 ivar，与 `pondOutToIn` 成对；删掉会让「合成 RSSI 的加权系数」无处对应 |
+| `PreAuthenticationController.disassemblyInterval` | 反汇编立即数（`6.5s`），是节奏依据的锚点 |
+| `BLECentral.readChar` | 对应原 App `setReadCharacteristic:`；虽然当前不读，但它是 GATT 三个特征之一的镜像，删掉会让「为什么只处理 write/notify」失去解释 |
+| `VehicleStatus.randomNumber` / `oemID` / `additionalData` | `parseBroadcastData:` 的切分结果，被 `fullDescription` 读取；也是 `Broadcast` 结构的一一对应 |
+| `VehicleIntents.typeDisplayRepresentation` / `caseDisplayRepresentations` / `appShortcuts` | `AppIntents` 协议要求的静态属性，由系统在元数据期调用 |
+| 3 处 `// if (dev == nil) return;` 之类 | 反汇编伪代码引用，属证据链，不是调试残留 |
+| `commandTimeoutSeconds` / `pairingTimeoutSeconds` 等 | 有引用（默认参数 / 超时表） |
+
+### 五、删除后的调整与验证
+
+- **`GKUIBleKey.xcodeproj` 必须重新生成**：删文件后 `pbxproj` 仍指向
+  `Sources/UI/AboutView.swift`，`xcodebuild` 直接报
+  `Build input file cannot be found`。已执行 `xcodegen generate` 修复。
+  **以后删/加源文件都要跟一句 `xcodegen generate`。**
+- `swiftc -typecheck`（33→32 文件）：**0 error / 0 warning**
+- `xcodebuild build`：**BUILD SUCCEEDED**
+- 运行时影响面：只删「无消费者」的成员，唯一的行为变化是
+  ① 中继告警开始写入会话日志；② 诊断页多两行（扫描回调数 / 最近广播名）。
+  两者都不改协议收发，不影响配对与控车。
+
+---
+
 ## v4.7（2026-10-29）—— 全量代码审查：10 处 bug，其中 3 处会让功能彻底失效
 
 用户要求「审查一下有没有 bug」。按「会导致功能失败的真实缺陷」标准过了一遍

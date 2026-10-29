@@ -43,7 +43,6 @@
 		C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE4B7AED8424488DFF8B585 /* AppInfo.swift */; };
 		D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */; };
 		DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */; };
-		DF516934D1D53C112239AB5C /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211A0B9DCBACCF2F64A8750 /* AboutView.swift */; };
 		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
 		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
 		F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF365E39A85492849FCFC1DD /* VehicleIntents.swift */; };
@@ -91,7 +90,6 @@
 		E484F5C4824BDB2B2B2937BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E6B273DC3208E17B03DEE527 /* car_small.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_small.png; sourceTree = "<group>"; };
 		E7C32A037F805BE11A1268CE /* car_detail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_detail.png; sourceTree = "<group>"; };
-		F211A0B9DCBACCF2F64A8750 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -153,7 +151,6 @@
 		55956701F9A9FE3F9DAB9E64 /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				F211A0B9DCBACCF2F64A8750 /* AboutView.swift */,
 				8346132E51B853D5356F4736 /* CarModelView.swift */,
 				D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */,
 				A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */,
@@ -324,7 +321,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DF516934D1D53C112239AB5C /* AboutView.swift in Sources */,
 				C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */,
 				5A5F177B77B566D517418361 /* AppModel.swift in Sources */,
 				289A7C95DC5F829282241571 /* BLECentral.swift in Sources */,

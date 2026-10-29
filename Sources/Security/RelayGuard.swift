@@ -70,26 +70,4 @@ public final class RelayGuard: ObservableObject {
             alarm = "信号过弱（\(last.rssi) dBm），可能连接不稳"
         }
     }
-
-    public var latest: Int? { samples.last?.rssi }
-    public var average: Int? {
-        guard !samples.isEmpty else { return nil }
-        return samples.map { $0.rssi }.reduce(0, +) / samples.count
-    }
-    public var isSuspicious: Bool {
-        guard let a = alarm else { return false }
-        return a.contains("中继") || a.contains("偏离")
-    }
-
-    /// 供界面展示的信号条数（0…4）
-    public var bars: Int {
-        guard let r = latest else { return 0 }
-        switch r {
-        case let x where x >= -55: return 4
-        case let x where x >= -70: return 3
-        case let x where x >= -85: return 2
-        case let x where x >= -95: return 1
-        default: return 0
-        }
-    }
 }
