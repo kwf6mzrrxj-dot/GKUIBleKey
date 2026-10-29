@@ -990,7 +990,7 @@ public final class AppModel: ObservableObject {
                     case .success:
                         recordAuthSuccess()
                         statusLine = isPreAuth
-                            ? "预认证成功（6.5s 后继续）"
+                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮（6.5s 后自动续发）"
                             : "「\(measured.lastSucceededAction?.label ?? "动作")」执行成功（04 00）"
                     case .acceptedAwaitingNames:
                         statusLine = "已受理，等待车端回 0x0F 设备名"

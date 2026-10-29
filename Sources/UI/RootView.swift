@@ -600,8 +600,9 @@ struct DeveloperMenuView: View {
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("预认证保活").font(.subheadline).foregroundStyle(.primary)
-                            Text("进入区域后周期发 0x0C，默认关闭")
-                                .font(.caption2).foregroundStyle(.secondary)
+                            Text(preAuthDetail)
+                                .font(.caption2)
+                                .foregroundStyle(model.preAuth.isEnabled ? Color.secondary : Color.orange)
                         }
                     }
                 }
@@ -664,6 +665,28 @@ struct DeveloperMenuView: View {
                 Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
         }
+    }
+
+    /// 预认证保活的实时状态说明 —— 直接告诉用户「现在能不能点火」。
+    ///
+    /// 点火的完整前提（缺一不可）：
+    /// 1. 钥匙已配对（`0x0E` 密钥已落库）
+    /// 2. RSSI 已标定（`<cidpu>_CALIBRATION`），否则区域判定恒 false
+    /// 3. 本开关打开，且当前处于被动启动区域（`0x0C` 才会发出）
+    /// 4. App 进程活着（后台被系统回收后定时器停摆）
+    private var preAuthDetail: String {
+        if !model.passiveStart.isCalibrated {
+            return "未标定 RSSI：区域判定不会成立，先在「点火位置验证」里标定"
+        }
+        guard model.preAuth.isEnabled else {
+            return "已关闭：车端不会认钥匙在场，只能遥控解锁、无法点火"
+        }
+        if model.preAuth.isInArea {
+            return model.preAuth.sentCount > 0
+                ? "保活中：已在区域内心，已发 \(model.preAuth.sentCount) 次 0x0C"
+                : "保活中：在区域内，正在发第一轮 0x0C…"
+        }
+        return "已开启：进入标定区域后自动发 0x0C（已发 \(model.preAuth.sentCount) 次）"
     }
 }
 
