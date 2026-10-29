@@ -25,6 +25,8 @@ targets:
           #   但 `Sources/LiveActivity` 的共享类型两边都要编。
           - "Widget/**"
       - path: Resources
+    dependencies:
+      - target: GKUIBleKeyWidget
     settings:
       base:
         # 关于 bundle id 与 IDFV（2026-10-29 调查结论，避免以后重复踩坑）
@@ -63,35 +65,35 @@ targets:
         #   保留标准 RGBA PNG，交给 UIImage 直接解码。
         COMPRESS_PNG_FILES: NO
 
-#   # ── Live Activity 扩展 ─────────────────────────────────────────
-#   # 存在的唯一理由：拿到后台等同前台的 Core Bluetooth 权限。
-#   # Apple 文档（iOS 26+）要求「有 CBManager 实例 + 启动 Live Activity」，
-#   # 满足后后台扫描才能关闭 duplicates 合并（即 AllowDuplicates 生效）。
-#   GKUIBleKeyWidget:
-#     type: app-extension
-#     platform: iOS
-#     sources:
-#       - path: Sources/Widget
-#       # 只共享「数据类型」。`LiveActivityController` 依赖主 App 的 FileLogger，
-#       # 不能编进扩展（扩展里没有那个符号，也不该带整套日志）。
-#       - path: Sources/LiveActivity/VehicleActivityAttributes.swift
-#     info:
-#       path: Sources/Widget/Info.plist
-#       properties:
-#         CFBundleDisplayName: 数字钥匙
-#         NSExtension:
-#           NSExtensionPointIdentifier: com.apple.widgetkit-extension
-#     settings:
-#       base:
-#         PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey.widget
-#         PRODUCT_NAME: GKUIBleKeyWidget
-#         TARGETED_DEVICE_FAMILY: "1"
-#         GENERATE_INFOPLIST_FILE: NO
-#         INFOPLIST_FILE: Sources/Widget/Info.plist
-#         CODE_SIGN_STYLE: Automatic
-#         DEVELOPMENT_TEAM: 2PQ29MSM39
-#         CODE_SIGNING_REQUIRED: YES
-#         CODE_SIGNING_ALLOWED: YES
-#         CODE_SIGN_IDENTITY: "Apple Development"
-#         SKIP_INSTALL: YES
-#         OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"
+  # ── Live Activity 扩展 ─────────────────────────────────────────
+  # 存在的唯一理由：拿到后台等同前台的 Core Bluetooth 权限。
+  # Apple 文档（iOS 26+）要求「有 CBManager 实例 + 启动 Live Activity」，
+  # 满足后后台扫描才能关闭 duplicates 合并（即 AllowDuplicates 生效）。
+  GKUIBleKeyWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Widget
+      # 只共享「数据类型」。`LiveActivityController` 依赖主 App 的 FileLogger，
+      # 不能编进扩展（扩展里没有那个符号，也不该带整套日志）。
+      - path: Sources/LiveActivity/VehicleActivityAttributes.swift
+    info:
+      path: Sources/Widget/Info.plist
+      properties:
+        CFBundleDisplayName: 数字钥匙
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey.widget
+        PRODUCT_NAME: GKUIBleKeyWidget
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/Widget/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2PQ29MSM39
+        CODE_SIGNING_REQUIRED: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "Apple Development"
+        SKIP_INSTALL: YES
+        OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"

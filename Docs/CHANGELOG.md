@@ -45,31 +45,34 @@ Apple Core Bluetooth 文档（iOS 26+）原文：
 设计取舍：**只在「预认证保活开启」时启动**（那才是需要后台 BLE 的场景），
 关掉保活立即结束，不在锁屏上留没用的卡片。
 
-### ⚠️ 当前状态：被签名卡住，功能尚未生效
+### ⚠️ 当前状态：签名已解决，功能已启用
 
-Widget 扩展是新 bundle id（`com.mmxisme.gkuiblekey.widget`），本机却只有
-**一个 explicit App ID 的 profile**（`2PQ29MSM39.com.mmxisme.gkuiblekey`），
-且 Xcode 未登录账号（`No Accounts`）→ 无法自动生成 profile：
+Widget 扩展是新 bundle id（`com.mmxisme.gkuiblekey.widget`），本机原本只有
+**一个 explicit App ID 的 profile**，且 Xcode 未登录账号（`No Accounts`）：
 
 ```text
 error: No accounts: Add a new account in Accounts settings. (in target 'GKUIBleKeyWidget')
 error: No profiles for 'com.mmxisme.gkuiblekey.widget' were found
 ```
 
-所以本轮**临时把 Widget target 从 `project.yml` 注释掉**（内容保留，
-去掉行首 `# ` 即可恢复），主 App 正常构建/安装。此时 `Activity.request`
-会失败并被 catch 记录 warning，不影响任何其他功能。
+**解决**：用户在 Xcode 登录 Apple ID 后，Xcode 自动创建了
+`2PQ29MSM39.com.mmxisme.gkuiblekey.widget` 的 managed profile（21:54），
+Widget target 随即编译并签名成功，`.app/PlugIns/GKUIBleKeyWidget.appex` 已打包。
 
-**启用步骤**（用户操作）：
-1. Xcode → Settings → Accounts → 登录 Apple ID（免费账号即可）
-2. 告诉助手，或手动删掉 `project.yml` 末尾 Widget 段每行的 `# `
-3. `xcodegen generate && xcodebuild ... build`
+### 验证（已完成 L3）
 
-### 验证
+- `swiftc -typecheck`：0 error / 0 warning
+- `xcodebuild build`：**BUILD SUCCEEDED**（含 Widget 扩展）
+- 装机 + 启动：成功
+- 日志实证：
 
-- 主 App `swiftc -typecheck`：0 error / 0 warning
-- 两个 target 均 `BUILD SUCCEEDED`（Widget 在注释前已验证通过编译）
-- 启用后待验证：锁屏出现卡片，且后台日志的广播间隔明显变密
+```text
+21:54:57.526 [INFO] [保活] Live Activity 已启动（后台 BLE 权限提升为前台同级）
+```
+
+- **待实测（L4）**：把 App 切后台 5 分钟后回来看日志 ——
+  `广播累计` 应比之前增长明显更快，心跳间隔应接近 30 秒
+  （之前实测是 3 分 46 秒，那就是被合并投递的证据）
 
 ---
 

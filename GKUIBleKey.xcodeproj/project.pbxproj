@@ -42,18 +42,47 @@
 		B5582E41603CC6CF76A18ABA /* BuiltInKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */; };
 		C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062758546AC7B33C61337BD0 /* LogView.swift */; };
 		C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE4B7AED8424488DFF8B585 /* AppInfo.swift */; };
+		CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */; };
+		D5F3003C8EA2B114482640F0 /* GKUIBleKeyWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */; };
 		DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */; };
 		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
 		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
 		F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF365E39A85492849FCFC1DD /* VehicleIntents.swift */; };
+		F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */; };
+		F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
 		FF21906B2EED6B801E55B378 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD10ED24FE80E92462D8D861 /* LiveActivityController.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7A7587C4DA9D1D3610139A97 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 41D64DE28BA9BF4DAD9F4D56 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E40045301D1F74812F6CF8E6;
+			remoteInfo = GKUIBleKeyWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9C3CDCB144B90AC752E34B20 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D5F3003C8EA2B114482640F0 /* GKUIBleKeyWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		03B476E9C21E7763239DBD3E /* builtin-keys.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "builtin-keys.txt"; sourceTree = "<group>"; };
 		062758546AC7B33C61337BD0 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
+		0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWidgetBundle.swift; sourceTree = "<group>"; };
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
 		1DE4B7AED8424488DFF8B585 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
@@ -66,6 +95,7 @@
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
 		6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLogFloatingView.swift; sourceTree = "<group>"; };
+		77FEC857107D5DBD3B471511 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		787E575EA2239FE9C258C166 /* car_on.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_on.png; sourceTree = "<group>"; };
 		79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValeoAdvMatch.swift; sourceTree = "<group>"; };
 		7A461D59F827B51924794466 /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
@@ -74,6 +104,7 @@
 		8346132E51B853D5356F4736 /* CarModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModelView.swift; sourceTree = "<group>"; };
 		85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
 		8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLECentral.swift; sourceTree = "<group>"; };
+		912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleLiveActivityWidget.swift; sourceTree = "<group>"; };
 		9876C8854751AA1E82168BC5 /* BroadcastParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastParser.swift; sourceTree = "<group>"; };
 		A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingWindowController.swift; sourceTree = "<group>"; };
 		A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInspectorView.swift; sourceTree = "<group>"; };
@@ -94,6 +125,7 @@
 		E484F5C4824BDB2B2B2937BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E6B273DC3208E17B03DEE527 /* car_small.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_small.png; sourceTree = "<group>"; };
 		E7C32A037F805BE11A1268CE /* car_detail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_detail.png; sourceTree = "<group>"; };
+		F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = GKUIBleKeyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -130,6 +162,7 @@
 			isa = PBXGroup;
 			children = (
 				BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */,
+				F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -189,6 +222,7 @@
 				900665DD8E86C6537DC8ADE6 /* Security */,
 				0763A5866757F157EF11AEF7 /* Support */,
 				55956701F9A9FE3F9DAB9E64 /* UI */,
+				8510F056DAE523FFF386B31A /* Widget */,
 				E484F5C4824BDB2B2B2937BB /* Info.plist */,
 			);
 			path = Sources;
@@ -229,6 +263,16 @@
 			path = BLE;
 			sourceTree = "<group>";
 		};
+		8510F056DAE523FFF386B31A /* Widget */ = {
+			isa = PBXGroup;
+			children = (
+				0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */,
+				77FEC857107D5DBD3B471511 /* Info.plist */,
+				912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */,
+			);
+			path = Widget;
+			sourceTree = "<group>";
+		};
 		900665DD8E86C6537DC8ADE6 /* Security */ = {
 			isa = PBXGroup;
 			children = (
@@ -267,10 +311,12 @@
 			buildPhases = (
 				73519E2249B0E37539E42145 /* Sources */,
 				C813D9AC233B58D87F278E39 /* Resources */,
+				9C3CDCB144B90AC752E34B20 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CBA0D738774A9F61015A473A /* PBXTargetDependency */,
 			);
 			name = GKUIBleKey;
 			packageProductDependencies = (
@@ -278,6 +324,23 @@
 			productName = GKUIBleKey;
 			productReference = BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */;
 			productType = "com.apple.product-type.application";
+		};
+		E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FD6C1ECFF6693B02FE8DEA34 /* Build configuration list for PBXNativeTarget "GKUIBleKeyWidget" */;
+			buildPhases = (
+				65063D6BE6338E54A85F64A9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GKUIBleKeyWidget;
+			packageProductDependencies = (
+			);
+			productName = GKUIBleKeyWidget;
+			productReference = F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -289,6 +352,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					348CC567198478C16B1AAB18 = {
+						DevelopmentTeam = 2PQ29MSM39;
+						ProvisioningStyle = Automatic;
+					};
+					E40045301D1F74812F6CF8E6 = {
 						DevelopmentTeam = 2PQ29MSM39;
 						ProvisioningStyle = Automatic;
 					};
@@ -309,6 +376,7 @@
 			projectRoot = "";
 			targets = (
 				348CC567198478C16B1AAB18 /* GKUIBleKey */,
+				E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -331,6 +399,16 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		65063D6BE6338E54A85F64A9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */,
+				F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */,
+				CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		73519E2249B0E37539E42145 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -374,6 +452,14 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		CBA0D738774A9F61015A473A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */;
+			targetProxy = 7A7587C4DA9D1D3610139A97 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		006DFF8C6893CEC65C849E55 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -395,6 +481,54 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey;
 				PRODUCT_NAME = GKUIBleKey;
 				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		081F22258AFA68BC202AF070 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Widget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey.widget;
+				PRODUCT_NAME = GKUIBleKeyWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		1768BCDFF0227E71CFDBC156 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Widget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey.widget;
+				PRODUCT_NAME = GKUIBleKeyWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -563,6 +697,15 @@
 			buildConfigurations = (
 				006DFF8C6893CEC65C849E55 /* Debug */,
 				72821C530EDE58BD385D91E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FD6C1ECFF6693B02FE8DEA34 /* Build configuration list for PBXNativeTarget "GKUIBleKeyWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1768BCDFF0227E71CFDBC156 /* Debug */,
+				081F22258AFA68BC202AF070 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
