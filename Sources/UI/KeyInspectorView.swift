@@ -24,6 +24,8 @@ struct KeyInspectorView: View {
     /// ★ 整包备份文本（导出/恢复用）
     @State private var backupText = ""
     @State private var backupResult = ""
+    /// 解绑二次确认（不可逆操作，必须挡一下）
+    @State private var confirmUnbind = false
 
     var body: some View {
         NavigationStack {
@@ -213,13 +215,30 @@ struct KeyInspectorView: View {
     private var dangerSection: some View {
         card("危险操作") {
             Button(role: .destructive) {
-                model.deleteVehicle()
-                refreshTick += 1
+                // ★ 二次确认（2026-10-29）：解绑会清空 Keychain 里的全部密钥，
+                //   之后必须让车端重新开配对窗口才能再用，不可撤销。
+                //   原来一点就执行，误触代价太大。
+                confirmUnbind = true
             } label: {
                 Label("解绑车辆（清除密钥与标定）", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.glass)
+            .confirmationDialog(
+                "确认解绑这台车？",
+                isPresented: $confirmUnbind,
+                titleVisibility: .visible
+            ) {
+                Button("解绑并清除密钥", role: .destructive) {
+                    model.deleteVehicle()
+                    refreshTick += 1
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将清除本地密钥、标定值与无感进入设置，并回到「未配对」状态。\n"
+                     + "之后需要车端开配对窗口、重新配对才能再控车。\n"
+                     + "密钥已备份的话，解绑后可用「从备份恢复」找回。")
+            }
         }
     }
 

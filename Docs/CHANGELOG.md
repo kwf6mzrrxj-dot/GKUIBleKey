@@ -5,6 +5,99 @@
 
 ---
 
+## v5.1（2026-10-29）—— 配对/解绑状态机：已配的不再重复展示，解绑能真正回到未配对
+
+用户要求：① 已配对的对象不再保留或重复展示配对关系；② 解绑后恢复为未配对；
+③ 只有未配对才允许发起新配对；④ 解绑后能正确重新配对。
+
+### 核心缺陷：解绑只清了 Keychain，没清内存副本
+
+`deleteVehicle()` 调的是 `measured.reset()`，而 `reset()` **不清 `keys`** ——
+它是给「用户主动断开」用的（那时 Keychain 里还有密钥，必须保留）。
+
+于是解绑后出现**两个方向都错**的状态：
+
+| 位置 | 实际 | 后果 |
+|---|---|---|
+| Keychain | 已空 | — |
+| `measured.keys`（内存） | **仍是旧值** | 主界面继续显示「数字钥匙已就绪」 |
+| `startFullPairing` | 读 `measured.keys != nil` | **被「本地已有密钥」拦住 → 解绑后再也配对不了** |
+
+这正是「解绑后无法重新配对」的直接原因。
+
+### 改动
+
+**1. 引入单一判定口 `AppModel.hasLocalKey`**
+
+```swift
+public var hasLocalKey: Bool {
+    if measured.keys != nil { return true }              // 内存有 → 已配对
+    return KeyStore.shared.communicationKey?.isEmpty == false   // 双查 Keychain
+}
+```
+
+为什么必须双查（两个方向的误判危害相反）：
+
+| 场景 | 内存 | Keychain | 只看内存的后果 |
+|---|---|---|---|
+| 重启后尚未首次解锁，init 读失败 | nil | 有 | 误判「未配对」→ 允许重复配对 → 车端零响应 |
+| 刚解绑（Keychain 已清、内存未刷） | 有 | 无 | 误判「已配对」→ **无法重新配对** |
+
+所有「要不要允许配对 / UI 显示什么」统一用它：`startFullPairing` 的阻止条件、
+`autoConnect` 的未配对判断、主界面 `statusRow`、`PairingView.hasVehicle`。
+
+**2. `MeasuredSession.forgetKeys()`** —— 解绑专用，抹掉内存副本。
+不塞进 `reset()`，因为 `reset()` 服务于「主动断开」，那里必须保留。
+
+**3. `deleteVehicle()` 重写为「三步都做 + 清派生状态」**
+
+- 清偏好项：`<cidpu>_CALIBRATION`、`<cidpu>_PASSIVE_ENTRY`（原来漏了这个）、
+  `calibration.default`、`passiveEntry.default`
+- 清密钥：`KeyStore.clearAll()` + `measured.forgetKeys()`
+- 清链路：`disconnect` + `forgetRememberedPeripheral`
+- 清会话：`measured.reset()` + `pendingPreAuth` / `pendingActionAfterConnect` /
+  `pendingPassiveEntryValue` / `passiveEntrySwitching` / `rssiAntenna*` / 锁定计数
+- 清配对：`pairingArmed = false`、`pairingBlockedReason = nil`、
+  `pairing.resetForNewAttempt()`
+- 最后才设 `statusLine`（避免被 `verifyKeyIntegrity()` 的「缺少 communicationKey」覆盖）
+
+**4. UI 不再重复展示配对关系**
+
+| 位置 | 原来 | 现在 |
+|---|---|---|
+| 右上菜单 | 恒显示「绑定车辆」，点进去只弹「本地已有密钥」 | 已配对时改为「车辆已绑定 · 管理与解绑」，不再给配对入口 |
+| `PairingView.onAppear` | 无条件 `startFullPairing()`（已配对时走一遍注定失败的流程） | `hasLocalKey` 为真直接提示，不发任何帧 |
+| `PairingView.hasVehicle` | 用 `receivedKeyData`（会话级，重启后为空）→ 已配对用户看到「暂无车辆」 | 用 `hasLocalKey`（持久判定） |
+| 主界面 `statusRow` | `measured.keys` | `hasLocalKey` |
+
+**5. 解绑加二次确认**（原来一点就执行，不可逆）
+
+### 状态判断与边界（这一版明确化的规则）
+
+| 状态 | `hasLocalKey` | 允许配对 | UI |
+|---|---|---|---|
+| 正常已配对 | true | ✗（`startFullPairing` 直接阻止并说明原因） | 「数字钥匙已就绪」 |
+| 内存 nil / Keychain 有 | true | ✗ | 「数字钥匙已就绪」（并自动 `reloadKeys()`） |
+| 解绑后 | false | ✓ | 「尚未绑定车辆 / 去绑定」 |
+| 配对中 | false | ✗（`pairingArmed` 提示"进行中"） | 「配对中」 |
+
+边界处理：
+- **内置钥匙用户解绑后**：`builtInKeys.applied.*` 标记**不清**，所以重启不会自动把
+  内置钥匙塞回去 —— 保持「未配对」符合预期；想恢复需点「重新应用内置钥匙」
+- **解绑后重新配同一辆车**：cidpu 会重新下发，标定值需重做（解绑已清），
+  无感进入开关回到关闭
+- **解绑时链路正连着**：先 `disconnect` 再清状态，避免清理过程中收到迟到帧
+- **解绑后 `keyIntegrityOK` 变 false**：这是「无密钥」的正常态，不算错误；
+  重新配对成功后 `handlePairingFrame` 会重新校验并恢复 true
+
+### 验证
+
+- `swiftc -typecheck`：0 error / 0 warning
+- **待实测**：解绑 → 主界面应立刻变「尚未绑定车辆」→ 菜单变「绑定车辆」→
+  点进去能正常发起配对（不再弹「本地已有密钥」）
+
+---
+
 ## v5.0（2026-10-29）—— 「指令没用」的真因：挂起动作从未被执行
 
 用户反馈「开窗/关窗指令好像没用」。拉日志一查，**不是车窗命令的问题，

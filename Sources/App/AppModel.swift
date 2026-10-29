@@ -551,6 +551,27 @@ public final class AppModel: ObservableObject {
     /// `PairingView` 用它弹说明，避免用户以为"点了没反应"。
     @Published public var pairingBlockedReason: String?
 
+    // MARK: - ★ 配对状态（单一判定口）
+
+    /// 本地是否已有这台车的密钥 —— **所有"要不要允许配对 / UI 显示什么"都只看它**。
+    ///
+    /// ## 为什么要"双查"（内存 + Keychain）
+    ///
+    /// `MeasuredSession.keys` 是 `init` 时读一次 Keychain 的**内存缓存**。
+    /// 两个方向都会不一致，而且危害相反：
+    ///
+    /// | 场景 | 内存 | Keychain | 只看内存的后果 |
+    /// |---|---|---|---|
+    /// | 重启后尚未首次解锁，init 读失败 | `nil` | 有 | 误判「未配对」→ 允许重复配对 → 车端零响应 |
+    /// | 刚解绑（Keychain 已清，内存未刷） | 有 | 无 | 误判「已配对」→ **无法重新配对** |
+    ///
+    /// 所以两个都要看：任一有就算「已配对」；两个都空才是真的未配对。
+    /// 解绑时由 `deleteVehicle()` 同时清 Keychain 和内存，保证回到双空。
+    public var hasLocalKey: Bool {
+        if measured.keys != nil { return true }
+        return KeyStore.shared.communicationKey?.isEmpty == false
+    }
+
     /// **一键配对** —— 用户唯一需要做的操作。
     ///
     /// 内部自动串联（依据原 App 反汇编 `startPairing` @`0xa350`）：
@@ -589,7 +610,10 @@ public final class AppModel: ObservableObject {
         // **这正是我们 2026-10-28 21:15 零响应的原因**：本地还留着上次失败的
         // 旧密钥 → 我们照样发 `0x0D` → 车端不接受重复登记 → 一个字节都不回
         // → 30 秒超时。
-        if !force, measured.keys != nil {
+        // ★ 用 `hasLocalKey`（内存 + Keychain 双查）而不是 `measured.keys`：
+        //   后者是内存缓存，解绑后若没清干净会误判成"已配对"，
+        //   于是解绑之后反而再也发不出配对帧。
+        if !force, hasLocalKey {
             let reason = """
             本地已有这台车的密钥，配对未发起。
 
@@ -654,27 +678,22 @@ public final class AppModel: ObservableObject {
               ble.linkState != .discovering else { return }
         // ★ 本地无密钥 = 原 App 的「未配对」状态 → 自动等配对
         //
-        // ⚠️ 不能只看 `measured.keys`（内存缓存，`init` 里读一次）：
-        //   Keychain 在「重启后尚未首次解锁」等场景读不到，keys 会是 nil ——
-        //   此时若判定为"未配对"，`pairingArmed` 会被反复置真，
-        //   于是每次 `.ready` 都去发 0x0D 配对帧，**挂起的控车动作永远轮不到**。
-        //   所以再确认一次 Keychain：里面有密钥就只重载，不进配对。
-        if measured.keys == nil {
-            if KeyStore.shared.communicationKey == nil {
-                if !pairingArmed {
-                    pairingArmed = true
-                    appendPairingLog(
-                        "本地无密钥（keys=0）→ 自动进入配对等待："
-                        + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
-                }
-                // 配对必须「主动连接」：v4.4 起扫描命中不再自动连（避免空连接
-                // 被车端 2 秒踢掉），所以这里显式置位。
-                ble.forceConnectOnce = true
-            } else {
-                // Keychain 里有密钥，只是内存没加载出来 → 重载，别走配对
-                measured.reloadKeys()
-                appendPairingLog("内存无密钥但 Keychain 有 → 已重载（不进配对流程）")
+        // ⚠️ 判定统一走 `hasLocalKey`（内存 + Keychain 双查）：
+        //   只看 `measured.keys`（内存缓存）会误判 —— 见 `hasLocalKey` 的注释。
+        if !hasLocalKey {
+            if !pairingArmed {
+                pairingArmed = true
+                appendPairingLog(
+                    "本地无密钥（keys=0）→ 自动进入配对等待："
+                    + "扫到本车广播即连接并发 0x0D（对齐原 App 的 didFoundVehicleRequestPairing 路径）")
             }
+            // 配对必须「主动连接」：v4.4 起扫描命中不再自动连（避免空连接
+            // 被车端 2 秒踢掉），所以这里显式置位。
+            ble.forceConnectOnce = true
+        } else if measured.keys == nil {
+            // Keychain 里有密钥，只是内存没加载出来 → 重载，不进配对
+            measured.reloadKeys()
+            appendPairingLog("内存无密钥但 Keychain 有 → 已重载（不进配对流程）")
         }
         ble.adoptConnectedPeripheral()      // 已连着就直接用（不 connect、不 cancel）
         if ble.linkState == .discovering || ble.linkState == .ready { return }
@@ -886,28 +905,43 @@ public final class AppModel: ObservableObject {
     ///
     /// 反汇编：`deleteVehicleWithCidpu:` 只做本地清理，**不发 BLE 命令**：
     /// `vehicleWithCidpu:` → `clearCalibrationData` + `deleteKeyWithCidpu:`。
-    /// 本 App 单车辆槽位，清全部密钥即等于删除这辆车；同时清标定值并复位状态。
+    /// 本 App 单车辆槽位，清全部密钥即等于删除这辆车。
+    ///
+    /// ## 解绑必须做到「双空」才算真的回到未配对
+    ///
+    /// 内存里的 `measured.keys` 和 Keychain 是**两份副本**。只清 Keychain 的话：
+    /// - 主界面仍按 `measured.keys != nil` 显示「数字钥匙已就绪」
+    /// - `startFullPairing` 被「本地已有密钥」拦住 → **解绑后反而无法重新配对**
+    ///
+    /// 所以这里三步都做：清 Keychain（`clearAll`）+ 清内存（`forgetKeys`）
+    /// + 清派生状态（`reset`），最后再把与该车绑定的偏好项一起抹掉。
     public func deleteVehicle() {
-        // 清标定值（对应 clearCalibrationData）
-        if let cidpu = KeyStore.shared.cidpuFullHex, !cidpu.isEmpty {
+        let oldCidpu = KeyStore.shared.cidpuFullHex
+
+        // ① 清与该车绑定的偏好项（按 cidpu 分键的，必须用旧 cidpu 取）
+        if let cidpu = oldCidpu, !cidpu.isEmpty {
             UserDefaults.standard.removeObject(forKey: "\(cidpu)_CALIBRATION")
+            UserDefaults.standard.removeObject(forKey: "\(cidpu)_PASSIVE_ENTRY")
         }
         UserDefaults.standard.removeObject(forKey: "gkuiblekey.calibration.default")
         UserDefaults.standard.removeObject(forKey: "gkuiblekey.passiveEntry.default")
 
-        // 清密钥（对应 deleteKeyWithCidpu:）
+        // ② 清密钥 —— 先 Keychain，再内存副本
         KeyStore.shared.clearAll()
+        measured.forgetKeys()
 
-        // 复位状态（解绑应回到「未绑定」的干净状态）
+        // ③ 链路与设备（避免解绑后误连旧车）
         ble.disconnect()
-        ble.forgetRememberedPeripheral()      // 清记住的设备，避免解绑后误连旧车
+        ble.forgetRememberedPeripheral()
+
+        // ④ 会话与协议状态
         measured.reset()
         passiveStart.cancelCalibration()
         passiveStart.calibration = nil
         passiveEntryEnabled = false
-        // ★ 复位各类悬挂状态，避免解绑后残留
-        pairingArmed = false
         pendingAction = nil
+        pendingActionAfterConnect = nil
+        pendingPreAuth = false
         pendingPassiveEntryValue = nil
         passiveEntrySwitching = false
         didWarnUncalibrated = false
@@ -915,8 +949,21 @@ public final class AppModel: ObservableObject {
         lockoutRemaining = 0
         rssiAntennaOne = nil
         rssiAntennaTwo = nil
-        statusLine = "已解绑车辆（密钥与标定已清除）"
-        measured.recordNote("解绑：已清除密钥与标定值（照 deleteVehicleWithCidpu:）")
+        lastRelayAlarm = nil
+
+        // ⑤ 配对状态必须复位 —— 否则下次打开配对页还停在「上一次配对失败」
+        pairingArmed = false
+        pairingBlockedReason = nil
+        pairing.resetForNewAttempt()
+
+        // ⑥ 完整性校验：此时必然「缺少 communicationKey」，那是未配对的正常态，
+        //    不要让它把 statusLine 覆盖成一句像报错的话（所以放在最后重设文案）
+        verifyKeyIntegrity()
+
+        statusLine = "已解绑：密钥与标定已清除，可以重新配对"
+        measured.recordNote(
+            "解绑完成：Keychain 已清空、内存副本已清、标定/无感/配对状态已复位"
+            + "（照 deleteVehicleWithCidpu:）")
     }
 
     // MARK: - 中继防护

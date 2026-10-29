@@ -53,9 +53,21 @@ struct PairingView: View {
         }
         // ★ 打开页面即自动开始配对（原 App 就是这样，用户不需要点）
         .onAppear {
+            // ★ 已配对就**不发**配对帧，也不进等待流程（2026-10-29）
+            //   原 App 在 keys=1 时绝不发 0x0D；我们之前照样走一遍，
+            //   只会换来「车端零响应 → 30 秒超时」。
+            if model.hasLocalKey {
+                statusHint = """
+                这台车已经绑定，无需再配对。
+
+                如需重新配对（例如车端用诊断仪清过钥匙槽位），\
+                请先在「开发者 → 密钥 → 解绑车辆」清除本地密钥，\
+                之后再回到本页。
+                """
+                return
+            }
             model.startFullPairing()
-            // 本地已有密钥 → startFullPairing 会主动阻止并发原因，这里直接展示，
-            // 否则用户看到的就是"打开页面没反应"。
+            // 其它阻止原因（如明确要求 force 的场景）直接展示，避免"打开页面没反应"。
             if let r = model.pairingBlockedReason { statusHint = r }
         }
         .onChange(of: model.pairingBlockedReason) { _, newValue in
@@ -216,8 +228,14 @@ struct PairingView: View {
 
     // MARK: - 状态推导
 
+    /// 是否**已经绑定**这台车。
+    ///
+    /// ⚠️ 不能用 `receivedKeyData`（本次会话收到的 0x0E 帧）判断：
+    /// 那是会话级数据，App 重启后为空 —— 已配对的用户打开本页会看到
+    /// 「暂无车辆」，等于把已建立的配对关系又展示成未配对。
+    /// 现在统一用 `AppModel.hasLocalKey`（内存 + Keychain 双查，持久判定）。
     private var hasVehicle: Bool {
-        !model.measured.receivedKeyData.isEmpty || !model.pairing.rawResponse.isEmpty
+        model.hasLocalKey
     }
 
     private var isWorking: Bool {

@@ -639,6 +639,19 @@ public final class MeasuredSession: ObservableObject {
         vehicleState = IBVehicleState()
     }
 
+    /// **解绑专用**：抹掉内存里的密钥副本，让 `keys` 与 Keychain 重新一致。
+    ///
+    /// 不能塞进 `reset()` —— `reset()` 也服务于「用户主动断开」，
+    /// 那种场景 Keychain 里还有密钥，必须保留内存副本，
+    /// 否则断开一下主界面就变成「尚未绑定车辆」。
+    ///
+    /// 解绑是全项目**唯一**需要抹掉内存副本的场景：
+    /// 调用方必须先 `KeyStore.clearAll()` 再调本方法，两步都做完才是真的未配对。
+    public func forgetKeys() {
+        keys = nil
+        append("已清除内存中的密钥副本（解绑）")
+    }
+
     /// ★ 只复位「本次命令」相关状态 —— 对应原 App `resetCommandTimeout`
     ///   （@`0x64f4`：只 invalidate 定时器）+ 每轮会话起点。
     ///

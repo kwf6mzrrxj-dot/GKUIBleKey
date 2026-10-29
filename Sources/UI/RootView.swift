@@ -117,8 +117,17 @@ struct RootView: View {
 
             Spacer()
             Menu {
-                Button { showPairing = true } label: {
-                    Label("绑定车辆", systemImage: "link.badge.plus")
+                // ★ 已配对就**不再展示「绑定车辆」**（2026-10-29）
+                //   原来这一项常驻，已配对用户点进去只会弹「本地已有密钥」，
+                //   等于把已建立的配对关系重复展示成"可以再配一次"。
+                if model.hasLocalKey {
+                    Button { showDeveloper = true } label: {
+                        Label("车辆已绑定 · 管理与解绑", systemImage: "key.fill")
+                    }
+                } else {
+                    Button { showPairing = true } label: {
+                        Label("绑定车辆", systemImage: "link.badge.plus")
+                    }
                 }
                 Divider()
                 Button { showDeveloper = true } label: {
@@ -435,11 +444,15 @@ struct RootView: View {
             passiveEntryCard
 
             // 密钥状态（未配对时整行可点，引导去绑定）
-            statusRow(icon: model.measured.keys != nil ? "key.fill" : "key",
-                      iconColor: model.measured.keys != nil ? .green : .orange,
-                      text: model.measured.keys != nil ? "数字钥匙已就绪" : "尚未绑定车辆",
-                      trailing: model.measured.keys == nil ? "去绑定" : nil,
-                      action: model.measured.keys == nil ? { showPairing = true } : nil)
+            //
+            // ★ 用 `hasLocalKey`（内存 + Keychain 双查）而不是 `measured.keys`：
+            //   解绑后如果内存副本没清干净，这里会继续显示「数字钥匙已就绪」，
+            //   用户以为没解绑成功。
+            statusRow(icon: model.hasLocalKey ? "key.fill" : "key",
+                      iconColor: model.hasLocalKey ? .green : .orange,
+                      text: model.hasLocalKey ? "数字钥匙已就绪" : "尚未绑定车辆",
+                      trailing: model.hasLocalKey ? nil : "去绑定",
+                      action: model.hasLocalKey ? nil : { showPairing = true })
 
             // ★★★ 动作结果 / 拒绝原因（2026-10-29 补上）
             //
