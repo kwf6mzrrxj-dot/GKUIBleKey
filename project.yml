@@ -29,17 +29,19 @@ targets:
       - path: Resources
     dependencies:
       - target: GKUIBleKeyWidget
-      # ⚠️ 手表 App 先进项目、暂不嵌入主 App（2026-10-30）
+      # ★ 手表 App 嵌入主 App（2026-10-30 22:10 打开）
       #
-      # 原因：`com.mmxisme.gkuiblekey.watchkitapp` 还没有描述文件，
-      #   Xcode 报 `No Accounts` / `No profiles for ...watchkitapp`，
-      #   一旦 embed 就会让**手机 App 也构建失败**。
+      # 为什么走嵌入而不是让 Mac 直连手表：
+      #   `devicectl` 直连手表要求 Mac↔手表 的 remote pairing 隧道在线，
+      #   实测常见 `RemotePairingError 1035 / Device State: disconnected`，
+      #   一旦断就连不上（还要求手表戴在手上、解锁、靠近 Mac）。
+      #   嵌入后走 **iPhone ↔ 手表** 那条天然配对关系，在 iPhone 的
+      #   Watch App 里点安装即可，成功率远高于直连。
       #
-      # 手表 target 本身已能编译（模拟器 BUILD SUCCEEDED）。
-      # 等 Xcode 能给 watchkitapp 生成 profile（需要登录账号 + 手表解锁在线）后，
-      # 把下面这行取消注释即可：
-      # - target: GKUIBleKeyWatch
-      #   embed: true
+      # 前提已满足：`com.mmxisme.gkuiblekey.watchkitapp` 的 profile 已在
+      #   2026-10-30 22:06 由 Xcode 生成（有效期到 11-06）。
+      - target: GKUIBleKeyWatch
+        embed: true
     settings:
       base:
         # 关于 bundle id 与 IDFV（2026-10-29 调查结论，避免以后重复踩坑）
@@ -98,8 +100,8 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "7.5"
-        CFBundleVersion: "75"
+        CFBundleShortVersionString: "7.6"
+        CFBundleVersion: "76"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -156,8 +158,8 @@ targets:
       #   一个设备都扫不到，且不会报错（v7.4 就踩过：手改 plist 被抹掉）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "7.5"
-        CFBundleVersion: "75"
+        CFBundleShortVersionString: "7.6"
+        CFBundleVersion: "76"
         NSBluetoothAlwaysUsageDescription: 手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey

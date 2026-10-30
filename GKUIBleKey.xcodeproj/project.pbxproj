@@ -51,6 +51,7 @@
 		95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */; };
 		99A0F2D1CBB2A4C581A9E2B8 /* CarModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8346132E51B853D5356F4736 /* CarModelView.swift */; };
 		9D7203CF6D17C46BF723AD86 /* BackgroundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */; };
+		A139D11B40AC2853D30D6FB3 /* GKUIBleKeyWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
 		A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
 		A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
@@ -86,9 +87,27 @@
 			remoteGlobalIDString = E40045301D1F74812F6CF8E6;
 			remoteInfo = GKUIBleKeyWidget;
 		};
+		95136D89300339F9FD33F06D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 41D64DE28BA9BF4DAD9F4D56 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7CCD64175ACF5BF9A4D425F6;
+			remoteInfo = GKUIBleKeyWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		20352BF718C3744BD2D4FF80 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				A139D11B40AC2853D30D6FB3 /* GKUIBleKeyWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9C3CDCB144B90AC752E34B20 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -360,11 +379,13 @@
 				73519E2249B0E37539E42145 /* Sources */,
 				C813D9AC233B58D87F278E39 /* Resources */,
 				9C3CDCB144B90AC752E34B20 /* Embed Foundation Extensions */,
+				20352BF718C3744BD2D4FF80 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				CBA0D738774A9F61015A473A /* PBXTargetDependency */,
+				69CCDEB60D52D19E0A7B886B /* PBXTargetDependency */,
 			);
 			name = GKUIBleKey;
 			packageProductDependencies = (
@@ -554,6 +575,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		69CCDEB60D52D19E0A7B886B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7CCD64175ACF5BF9A4D425F6 /* GKUIBleKeyWatch */;
+			targetProxy = 95136D89300339F9FD33F06D /* PBXContainerItemProxy */;
+		};
 		CBA0D738774A9F61015A473A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */;

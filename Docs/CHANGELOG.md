@@ -5,6 +5,51 @@
 
 ---
 
+## v7.6（2026-10-30）—— 手表真机构建：修 32 位溢出 + 手表 App 嵌入手机
+
+### 背景
+
+Xcode 的 Apple ID 账号在 GUI 里是登录着的（`MINGXING MU / Personal Team /
+mmxisme@icloud.com`），但 `xcodebuild` 一直报 `No Accounts` —— Apple ID 凭证存在
+keychain 里、ACL 只放行 Xcode.app 的进程身份，命令行拿不到。
+最后在 GUI 里让 Xcode 生成 profile（22:06 落地，有效期 11-06），命令行才继续。
+
+### 修了一个只在手表真机上才会出现的编译错误
+
+```
+Sources/Support/BackgroundMonitor.swift:138:62: error:
+  arithmetic operation '30 * 1000000000' (on type 'Int') results in an overflow
+```
+
+`try? await Task.sleep(nanoseconds: UInt64(30 * 1_000_000_000))` —— 外层虽然写了
+`UInt64(...)`，但**内层先按 `Int` 求值**。watchOS 真机是 `arm64_32`（**32 位 Int**），
+300 亿远超 Int32 上限（21.4 亿）→ 编译期就报溢出。
+
+**模拟器是 64 位 arm64，所以 `BUILD SUCCEEDED` 了 5 个版本都没发现。**
+改成 `UInt64(30) * 1_000_000_000`。
+
+> 教训：`swiftc -typecheck -target arm64_32-apple-watchos26.0` 能查到这类问题，
+> 但 `xcodebuild -destination 'generic/platform=watchOS Simulator'` 查不到。
+> 以后手表端必须至少跑一次**真机 destination** 的构建。
+
+### 手表 App 改为嵌入手机 App（`embed: true`）
+
+`devicectl` 直连手表要求 Mac↔手表 的 remote pairing 隧道在线，实测稳定报
+`RemotePairingError 1035 / Device State: disconnected`（还要求手表戴在手上、
+解锁、靠近 Mac）。改成嵌入后走 **iPhone ↔ 手表** 那条天然配对关系，
+在 iPhone 的 Watch App 里点安装即可。
+
+- `project.yml`：`GKUIBleKey` 的 dependencies 加 `- target: GKUIBleKeyWatch, embed: true`
+- 产物里确认：`GKUIBleKey.app/Watch/GKUIBleKeyWatch.app`（bundle `com.mmxisme.gkuiblekey.watchkitapp`）
+
+### 验证
+
+- **L2**：主 App（含内嵌手表 App）`BUILD SUCCEEDED`；手表真机 `-destination generic/platform=watchOS` 也 `BUILD SUCCEEDED`
+- **L3**：手机安装成功（v7.6/76）
+- **L3（手表）**：等用户在 iPhone 的 Watch App 里点安装
+
+---
+
 ## v7.5（2026-10-30）—— 手表端加「前台保活心跳」（预认证 `0x0C`）
 
 ### 为什么改

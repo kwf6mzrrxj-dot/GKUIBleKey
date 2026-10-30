@@ -135,7 +135,12 @@ public final class BackgroundMonitor {
         heartbeatTask?.cancel()
         heartbeatTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(30 * 1_000_000_000))
+                // ★ 必须写成 `UInt64(30) * …` 而不是 `UInt64(30 * …)`（2026-10-30）。
+                //   watchOS 真机是 `arm64_32`（**32 位 Int**），`30 * 1_000_000_000`
+                //   内层先按 Int 求值 = 300 亿 > Int32 上限（21.4 亿）→ 编译期就报
+                //   “arithmetic operation results in an overflow”。
+                //   模拟器是 64 位 arm64，所以之前一直没暴露 —— **模拟器通过 ≠ 真机能过**。
+                try? await Task.sleep(nanoseconds: UInt64(30) * 1_000_000_000)
                 guard let self, !Task.isCancelled else { return }
                 self.beat()
             }
