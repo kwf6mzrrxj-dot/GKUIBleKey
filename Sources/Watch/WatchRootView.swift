@@ -100,20 +100,29 @@ struct WatchRootView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 配对 / 钥匙入口（有钥匙时）
+    // MARK: - 配对 / 保活入口（有钥匙时）
 
     private var keyEntry: some View {
         Button {
             showPairing = true
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "key.fill")
-                Text("钥匙")
+                Image(systemName: controller.heartbeatEnabled
+                      ? "waveform.path.ecg" : "key.fill")
+                    .foregroundStyle(controller.heartbeatEnabled ? .green : .secondary)
+                Text(entryText)
             }
             .font(.caption2)
             .frame(maxWidth: .infinity, minHeight: 28)
         }
         .buttonStyle(.bordered)
+    }
+
+    private var entryText: String {
+        if controller.heartbeatEnabled {
+            return "保活中 · 已发 \(controller.heartbeatCount) 次"
+        }
+        return "保活关 · 钥匙设置"
     }
 
     // MARK: - 控车

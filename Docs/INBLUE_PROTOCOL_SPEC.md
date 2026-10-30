@@ -397,8 +397,24 @@ startPairing
 2. 发 `0x0D` 前必须 `resetPacketCounter()` —— 否则上一轮收过 `0x0F`(15) 时，
    本次 `0x0E`(14) 会被单调校验判为乱序。
 
-**手表端刻意不做**：预认证 `0x0C` 心跳、常开扫描（`autoScanOnDisconnect = false`）、
-从 iPhone 同步密钥（会覆盖自己那份槽位密钥，且「拷过去能否过校验」本条 6 已标注未验证）。
+**手表端刻意不做**：从 iPhone 同步密钥（会覆盖自己那份槽位密钥，
+且「拷过去能否过校验」本条 6 已标注未验证）。
+
+**手表端的预认证（v7.5 起，仅前台）**
+
+预认证在本项目里由**广播流驱动**（`tickIfNeeded`），不是定时器。
+手表 App 前台时有广播流，所以心跳跑得起来；后台没有（watchOS 无
+`bluetooth-central` 后台模式），所以进后台即停。
+
+| 项 | 手机 | 手表 |
+|---|---|---|
+| 在场判据 | `isInPassiveStartArea`（RSSI > `calibration − 32`，需标定） | **能收到本车广播**（`onBroadcastStatus` 只在 `hit` 通过时回调） |
+| 扫描 | 常开（含后台） | 前台常开，后台全停 |
+| 节奏 | 29 秒一轮 | 同（`PreAuthenticationController.retryInterval`） |
+| 与用户动作 | 用户优先 | 用户优先（`preAuthInFlight` 互斥） |
+
+手表不用 `calibration` 的原因：手表没有标定流程，`calibration` 恒 `nil`
+→ 按 0 算 → 阈值 −32 dBm → 正常距离永远满足不了 → 一帧都发不出去。
 
 ---
 

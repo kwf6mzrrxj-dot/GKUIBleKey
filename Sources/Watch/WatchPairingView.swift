@@ -40,6 +40,9 @@ struct WatchPairingView: View {
                     .frame(maxWidth: .infinity)
                 logLines
                 if controller.hasKeys {
+                    heartbeatToggle
+                }
+                if controller.hasKeys {
                     unbindButton
                 }
             }
@@ -178,6 +181,32 @@ struct WatchPairingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - 保活开关
+
+    /// 前台保活心跳开关（预认证 `0x0C`）。
+    ///
+    /// 只在**前台**有效：watchOS 没有 `bluetooth-central` 后台模式，
+    /// 熄屏即挂起，后台维持不了「持续在场」。所以文案里写清「仅前台」，
+    /// 别让用户以为放下手腕还在保活。
+    private var heartbeatToggle: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(isOn: Binding(
+                get: { controller.heartbeatEnabled },
+                set: { controller.setHeartbeat($0) }
+            )) {
+                Text("前台保活")
+                    .font(.system(size: 11))
+            }
+            Text(controller.heartbeatEnabled
+                 ? "在车附近时每约 30 秒发一次心跳（放下手腕即停）"
+                 : "关闭后车端不会持续认为钥匙在场")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

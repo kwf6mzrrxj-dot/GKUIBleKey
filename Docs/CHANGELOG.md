@@ -5,6 +5,59 @@
 
 ---
 
+## v7.5（2026-10-30）—— 手表端加「前台保活心跳」（预认证 `0x0C`）
+
+### 为什么改
+
+v7.4 把手表端预认证整块砍了，理由是「做了也发不出第一帧」。这个结论对
+**后台**成立，对**前台**不成立 —— 用户的原话：「在前台用啊，后台不用就是了」。
+
+复查后确认：预认证在本项目里是**广播驱动**的（`tickIfNeeded`，
+因为 iOS 27 后台 `Task.sleep` 基本不推进），而手表 App 在前台时广播流是有的。
+真正卡住的是**在场判据**：`isInPassiveStartArea` 需要 `calibration`，
+手表没有标定流程 → 恒 `nil` → 阈值按 0 算成 **−32 dBm** → 永远不成立。
+
+### 改了什么
+
+| 改动 | 说明 |
+|---|---|
+| **换在场判据** | 手表不用 `calibration`，改用「**能收到本车广播**」（`onBroadcastStatus` 只在 `hit` 通过时回调，别人的车不算） |
+| 前台常开扫描 | 心跳的驱动源是广播流，停扫等于停心跳（`scheduleStopScan` 在心跳开启时直接跳过） |
+| 进后台全停 | `teardown()` → `preAuth.resetEdge()` + 断链 + 停扫（watchOS 没有 `bluetooth-central` 后台模式） |
+| 与用户动作互斥 | `preAuthInFlight`：心跳在飞时点按钮 → 排队，这一轮结束后立刻执行（一轮 ≤ 4 秒，通常 1 秒内） |
+| 配对期间停心跳 | `0x0C` 会和 `0x0D` 抢同一条链路 |
+| 解绑清偏好 | `preAuth.resetForUnbind()`，重新配对后能再次自动开启 |
+| UI | 主界面一行「保活中 · 已发 N 次」；配对页加「前台保活」开关 + 「放下手腕即停」说明 |
+
+### 顺带修掉一个会让手表彻底不能用的坑（v7.4 遗留）
+
+`xcodegen` 每次都按 `project.yml` 的 `info.properties` **整份重写**
+`Sources/Watch/Info.plist` 与 `Sources/Widget/Info.plist`。
+
+v7.4 手加的 `NSBluetoothAlwaysUsageDescription` 和版本号，在下一次
+`xcodegen generate` 时就被抹掉了 —— 手表装上去 `CBCentralManager`
+直接进 `unauthorized`，**一个设备都扫不到，而且不会报错**。
+
+现在把这些键全部写进 `project.yml` 的 `properties`：
+
+- Watch：`NSBluetoothAlwaysUsageDescription` + 版本 `7.5/75`
+- Widget：版本 `7.5/75`（否则 App Store 报 ITMS-90473）
+- 两处都加了「手改 plist 无效」的注释
+
+### 验证
+
+- **L1**：主 App / Widget / Watch 三份 `swiftc -typecheck` 0 error
+- **L2**：`xcodebuild` 主 App BUILD SUCCEEDED；Watch（模拟器）BUILD SUCCEEDED
+- **L3/L4**：**未做**（手表未装机）
+
+### 待实测
+
+1. 手表前台时 `0x0C` 是否真的约 30 秒一轮（看主界面「已发 N 次」是否递增）；
+2. 放下手腕后心跳是否停（预期停，这是设计）；
+3. 车端是否认「只有手表心跳」—— 即手机不在时能否无感启动。
+
+---
+
 ## v7.4（2026-10-30）—— Watch 端恢复 A 方案（手表自连车）+ 补齐手表配对
 
 ### 为什么改回来

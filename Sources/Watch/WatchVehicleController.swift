@@ -16,15 +16,38 @@ import Foundation
 /// - `BLECentral`：扫描 / 连接 / 分包写入 / 广播解密
 /// - `MeasuredSession`：`01 → 02 → 03 → 04` 状态机、消息序号、`0x0E` 落库
 /// - `InBluePairing`：`0x0D` 登记帧（37B）
+/// - `PreAuthenticationController`：**前台**保活心跳 `0x0C`（见下）
 /// - `KeyStore`：手表的 Keychain（**手表自己那份密钥，不从手机拷**）
 ///
-/// ## 刻意不做的三件事
+/// ## 预认证：只在前台跑
 ///
-/// 1. **预认证心跳 `0x0C`**：手表不做无感进入，29 秒一轮的心跳纯耗电；
-/// 2. **常开扫描**：`ble.autoScanOnDisconnect = false`，只在用户操作时扫；
-/// 3. **密钥同步**：不从 iPhone 拷密钥。5.10 明确写了「拷过去能不能过车端
-///    校验取决于密钥是否与槽位绑定 —— 未验证」，而且拷过来还会**覆盖**手表
-///    自己那份槽位密钥，把一条能用的路堵死。
+/// 预认证是「钥匙持续在场」的证明，服务的是无感进入 / 无感启动。
+/// 它在本项目里**由广播流驱动**（`tickIfNeeded`），不是定时器 ——
+/// iOS 27 后台 `Task.sleep` 基本不推进（v6.3 的结论），广播才是可靠信号源。
+///
+/// 所以手表端做成「前台有效」：
+///
+/// | | 手机 | 手表 |
+/// |---|---|---|
+/// | 扫描 | 常开 + `bluetooth-central` 后台 | **前台常开**（心跳的驱动源），
+///   进后台 `teardown()` 全停 |
+/// | 在场判据 | `isInPassiveStartArea`（需 calibration 标定） | **能收到本车广播**
+///   （`onBroadcastStatus` 只在 `hit` 通过时回调） |
+/// | 与用户动作 | 用户优先 | 用户优先（`preAuthInFlight` 互斥，见 `perform`） |
+///
+/// 为什么手表不用 calibration：手表没有标定流程，`calibration` 恒 `nil`
+/// → 阈值按 0 算成 −32 dBm → 正常距离永远满足不了 → 心跳一帧都发不出去。
+///
+/// **后台为什么不做**：watchOS 没有 `bluetooth-central` 后台模式，
+/// 熄屏即挂起，维持不了「持续在场」。做后台方案要么滥用
+/// `WKExtendedRuntimeSession`（审核会拒），要么在手表上重建标定流程，
+/// 代价远超收益。
+///
+/// ## 刻意不做的一件事
+///
+/// **密钥同步**：不从 iPhone 拷密钥。5.10 明确写了「拷过去能不能过车端
+/// 校验取决于密钥是否与槽位绑定 —— 未验证」，而且拷过来还会**覆盖**手表
+/// 自己那份槽位密钥，把一条能用的路堵死。
 @MainActor
 public final class WatchVehicleController: ObservableObject {
 
@@ -57,6 +80,15 @@ public final class WatchVehicleController: ObservableObject {
     public let ble = BLECentral()
     public let measured = MeasuredSession()
     public let pairing = InBluePairing()
+    /// 前台保活心跳（`0x0C`）
+    ///
+    /// ★ 只在前台跑。watchOS 没有 `bluetooth-central` 后台模式，
+    /// 熄屏＝挂起，后台根本维持不了「持续在场」，所以不做后台方案 ——
+    /// 但**前台有广播流**，心跳的驱动条件（见 `tickFrontHeartbeat`）是成立的。
+    ///
+    /// 对外只暴露 `heartbeatEnabled` / `heartbeatCount` 两个代理属性，
+    /// 所以这里不需要 public。
+    private let preAuth = PreAuthenticationController()
 
     // MARK: - 界面状态
 
@@ -72,6 +104,10 @@ public final class WatchVehicleController: ObservableObject {
     @Published public private(set) var countdown: String?
     /// 配对页展示的最近几行日志（`InBluePairing.log` 是全量的，手表屏幕放不下）
     @Published public private(set) var pairingLog: [String] = []
+    /// 保活心跳已发送次数（主界面显示一行，让用户知道它在跑）
+    @Published public private(set) var heartbeatCount = 0
+    /// 保活开关（对应 `preAuth.setEnabled`，持久化在 UserDefaults）
+    @Published public private(set) var heartbeatEnabled = false
 
     /// 车锁状态（来自广播解密，可能是 nil）。
     ///
@@ -96,6 +132,10 @@ public final class WatchVehicleController: ObservableObject {
 
     /// 链路还没就绪时用户点了按钮 → 记住，等 `.ready` 后自动补发
     private var pendingAction: IBCommandType?
+    /// 预认证心跳：链路未就绪时挂起，`.ready` 后补发
+    private var pendingPreAuth = false
+    /// 一轮 `0x0C` 在飞 —— 与用户动作**互斥**（同一条链路，两个 `01` 会撞车）
+    private var preAuthInFlight = false
     /// 控车超时（4 秒，与 `IBManager.commandTimeout` 一致）
     private var actionTimeoutTask: Task<Void, Never>?
     /// 「连接 + 发现服务」看门狗（用户点了按钮但链路一直不就绪）
@@ -135,9 +175,16 @@ public final class WatchVehicleController: ObservableObject {
             self?.handleIncoming(bytes)
         }
         ble.onBroadcastStatus = { [weak self] plain in
-            self?.measured.updateVehicleStatus(plain: plain)
+            guard let self else { return }
+            self.measured.updateVehicleStatus(plain: plain)
+            // ★ 只有**命中本车**的广播才会走到这里（`hit` 判定在 BLECentral 里），
+            //   所以它同时就是「手表还在车附近」的判据 —— 预认证心跳拿它当在场信号。
+            self.tickFrontHeartbeat()
         }
-        // 链路就绪 → 补发挂起的动作 / 发配对帧
+        // 链路就绪 → 补发挂起的动作 / 发配对帧 / 补发心跳
+        //
+        // ★ 顺序照手机端 v5.0 的教训：**用户动作 > 配对 > 心跳**。
+        //   原来（手机端）配对判断排在最前，导致挂起的控车动作永远轮不到执行。
         ble.$linkState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -145,33 +192,63 @@ public final class WatchVehicleController: ObservableObject {
                 guard state == .ready else { return }
                 self.connectWatchdogTask?.cancel()
                 self.connectWatchdogTask = nil
-                // 配对优先：正在配对时不控件车
+                // ① 用户动作优先
+                if let action = self.pendingAction {
+                    self.pendingAction = nil
+                    self.start(action)
+                    return
+                }
+                // ② 配对
                 if self.stage == .scanning {
                     self.sendPairingFrame()
                     return
                 }
-                guard let action = self.pendingAction else { return }
-                self.pendingAction = nil
-                self.start(action)
+                // ③ 补发预认证（链路是刚才为它连的）
+                if self.pendingPreAuth {
+                    self.pendingPreAuth = false
+                    self.beginPreAuthRound()
+                }
             }
             .store(in: &cancellables)
 
+        preAuth.onSend = { [weak self] in
+            self?.beginPreAuthRound()
+        }
+        preAuth.onLog = { line in
+            FileLogger.shared.info("[手表保活] \(line)", module: "预认证")
+        }
+
         refreshKeyState()
+        heartbeatEnabled = preAuth.isEnabled
     }
 
     // MARK: - 生命周期
 
-    /// 界面出现时调用。**不自动开扫描** —— 手表省电，等用户真的要用再扫。
+    /// 界面出现时调用（前台）。
+    ///
+    /// 前台做三件事：确认钥匙状态、**开扫描**、把保活心跳挂上。
+    /// 扫描必须常开 —— 心跳的驱动源是广播流（`tickFrontHeartbeat`），
+    /// 没有广播它就是一潭死水。
     public func bootstrap() {
         refreshKeyState()
-        if hasKeys {
-            statusLine = "就绪"
-        } else {
+        heartbeatEnabled = preAuth.isEnabled
+        guard hasKeys else {
             statusLine = "手表还没有钥匙，先配对"
+            return
         }
+        // 照原 App：有钥匙就该有心跳。没显式关过就自动开一次
+        // （用户关掉后 `hasExplicitPreference` 为 true，不会被再次覆盖）。
+        if !preAuth.hasExplicitPreference {
+            preAuth.setEnabled(true)
+            heartbeatEnabled = true
+        }
+        ble.startScan()
+        // 从后台回来时 `resetEdge()` 清了边沿，这里补一次启动
+        preAuth.resumeAfterSuspendIfNeeded()
+        statusLine = preAuth.isEnabled ? "就绪（保活中）" : "就绪"
     }
 
-    /// 界面消失时收尾：停扫描、断链路、取消所有权计时器。
+    /// 界面消失时收尾（进后台）：停扫描、断链路、停心跳。
     ///
     /// 手表 App 一旦退到后台就会被系统挂起，留着扫描/连接只会让下一次
     /// 唤起拿到一条「看起来连着、其实已经死了」的链路（`isWriteReady`
@@ -187,6 +264,8 @@ public final class WatchVehicleController: ObservableObject {
             stage = .idle
         }
         pendingAction = nil
+        pendingPreAuth = false
+        preAuthInFlight = false
         busy = false
         actionTimeoutTask?.cancel()
         actionTimeoutTask = nil
@@ -194,6 +273,10 @@ public final class WatchVehicleController: ObservableObject {
         connectWatchdogTask = nil
         scanStopTask?.cancel()
         scanStopTask = nil
+        // ★ `resetEdge()` 而不是 `stop()`：它同时清 `isInArea`。
+        //   只 stop 的话回前台时 `updateArea(true)` 会因「值没变」直接 return，
+        //   心跳再也起不来（手机端 v5.4 踩过同一个坑）。
+        preAuth.resetEdge()
         ble.disconnect()
         ble.stopScan()
     }
@@ -234,6 +317,10 @@ public final class WatchVehicleController: ObservableObject {
         connectWatchdogTask = nil
         scanStopTask?.cancel()
         scanStopTask = nil
+        // 配对期间不跑心跳：`0x0C` 会和 `0x0D` 抢同一条链路
+        preAuth.resetEdge()
+        pendingPreAuth = false
+        preAuthInFlight = false
 
         pairing.resetForNewAttempt()
         pairingLog = []
@@ -266,6 +353,14 @@ public final class WatchVehicleController: ObservableObject {
         cancelPairingSilently()
         stage = .idle
         statusLine = hasKeys ? "就绪" : "已取消配对"
+        // 回到主界面 → 保活心跳的广播流要接回来
+        resumeHeartbeatScanIfNeeded()
+    }
+
+    /// 配对流程结束后把扫描接回来（心跳靠广播流驱动，停扫等于停心跳）。
+    private func resumeHeartbeatScanIfNeeded() {
+        guard hasKeys, preAuth.isEnabled else { return }
+        ble.startScan()
     }
 
     /// 不写日志的收尾（`teardown` 用）
@@ -277,11 +372,8 @@ public final class WatchVehicleController: ObservableObject {
         deadline = nil
         countdown = nil
         setPairingWindow(false)
-        if case .scanning = stage {
-            ble.stopScan()
-        } else if case .waitingKey = stage {
-            ble.stopScan()
-        }
+        // 配对期间扫描是为了找车，结束后由调用方决定要不要继续
+        ble.stopScan()
     }
 
     /// 配对窗口 = 「允许无条件连扫到的下一台 Valeo 设备」。
@@ -363,11 +455,15 @@ public final class WatchVehicleController: ObservableObject {
         // 这里主动断只是把那一刻提前，不改变时序语义。
         //
         // `disconnect()` 会置 `suppressAutoReconnect`，所以断连回调**不会**
-        // 触发重扫 —— 手表按需扫描，正是我们要的。
+        // 触发重扫（`autoScanOnDisconnect` 也是 false）—— 这里显式把扫描接回来，
+        // 因为刚配好钥匙，保活心跳马上要靠广播流驱动。
         ble.disconnect()
-        // 但配对时起的扫描还在跑。留 3 秒收几条广播（界面立刻有车锁状态），
-        // 然后回到静止。
-        scheduleStopScan(after: 3)
+        ble.startScan()
+        // 配对成功 = 该开始保活了（对齐手机端 `autoEnablePreAuthIfNeeded`）
+        if !preAuth.hasExplicitPreference {
+            preAuth.setEnabled(true)
+        }
+        heartbeatEnabled = preAuth.isEnabled
     }
 
     private func failPairing(_ reason: String) {
@@ -390,6 +486,8 @@ public final class WatchVehicleController: ObservableObject {
         statusLine = reason
         appendPairing("❌ \(reason)")
         pairing.fail(reason)
+        // 有钥匙的话把扫描接回来（心跳要靠广播流）；没钥匙就等用户重试配对
+        resumeHeartbeatScanIfNeeded()
     }
 
     private func armPairingTimeout(_ seconds: TimeInterval, _ onFire: @escaping () -> Void) {
@@ -441,6 +539,8 @@ public final class WatchVehicleController: ObservableObject {
     public func unbind() {
         cancelPairingSilently()
         pendingAction = nil
+        pendingPreAuth = false
+        preAuthInFlight = false
         busy = false
         actionTimeoutTask?.cancel()
         actionTimeoutTask = nil
@@ -453,6 +553,13 @@ public final class WatchVehicleController: ObservableObject {
         ble.stopScan()
         ble.forgetRememberedPeripheral()
 
+        // 心跳必须停，且要清掉「用户显式设置过」的痕迹 ——
+        // 只 setEnabled(false) 会写 false，重新配对后不再自动开启
+        // （手机端 v7.0 的教训，见 `resetForUnbind` 注释）。
+        preAuth.resetForUnbind()
+        heartbeatEnabled = false
+        heartbeatCount = 0
+
         // 顺序与手机端 `deleteVehicle()` 一致：先 Keychain，再内存副本
         KeyStore.shared.clearAll()
         measured.forgetKeys()
@@ -462,6 +569,92 @@ public final class WatchVehicleController: ObservableObject {
         refreshKeyState()
         stage = .idle
         statusLine = "已解绑，可以重新配对"
+    }
+
+    // MARK: - 前台保活（预认证 0x0C）
+
+    /// 用户手动开关保活心跳。
+    public func setHeartbeat(_ on: Bool) {
+        preAuth.setEnabled(on)
+        heartbeatEnabled = on
+        if on {
+            ble.startScan()
+            statusLine = "保活已开启：在车附近时每约 30 秒发一次心跳"
+            appendPairing("保活心跳已开启")
+        } else {
+            statusLine = "保活已关闭"
+            appendPairing("保活心跳已关闭")
+        }
+    }
+
+    /// 每收到一帧**本车**广播就调一次。
+    ///
+    /// ## 为什么在场判据不是 calibration
+    ///
+    /// 手机端用 `isInPassiveStartArea`（RSSI > `calibration − 32`）判断
+    /// 「用户在车旁」，那个 `calibration` 来自 App 内的 90 次采样标定。
+    /// 手表没有标定流程，`calibration` 恒为 `nil` → 按 0 算 → 阈值 −32 dBm，
+    /// 正常距离永远满足不了 → 心跳一帧都发不出去。
+    ///
+    /// 所以手表换一个判据：**能收到本车广播**就说明车在 BLE 范围内
+    /// （`onBroadcastStatus` 只在 `hit` 判定通过后回调，别人的车不算）。
+    /// 这比 RSSI 阈值粗，但对「手表 App 开着＝人就在车附近」这个场景足够，
+    /// 而且不需要标定。车端拿到心跳后自己还有 PEPS 距离判定，不会因为我们
+    /// 早报了几米就误开门。
+    private func tickFrontHeartbeat() {
+        guard preAuth.isEnabled, hasKeys else { return }
+        // 用户动作 / 配对优先：这两件事都在用同一条链路
+        guard !busy, !stage.isRunning else { return }
+        // 边沿：false → true 时启动（`updateArea` 内部会做去重）
+        preAuth.updateArea(true)
+        // 29 秒判据（`didComplete` 的定时器在手表后台不推进，
+        // 广播是唯一可靠的驱动源 —— 与手机端 v6.3 的结论一致）
+        preAuth.tickIfNeeded()
+    }
+
+    /// 真正把 `0x0C` 发出去 —— 对应手机端 `beginMeasuredAuth(asPreAuthentication:)`。
+    private func beginPreAuthRound() {
+        guard hasKeys, preAuth.isEnabled else { return }
+        guard !busy, !stage.isRunning else { return }
+        guard !preAuthInFlight else { return }
+        // 用户命令在飞 → 让路（它的 `01` 已经发出去了）
+        guard measured.pendingAction == nil else { return }
+
+        guard ble.isWriteReady else {
+            // ★ 预认证**不能静默丢**（手机端 v5.0 的教训）：
+            //   它的触发时机（刚收到广播）几乎必然早于链路建立。
+            //   这里挂起 + 主动连，`.ready` 回调里补发。
+            if !pendingPreAuth {
+                pendingPreAuth = true
+                ble.forceConnectOnce = true
+                if !ble.connectRemembered() {
+                    ble.startScan()
+                }
+            }
+            return
+        }
+
+        preAuthInFlight = true
+        // 与控车同一套：轻量复位 + 序号归零，否则车端判乱序
+        measured.resetCommandOnly()
+        measured.resetPacketCounter()
+        measured.reloadKeys()
+        measured.preparePreAuthentication()
+
+        let frame = measured.buildAuth1()
+        guard !frame.isEmpty else {
+            preAuthInFlight = false
+            measured.recordNote("预认证帧构造失败（密钥不完整）")
+            preAuth.didComplete()          // 排下一轮，别把心跳卡死
+            return
+        }
+        guard ble.send(frame) else {
+            preAuthInFlight = false
+            preAuth.didComplete()
+            return
+        }
+        heartbeatCount = preAuth.sentCount
+        armActionTimeout()
     }
 
     // MARK: - 控车
@@ -479,6 +672,15 @@ public final class WatchVehicleController: ObservableObject {
         // 配对进行中不许控件车：`0x0D` 和 `01` 会抢同一条链路
         guard !stage.isRunning else {
             statusLine = "正在配对，先别控车"
+            return
+        }
+        // ★ 心跳在飞 → 让它这一轮走完再发用户动作（互斥，见 `preAuthInFlight`）。
+        //   抢占的话两个 `01` 会撞在同一条链路上，车端回的 `02` 归属就乱了。
+        //   心跳一轮 ≤ 4 秒，通常 1 秒内结束，比撞车后的 4 秒超时更划算。
+        if preAuthInFlight {
+            pendingAction = action
+            busy = true
+            statusLine = "等这一轮保活结束，随后执行…"
             return
         }
         // 能不能发字节只看真实 GATT 链路（`isWriteReady`），
@@ -595,6 +797,32 @@ public final class WatchVehicleController: ObservableObject {
     private func finishAction() {
         actionTimeoutTask?.cancel()
         actionTimeoutTask = nil
+
+        // ★ 心跳轮次：不能显示成「动作成功」，还要负责排下一轮
+        if preAuthInFlight {
+            preAuthInFlight = false
+            busy = false
+            heartbeatCount = preAuth.sentCount
+            switch measured.lastResult {
+            case .success:
+                statusLine = "保活心跳已确认（每 30 秒一轮）"
+            case .refused(let code):
+                statusLine = "保活心跳被拒（0x\(String(format: "%03X", code))）"
+            case .timedOut:
+                statusLine = "保活心跳超时"
+            default:
+                statusLine = "保活心跳已发送"
+            }
+            // 排下一轮（原 App `didPassiveStartCompletedWithError:` → 29 秒）
+            preAuth.didComplete()
+            // 这一轮里用户点过按钮 → 现在补发
+            if let action = pendingAction {
+                pendingAction = nil
+                start(action)
+            }
+            return
+        }
+
         busy = false
         pendingAction = nil
         switch measured.lastResult {
@@ -618,7 +846,12 @@ public final class WatchVehicleController: ObservableObject {
     }
 
     /// 延时停扫 —— 留一段时间收广播，之后按需扫描模式回到静止。
+    ///
+    /// ⚠️ 保活心跳开着时**不停扫**：心跳的驱动源就是广播流，
+    /// 停了就再也不会来下一帧（`tickFrontHeartbeat` 没人调），
+    /// 表现为「开了保活但只发了一次」。
     private func scheduleStopScan(after seconds: TimeInterval) {
+        guard !preAuth.isEnabled else { return }
         scanStopTask?.cancel()
         scanStopTask = Task { @MainActor [weak self] in
             do {
@@ -627,7 +860,7 @@ public final class WatchVehicleController: ObservableObject {
                 return
             }
             guard let self else { return }
-            guard !self.busy, !self.stage.isRunning else { return }
+            guard !self.busy, !self.stage.isRunning, !self.preAuth.isEnabled else { return }
             self.ble.stopScan()
         }
     }
@@ -643,6 +876,20 @@ public final class WatchVehicleController: ObservableObject {
             }
             guard let self else { return }
             self.measured.commandTimedOut()
+
+            // ★ 心跳轮超时：排下一轮，别让保活卡死
+            if self.preAuthInFlight {
+                self.preAuthInFlight = false
+                self.busy = false
+                self.statusLine = "保活心跳超时（车端无回应）"
+                self.preAuth.didComplete()
+                if let action = self.pendingAction {
+                    self.pendingAction = nil
+                    self.start(action)
+                }
+                return
+            }
+
             self.busy = false
             self.statusLine = "超时（4 秒无回应），可再试一次"
             self.ble.stopScan()
