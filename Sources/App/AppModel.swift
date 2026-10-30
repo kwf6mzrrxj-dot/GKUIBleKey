@@ -68,7 +68,7 @@ public final class AppModel: ObservableObject {
     /// 原 App 在被动进入流程里只发 `0x0C`，**不会**自动发 unlock/lock。
     public let preAuth = PreAuthenticationController()
 
-    @Published public var statusLine = "未连接"
+    @Published public var statusLine = "待机"
     /// 是否已提示过「RSSI 未标定」（只提示一次）
     private var didWarnUncalibrated = false
 
@@ -98,10 +98,15 @@ public final class AppModel: ObservableObject {
     /// 只用于让「在线」随时间自然过期 —— SwiftUI 不会因为 `Date()` 推进而重绘。
     @Published private var onlineTick = Date()
     private var onlineTickTask: Task<Void, Never>?
+    /// 上一次同步给锁屏卡片的在线状态（只在翻转时刷新，避免每帧都推一次活动）
+    private var lastKnownOnline = false
 
     /// 车在不在（顶栏用）
     public var isVehicleOnline: Bool {
         _ = onlineTick          // 读取它，让视图随 tick 重算
+        // 链路就绪是最强的「车在」证据 —— 刚连上时可能还没收到广播，
+        // 只看 `lastVehicleContactAt` 会短暂显示离线（回前台首帧尤其明显）。
+        if ble.linkState == .ready { return true }
         guard let t = lastVehicleContactAt else { return false }
         return onlineTick.timeIntervalSince(t) < Self.vehicleOnlineWindow
     }
@@ -116,7 +121,16 @@ public final class AppModel: ObservableObject {
     }
 
     private func markVehicleContact() {
-        lastVehicleContactAt = Date()
+        // 1 秒节流：一轮命令里 `01→02→03→04` 会连来好几帧，
+        // 每次都给 `@Published` 赋值会带着整个主界面重算一遍。
+        let now = Date()
+        if let last = lastVehicleContactAt, now.timeIntervalSince(last) < 1 { return }
+        lastVehicleContactAt = now
+        // 离线 → 在线：锁屏卡片要立刻翻过来（否则它只能等下一次 linkState 变化）
+        if !lastKnownOnline {
+            lastKnownOnline = true
+            refreshLiveActivity()
+        }
     }
 
     // MARK: - ★ 实时日志浮窗
@@ -555,11 +569,24 @@ public final class AppModel: ObservableObject {
         // ★ 「车辆在线」的定时重算（5 秒一次）
         //   只在需要让状态**自然过期**时才有意义：`lastVehicleContactAt` 变化会
         //   自己触发重绘，但"60 秒没联络"这件事没有事件可挂，必须靠 tick。
+        //
+        //   两个约束：
+        //   ① 从没联络过就别 tick（否则空闲时每 5 秒空刷一次主界面）
+        //   ② 在线状态翻转时顺手刷锁屏卡片 —— 否则卡片会一直停在"在线"，
+        //      因为它的刷新原本只挂在 `linkState` 变化上
         onlineTickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self, !Task.isCancelled else { return }
+                // 从没联络过、或已经稳定离线 → 没有"过期"要算，别空刷界面。
+                // （新联络到来时 `lastVehicleContactAt` 自己是 `@Published`，会自己重绘）
+                guard self.lastVehicleContactAt != nil,
+                      self.isVehicleOnline || self.lastKnownOnline else { continue }
                 self.onlineTick = Date()
+                if !self.isVehicleOnline, self.lastKnownOnline {
+                    self.lastKnownOnline = false
+                    self.refreshLiveActivity()
+                }
             }
         }
     }
@@ -641,7 +668,7 @@ public final class AppModel: ObservableObject {
         // 记录本次期望值，供 04 回执时确认是否切换成功
         pendingPassiveEntryValue = enabled
         if !ble.isWriteReady {
-            statusLine = "未连接，正在连接车辆，就绪后切换无感进入…"
+            statusLine = "正在连接车辆，就绪后切换无感进入…"
         }
         perform(enabled ? .enablePassiveEntry : .disablePassiveEntry)
     }
@@ -1149,6 +1176,9 @@ public final class AppModel: ObservableObject {
         measured.reset()
         passiveStart.cancelCalibration()
         passiveStart.calibration = nil
+        // ★ 心跳也要停：解绑后没有密钥，29 秒一轮的 0x0C 只会一直失败；
+        //   同时清掉「用户显式设置过」的痕迹，重新配对后才能自动开启。
+        preAuth.resetForUnbind()
         passiveEntryEnabled = false
         pendingAction = nil
         pendingActionAfterConnect = nil
@@ -1162,6 +1192,10 @@ public final class AppModel: ObservableObject {
         rssiAntennaOne = nil
         rssiAntennaTwo = nil
         lastRelayAlarm = nil
+        // ★ 解绑后不该再说「车辆在线」——否则顶栏会替一辆已经解除绑定的车
+        //   继续显示在线，直到 60 秒窗口过期。
+        lastVehicleContactAt = nil
+        lastKnownOnline = false
 
         // ⑤ 配对状态必须复位 —— 否则下次打开配对页还停在「上一次配对失败」
         pairingArmed = false
@@ -1221,16 +1255,17 @@ public final class AppModel: ObservableObject {
             return
         }
         lastLiveActivityRefresh = Date()
+        // ★ 与主界面同一套语义（2026-10-30）：锁屏卡片也只说「车在不在」。
+        //
+        // 原来这里写 `链路就绪 / 搜索车辆中`，而车端每条命令后都断开 ——
+        // 锁屏卡片会跟着 29 秒一次地抖，和顶栏是同一个毛病。
         let text: String
-        if ble.linkState == .ready {
-            text = "链路就绪"
-        } else if preAuth.lastSentAt != nil {
-            text = "已向车端报到"
-        } else if ble.linkState == .scanning || ble.linkState == .discovering
-                    || ble.linkState == .connecting {
-            text = "搜索车辆中"
+        if isVehicleOnline {
+            text = preAuth.lastSentAt != nil ? "在线 · 已向车端报到" : "车辆在线"
+        } else if lastVehicleContactAt != nil {
+            text = "离线（\(lastContactText)）"
         } else {
-            text = "待机"
+            text = "车辆离线"
         }
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
@@ -1238,7 +1273,7 @@ public final class AppModel: ObservableObject {
             vehicleName: name,
             state: VehicleActivityAttributes.ContentState(
                 isLocked: measured.status?.isLocked,
-                isConnected: ble.linkState == .ready,
+                isConnected: isVehicleOnline,
                 lastPreAuthAt: preAuth.lastSentAt,
                 statusText: text))
         if !ok {
@@ -1422,8 +1457,11 @@ public final class AppModel: ObservableObject {
                     ble.startScan()
                 }
             }
-            statusLine = "未连接，正在连接车辆，就绪后自动执行「\(action.label)」…"
-            measured.recordNote("未连接（\(ble.linkState)）→ 连接后自动执行「\(action.label)」")
+            // ★ 不再对用户说「未连接」（2026-10-30）：
+            //   顶栏现在只说「车辆在线」，而链路在每条命令后都会断一次 ——
+            //   这里再写「未连接」会和顶栏直接打架。原始状态留给日志。
+            statusLine = "正在连接车辆，就绪后自动执行「\(action.label)」…"
+            measured.recordNote("链路 \(ble.linkState.rawValue) → 挂起「\(action.label)」，就绪后自动执行")
             return
         }
         pendingAction = action

@@ -180,7 +180,7 @@ struct PairingView: View {
                 } else {
                     // 绿勾只在**链路真的就绪**时给；已绑定但没连是常态，
                     // 用钥匙图标 + 次要色，别让人以为连接掉了。
-                    let ready = hasVehicle && model.ble.linkState == .ready
+                    let ready = hasVehicle && model.isVehicleOnline
                     Image(systemName: hasVehicle
                           ? (ready ? "checkmark.circle.fill" : "key.fill")
                           : "bluetooth")
@@ -274,7 +274,12 @@ struct PairingView: View {
         // 绝大多数时间是断的 —— 此时顶部胶囊写「未连接」、这里却写
         // 「蓝牙已连接车辆」并配绿勾，两块自相矛盾。
         if hasVehicle {
-            return model.ble.linkState == .ready ? "蓝牙已连接车辆" : "钥匙已就绪 · 车辆未连接"
+            // ★ 与主界面同一套语义（2026-10-30）：车端每条命令后都断开，
+            //   拿 `linkState == .ready` 判"已连接"会让这行每 29 秒翻一次。
+            //   这里只说「车在不在」，与顶栏胶囊一致。
+            return model.isVehicleOnline
+                ? "钥匙已就绪 · 车辆在线"
+                : "钥匙已就绪 · 未检测到车辆"
         }
         if model.ble.isWriteReady { return "蓝牙已连接，正在登记…" }
         if model.pairingArmed { return "蓝牙正在连接车辆" }

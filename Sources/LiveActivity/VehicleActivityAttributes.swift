@@ -26,7 +26,12 @@ public struct VehicleActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         /// 车锁状态（`nil` = 还没收到过广播状态）
         public var isLocked: Bool?
-        /// BLE 链路是否就绪
+        /// **车辆是否在线**（不是 BLE 链路状态）
+        ///
+        /// 原 App 实测：链路每 30 秒才建立 0.6 秒（占空比 2%），
+        /// 用「链路就绪」驱动锁屏卡片会让它跟着 29 秒抖一次。
+        /// 沿用字段名 `isConnected` 是为了不破坏已存在的活动解码
+        /// （`ContentState` 是 `Codable`，改键名会让进行中的活动解不出来）。
         public var isConnected: Bool
         /// 最近一次成功发出 `0x0C` 的时间
         public var lastPreAuthAt: Date?

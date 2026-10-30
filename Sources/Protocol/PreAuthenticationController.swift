@@ -145,7 +145,7 @@ public final class PreAuthenticationController: ObservableObject {
         isEnabled = on
         UserDefaults.standard.set(on, forKey: Self.enabledKey)
         if on {
-            onLog?("预认证已开启（进入区域后每隔 6.5s/29s 发 0x0C）")
+            onLog?("预认证已开启（进入区域后每约 30 秒发一次 0x0C）")
             // ★ 人已经在区域内 → 立刻启动一轮（2026-10-29）
             //
             // 否则 `updateArea(true)` 会因 `inArea == isInArea` 直接 return，
@@ -156,6 +156,20 @@ public final class PreAuthenticationController: ObservableObject {
         } else {
             stop()
         }
+    }
+
+    /// 解绑专用：关掉心跳，并**清掉「用户显式设置过」的痕迹**。
+    ///
+    /// 为什么不能只调 `setEnabled(false)`：那会把 `enabledKey` 写成 `false`，
+    /// 于是 `hasExplicitPreference == true` —— 重新配对后**再也不会自动开启**，
+    /// 又回到「配好了但从不保活」的老问题。
+    ///
+    /// 解绑意味着这辆车的所有状态都该归零（标定、无感、密钥都清了），
+    /// 预认证的偏好也不例外。想关掉心跳的用户会在开关上再关一次。
+    public func resetForUnbind() {
+        stop()
+        isEnabled = false
+        UserDefaults.standard.removeObject(forKey: Self.enabledKey)
     }
 
     // MARK: - ① 区域判定（checkRssiForPassiveStart: 的两条分支）

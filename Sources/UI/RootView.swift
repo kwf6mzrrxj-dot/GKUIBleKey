@@ -237,7 +237,11 @@ struct RootView: View {
         //   原来先判 `.ready` 会让 `.pairing` 永远走不到，车图不闪灯，
         //   但顶部胶囊写着「配对中」，两边自相矛盾。
         if model.pairingArmed { return .pairing }
-        if model.ble.linkState == .ready { return .ready }
+        // ★ 判据从「链路就绪」改成「车辆在线」（2026-10-30）：
+        //   车端每条命令后都断开，`linkState` 每 29 秒回落一次，
+        //   车图会跟着一秒「等待连接」→ 一秒「就绪」地闪。
+        //   在线是 60 秒窗口，抖动被吸收。
+        if model.isVehicleOnline { return .ready }
         return .connecting
     }
 
@@ -433,7 +437,7 @@ struct RootView: View {
         // 用户第一反应就是"按钮坏了/不能点"。但 v5.0 之后点它真的有效：
         // `perform` 会挂起动作、自动连接、就绪后执行。
         // **能点的按钮就不该画成不能点**，否则等于把功能藏起来。
-        // 连接状态请看顶部胶囊（未连接/连接中/已连接），那才是它该在的地方。
+        // 连接状态请看顶部胶囊（车辆在线/离线），那才是它该在的地方。
     }
 
     private func secondaryAction(
@@ -1046,7 +1050,13 @@ struct VehicleDetailView: View {
                         Divider()
                         row("CIDPU（后 8 位）", cidpuText, mono: true)
                         Divider()
-                        row("连接状态", model.ble.linkState == .ready
+                        row("车辆在线", model.isVehicleOnline
+                            ? "在线 · 最近联络 \(model.lastContactText)"
+                            : "离线 · 最近联络 \(model.lastContactText)")
+                        Divider()
+                        // 开发者页保留原始链路状态 —— 主界面只说在线/离线，
+                        // 排 GATT 层问题时仍需要看到 scanning/connecting/discovering。
+                        row("链路状态（原始）", model.ble.linkState == .ready
                             ? "已连接车辆（可发命令）"
                             : (model.ble.isWriteReady
                                ? "已握手，未就绪"

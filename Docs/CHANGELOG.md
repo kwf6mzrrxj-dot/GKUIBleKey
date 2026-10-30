@@ -5,6 +5,79 @@
 
 ---
 
+## v7.0（2026-10-30）—— 「是否已连接」的口径统一 + 整体审查
+
+v6.9 只改了顶栏。这一版把**所有对外判断“连没连上”的地方**统一到同一个口径
+（`isVehicleOnline`），再整体复查一遍。
+
+### 一、口径统一（4 处）
+
+| 位置 | 原来 | 现在 |
+|---|---|---|
+| `RootView.carStage` | `linkState == .ready` → 车图就绪 | `isVehicleOnline` |
+| `PairingView` 状态行 + 绿勾 | `linkState == .ready` | `isVehicleOnline` |
+| 锁屏卡片 `isConnected` / 文案 | `linkState == .ready` | `isVehicleOnline` |
+| `statusLine`（挂起动作） | 「未连接，正在连接车辆…」 | 「正在连接车辆，就绪后自动执行…」 |
+
+`statusLine` 那条尤其别扭：顶栏写「车辆在线」、下面写「未连接」，
+两句话在同一个屏幕上互相否定。原始状态改记进会话日志
+（`链路 ready → 挂起「解锁」`）。
+
+**没有改的**：`perform` / `beginMeasuredAuth` / `send` 里的 `isWriteReady` 守卫。
+那是「能不能真的把字节写进特征」，必须看真实链路 —— 用在线状态去放行等于往空链路发帧。
+
+### 二、审查发现的 6 处（都已修）
+
+**① 解绑后心跳还在跑**（v6.9 自动开启带来的新问题）
+
+`deleteVehicle()` 清了密钥、标定、无感，但**没停预认证**。原来默认关闭看不出来；
+自动开启之后，解绑完还会每 29 秒发一次 `0x0C` —— 没有密钥，必然失败，白耗电刷日志。
+
+修：`PreAuthenticationController.resetForUnbind()`（停表 + 关开关 + **删掉偏好键**）。
+最后这步是关键：只 `setEnabled(false)` 会写入 `false`，`hasExplicitPreference` 变 true，
+**重新配对后再也不会自动开启**，又回到「配好但不保活」。
+
+**② 解绑后顶栏继续显示「车辆在线」**
+
+`lastVehicleContactAt` 没清，60 秒窗口内仍显示在线 —— 替一辆已经解绑的车站岗。
+修：解绑时清 `lastVehicleContactAt` 与 `lastKnownOnline`。
+
+**③ 锁屏卡片不会自己变「离线」**
+
+在线翻转只在 `linkState` 变化时刷新，而「60 秒没联络」不产生任何 `linkState` 事件。
+修：5 秒 tick 里检测翻转并 `refreshLiveActivity()`；离线→在线同样即时刷新。
+
+**④ tick 空转**
+
+原实现每 5 秒无条件给 `onlineTick` 赋值 → 空闲时整个主界面每 5 秒白重算一次。
+修：没有联络记录、或已稳定离线时跳过（新联络自己会 publish）。
+
+**⑤ `markVehicleContact` 每帧都 publish**
+
+一轮 `01→02→03→04` 会连来 3–4 帧，每帧都触发整页重算。
+修：1 秒节流。
+
+**⑥ 两处文案**
+初始 `statusLine = "未连接"` → `"待机"`；预认证开关日志「每隔 6.5s/29s」→「每约 30 秒」。
+
+### 三、复查结论（没发现问题的部分）
+
+| 检查 | 结果 |
+|---|---|
+| `linkState` 全部赋值点 × 看门狗 | 11 处 `.discovering` / `.connecting` / `.failed` 均有对应超时或兜底 |
+| 挂起类状态（`pendingAction*` / `pairingArmed` / `intentContinuation`） | 均有超时或复位路径 |
+| 强制解包 | 仅 `SelfTest` 的固定长度数组与 `FileManager` 文档目录 `[0]`，安全 |
+| `try?` 吞错 | 集中在 `FileLogger` 的日志落盘与 `KeyStore` 的序列化，失败可容忍 |
+| 密码学返回 nil | `ValeoAdvMatch.encrypt` / `VehicleStatus.decrypt` 返回 nil 即「不是本车 / 无状态」，语义正确 |
+
+### 验证
+
+- `swiftc -typecheck`：0 error / 0 warning（主 App 32 文件 + Widget 独立编译）
+- `xcodebuild`：**BUILD SUCCEEDED**
+- 装机：手机锁屏，`error 4016`，待解锁
+
+---
+
 ## v6.9（2026-10-30）—— 顶栏改说「车辆在线」+ 心跳按原 App 默认开
 
 用户问「为什么原 App 就能一直保持已连接状态」。把原 App 26 天日志（`xiaoka_vcc.log`
