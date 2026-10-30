@@ -4,8 +4,10 @@
 # Xcode / DerivedData
 DerivedData/
 build/
-# ★ 手表端单独构建用的派生数据目录（2026-10-30 审查发现它被误入库）
-build-watch/
+# ★ 手表端构建用的派生数据目录（2026-10-30 审查发现它被误入库）
+#   用通配符覆盖所有 build-watch* 变体 —— 之前只写了 build-watch/，
+#   后来新增的 build-watch-device/ 就漏掉了，又白提交了几百 MB。
+build-watch*/
 *.xcuserstate
 xcuserdata/
 
