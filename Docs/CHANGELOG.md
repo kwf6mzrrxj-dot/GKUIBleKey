@@ -5,6 +5,64 @@
 
 ---
 
+## v7.3（2026-10-30）—— Watch 端改架构：手表当遥控器，不自己连车
+
+### 为什么改（用户问「能不能复用手表里那些 iPhone 的蓝牙」）
+
+结论：**复用不了，也仿冒不了。**
+
+| 东西 | 存放位置 | 能否导出 |
+|---|---|---|
+| LTK（链路加密密钥） | iPhone 蓝牙控制器 / 系统安全区 | **无任何 API** |
+| IRK（身份解析密钥） | 同上，车端也存一份 | 同上 |
+
+车端认设备 = 用 IRK 解析随机地址 + 用 LTK 加密链路。手表拿不到这两把钥匙，
+「克隆 iPhone 的蓝牙信息」在**链路加密这一关**就过不去；而且如果可行，
+等于任何人克隆一下就能开车，安全模型直接崩掉。
+
+用户看到的手表蓝牙列表，多是通过 iCloud/连续互通同步的**音频类设备**，
+不是任意 BLE 外设的绑定密钥。
+
+### 改成了什么
+
+```
+手表点「解锁」
+  → WatchConnectivity 一条消息
+    → iPhone AppModel.perform(.unlock)（用它自己的绑定/密钥/序号）
+      → 结果回传给手表显示
+```
+
+| 改动 | 说明 |
+|---|---|
+| 删除 `WatchKeySync.swift` / `WatchKeySyncResponder.swift` | 钥匙不再落到手表上（安全性反而更好） |
+| 删除 `WatchVehicleController.swift`（BLE 版） | 手表不再扫描/连接/鉴权 |
+| 新增 `WatchRemoteController.swift` | 只发 `status` / `perform` 两类消息 |
+| 新增 `WatchRemoteBridge.swift`（手机侧） | 接收请求 → `runIntentCommand`（10s）→ 回执 |
+| `project.yml` | watch target 只编 `Sources/Watch`，不再拉协议栈 |
+| `Info.plist`（Watch） | 移除蓝牙权限说明（不再直接用 BLE） |
+
+### 一条安全约束
+
+**手表不排队命令**：`isReachable == false` 时直接失败并提示「iPhone 不在附近」。
+一条「解锁」如果十分钟后才执行，比没执行更危险。
+
+### 代价（说清楚）
+
+- iPhone 必须在附近且 App 能被唤起（`bluetooth-central` 下通常活着，被回收后要等下一次唤醒）
+- 手机没带 / 没电时，手表不能控车 —— 这是 B 方案换来的简化，不是 bug
+
+### 验证
+
+- L1：主 App / Widget / Watch 均 0 error
+- L2：`BUILD SUCCEEDED`
+- L3/L4：**未做**（用户要求暂不装机，手机与手表都不在）
+- 仍卡签名：`watchkitapp` 无 profile，embed 保持注释状态
+
+### 保留
+
+4 处 `#if os(iOS)` 剥离（`UIDevice` / `UIApplication` / 后台定位）保留着 ——
+它们对手机端无害，若将来想做「手表自己连车」（A 方案）可以直接复用。
+
 ## v7.2（2026-10-30）—— Apple Watch 端（前台控车）：代码完成，卡在签名
 
 ### 做了什么

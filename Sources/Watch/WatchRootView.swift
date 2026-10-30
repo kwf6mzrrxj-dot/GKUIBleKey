@@ -1,23 +1,20 @@
 import SwiftUI
 
-/// 手表主界面：一眼看清「车锁没锁」，抬手能点三下以内的操作。
+/// 手表主界面：一眼看清车锁状态，抬手能点。
 ///
-/// 刻意不做花活 —— 手表屏幕就这么大，且用户多半站在车旁边，
-/// 需要的是「一抬手就能按对」。
+/// 屏幕就这么大，用户多半站在车旁 —— 需要的是「一抬手就能按对」，
+/// 所以只有三件事：解锁、闭锁、寻车。
 struct WatchRootView: View {
-    @EnvironmentObject private var controller: WatchVehicleController
+    @EnvironmentObject private var controller: WatchRemoteController
 
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
                 statusHeader
-
-                if !controller.hasKeys {
-                    syncCard
+                if !controller.reachable {
+                    phoneHint
                 }
-
                 actionButtons
-
                 Text(controller.statusLine)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -44,37 +41,33 @@ struct WatchRootView: View {
     }
 
     private var lockIcon: String {
+        guard controller.online else { return "car" }
         guard let locked = controller.isLocked else { return "car" }
         return locked ? "lock.fill" : "lock.open.fill"
     }
 
     private var lockColor: Color {
+        guard controller.online else { return .secondary }
         guard let locked = controller.isLocked else { return .secondary }
         return locked ? .green : .orange
     }
 
     private var lockText: String {
-        guard let locked = controller.isLocked else { return "车辆状态未知" }
+        guard controller.online else { return "车辆离线" }
+        guard let locked = controller.isLocked else { return "状态未知" }
         return locked ? "已闭锁" : "未闭锁"
     }
 
-    // MARK: - 没有钥匙时的引导
+    // MARK: - iPhone 不可达提示
 
-    private var syncCard: some View {
-        VStack(spacing: 6) {
-            Text("还没有钥匙")
-                .font(.footnote.weight(.medium))
-            Text("先在 iPhone 上绑定车辆，再点下面同步")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("同步钥匙") {
-                controller.requestKeysFromPhone()
-            }
-            .buttonStyle(.bordered)
+    private var phoneHint: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "iphone.slash")
+            Text("iPhone 不在附近")
         }
+        .font(.caption2)
+        .foregroundStyle(.orange)
         .frame(maxWidth: .infinity)
-        .padding(8)
     }
 
     // MARK: - 控车
@@ -85,13 +78,13 @@ struct WatchRootView: View {
                 actionButton(.unlock, "解锁", "lock.open.fill", .orange)
                 actionButton(.lock, "闭锁", "lock.fill", .green)
             }
-            actionButton(.panic, "寻车", "light.beacon.max.fill", .blue)
+            actionButton(.find, "寻车", "light.beacon.max.fill", .blue)
         }
         .disabled(controller.busy)
     }
 
     private func actionButton(
-        _ action: IBCommandType, _ title: String, _ icon: String, _ tint: Color
+        _ action: WatchAction, _ title: String, _ icon: String, _ tint: Color
     ) -> some View {
         Button {
             controller.perform(action)
