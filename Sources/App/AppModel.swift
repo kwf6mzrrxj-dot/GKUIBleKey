@@ -1189,6 +1189,11 @@ public final class AppModel: ObservableObject {
         // ★ 心跳也要停：解绑后没有密钥，29 秒一轮的 0x0C 只会一直失败；
         //   同时清掉「用户显式设置过」的痕迹，重新配对后才能自动开启。
         preAuth.resetForUnbind()
+        // 点火窗口一并收掉（否则解绑后计时器还在跑、界面还显示倒计时）
+        ignitionWindowTask?.cancel()
+        ignitionWindowTask = nil
+        ignitionWindowUntil = nil
+        ignitionWindowRemaining = 0
         passiveEntryEnabled = false
         pendingAction = nil
         pendingActionAfterConnect = nil
@@ -1583,9 +1588,61 @@ public final class AppModel: ObservableObject {
             statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
             return
         }
-        measured.recordNote("手动补发预认证（用户请求，不等 29s 定时）")
-        statusLine = "正在向车端打招呼（预认证 0x0C）…"
+        // ★★★ 开启「点火窗口」（2026-10-30 真车反馈驱动）。
+        //
+        // 车端对「钥匙在场」的记忆有时效，而默认心跳 29 秒一轮 ——
+        // 用户按启动按钮是随机时刻，落在两轮之间的空窗里就打不着火。
+        // 真车日志：19:00–19:02 连点 16 次「准备点火」，绝大多数都落在空窗。
+        //
+        // 这里把接下来 5 分钟的心跳压到 **10 秒**（仍在车端「7 秒内不接受
+        // 第二次加密重连」的安全边界之外），让车端几乎一直认为钥匙在场。
+        startIgnitionWindow()
+        measured.recordNote(
+            "手动补发预认证（用户请求）→ 开启 5 分钟点火窗口，心跳改为每 10 秒一轮")
+        statusLine = "点火窗口已开启（5 分钟内每 10 秒保活一次）…"
         beginMeasuredAuth(asPreAuthentication: true)
+    }
+
+    // MARK: - ★ 点火窗口（2026-10-30）
+
+    /// 一次「准备点火」管多久
+    private static let ignitionWindowSeconds: TimeInterval = 300
+    /// 窗口内的心跳间隔（车端 7 秒内不接受第二次加密重连，10 秒留足余量）
+    private static let ignitionInterval: TimeInterval = 10.0
+
+    /// 窗口截止时刻（nil = 没开窗）
+    private var ignitionWindowUntil: Date?
+    private var ignitionWindowTask: Task<Void, Never>?
+    /// 剩余秒数，供界面显示倒计时
+    @Published public private(set) var ignitionWindowRemaining: Int = 0
+
+    private func startIgnitionWindow() {
+        // 已经开过窗 → 续期即可，不重复起任务
+        let until = Date().addingTimeInterval(Self.ignitionWindowSeconds)
+        ignitionWindowUntil = until
+        preAuth.retryIntervalOverride = Self.ignitionInterval
+        // 让当前这一轮的排期立即改用 10 秒（否则要等原来的 29 秒走完）
+        preAuth.didComplete()
+        guard ignitionWindowTask == nil else { return }
+        ignitionWindowTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let left = Int((self.ignitionWindowUntil ?? Date()).timeIntervalSinceNow.rounded(.up))
+                self.ignitionWindowRemaining = max(0, left)
+                if left <= 0 { break }
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(1) * 1_000_000_000)
+                } catch {
+                    return
+                }
+            }
+            guard let self else { return }
+            self.preAuth.retryIntervalOverride = nil
+            self.ignitionWindowUntil = nil
+            self.ignitionWindowRemaining = 0
+            self.ignitionWindowTask = nil
+            self.measured.recordNote("点火窗口结束（5 分钟）→ 心跳恢复 29 秒一轮")
+        }
     }
 
     /// 重新计算「点火位置验证」—— 纯本地 RSSI 判定，**不发送任何帧**。    ///

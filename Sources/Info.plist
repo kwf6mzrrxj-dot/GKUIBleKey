@@ -11,13 +11,13 @@
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
-	<string>7.7</string>
+	<string>7.8</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>7.7</string>
+	<string>7.8</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>77</string>
+	<string>78</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>需要使用蓝牙与车辆蓝牙钥匙模块通信，完成认证后控制车门与点火。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

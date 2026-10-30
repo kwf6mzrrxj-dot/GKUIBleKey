@@ -501,9 +501,12 @@ struct RootView: View {
                             Text("准备点火")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("上车前点一下，让车端先认出手机")
+                            Text(model.ignitionWindowRemaining > 0
+                                 ? "点火窗口开启中 · 还剩 \(model.ignitionWindowRemaining) 秒"
+                                 : "上车前点一下，让车端先认出手机")
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(model.ignitionWindowRemaining > 0
+                                                 ? .cyan : .secondary)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")

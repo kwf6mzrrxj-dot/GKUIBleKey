@@ -169,6 +169,7 @@ public final class PreAuthenticationController: ObservableObject {
     public func resetForUnbind() {
         stop()
         isEnabled = false
+        retryIntervalOverride = nil
         UserDefaults.standard.removeObject(forKey: Self.enabledKey)
     }
 
@@ -293,6 +294,24 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - ⑤ didPassiveStartCompletedWithError:
 
+    /// 覆盖默认的 29 秒间隔 —— 用于「点火窗口」。
+    ///
+    /// ## 为什么需要（2026-10-30 真车反馈）
+    ///
+    /// 车端对「钥匙在场」的记忆是有时效的。默认 29 秒一轮意味着**每轮之间有
+    /// 近 30 秒的空窗**，而用户按启动按钮是随机时刻 —— 落在空窗里就打不着火。
+    /// 真车日志印证：19:00–19:02 连点 16 次「准备点火」，绝大多数都落在空窗。
+    ///
+    /// 用户点「准备点火」时置成 **10 秒**（仍在车端「7 秒内不接受第二次加密
+    /// 重连」的安全边界之外），让接下来 5 分钟内车端几乎一直认为钥匙在场。
+    /// 窗口结束置回 `nil`，恢复 29 秒的省电节奏。
+    public var retryIntervalOverride: TimeInterval?
+
+    /// 实际生效的重试间隔
+    public var effectiveRetryInterval: TimeInterval {
+        retryIntervalOverride ?? Self.retryInterval
+    }
+
     /// 一次预认证往返结束后的重试间隔。
     ///
     /// ## 反汇编里其实**没有**「成功/失败」分支
@@ -329,7 +348,8 @@ public final class PreAuthenticationController: ObservableObject {
     /// 所以这里统一用 **29 秒**：29 秒等待 + 约 1 秒连接/鉴权执行 ≈ 实测的 30 秒。
     public func didComplete() {
         guard isEnabled, didStart else { return }
-        timeBetweenPassiveStart = Self.retryInterval
+        // ★ 用 `effectiveRetryInterval`：点火窗口内是 10 秒，平时 29 秒
+        timeBetweenPassiveStart = effectiveRetryInterval
         cancelPending()
         onLog?(String(format: "预认证往返结束，%.1f 秒后重试", timeBetweenPassiveStart))
         schedule(after: timeBetweenPassiveStart) { [weak self] in
