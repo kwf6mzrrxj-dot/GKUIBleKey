@@ -1936,6 +1936,39 @@ public final class AppModel: ObservableObject {
         // 内部有 `guard preAuthBGTask == .invalid`，重复调用无副作用。
         if asPreAuthentication { beginPreAuthBackgroundTask() }
 
+        // ★★★ 预认证防重入（2026-10-31 真车日志实证，v8.2）
+        //
+        // 预认证有**两条触发路径**，时间重叠时会各发一条 `01`：
+        //   ① `.ready` 回调里补发（`pendingPreAuth`）
+        //   ② `preAuth.onSend` —— 广播驱动的 `tickIfNeeded` / 定时器
+        //
+        // 实测日志（同一秒内，间隔 0.15 秒）：
+        // ```text
+        // 06:08:00.429  → 01 … RND1=AE EB D5 D2     ← 路径①
+        // 06:08:00.563  → 01 … RND1=D5 04 33 2C     ← 路径②（RND1 被覆盖）
+        // 06:08:00.575  ← 02 挑战（车端只回一个，对应①）
+        //               ❌ 挑战自校验失败：
+        //                  算出 53 BC C2 19 94 0C E3，车端期望 49 37 8C 59 37 52 5D
+        // ```
+        // `MeasuredSession` 里的 `rnd1` 已被第二条覆盖，而车端回的 `02` 属于第一条
+        // —— **自校验必然失败**，于是按反汇编中止、不发 `03`，整轮白费。
+        //
+        // 判据用 `phase`，且**只拦真正在途的三个状态**：
+        //   `.sentAuth1` / `.gotAuth2` / `.sentAuth3` —— 发出去还没等到结果。
+        // `idle` / `verified` / `failed` 是终态或空闲，必须放行：
+        // 否则上一轮失败后 `phase` 停在 `.failed`，下一轮永远被拒 →
+        // 心跳彻底停摆（比重入更糟）。**必须在 `resetCommandOnly()` 之前判断**。
+        // 只拦预认证；用户动作照旧（它会 reset 覆盖，是刻意的抢占语义）。
+        if asPreAuthentication {
+            switch measured.phase {
+            case .sentAuth1, .gotAuth2, .sentAuth3:
+                measured.recordNote("预认证重入被拒：本轮已在 \(measured.phase.rawValue)")
+                return
+            case .idle, .verified, .failed:
+                break
+            }
+        }
+
         guard ble.isWriteReady else {
             if asPreAuthentication {
                 // ★★ 预认证**不能丢**：它的触发时机（刚进入被动启动区域）
