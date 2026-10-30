@@ -52,18 +52,28 @@ import Combine
 /// 0xb684: mov  w2, #0xc       ; ★ 预认证控制码
 /// ```
 ///
-/// ### ⑤ 下一次的间隔：成功 6.5 秒 / 失败 29.0 秒
+/// ### ⑤ 下一次的间隔：**成功 29.0 秒 / 失败 6.5 秒**
+///
 /// `-[IBVehicle didPassiveStartCompletedWithError:]` @`0xb6cc`：
 /// ```asm
-/// 0xb7d0: ldr  x1, #0x276e0   ; @selector(setTimeBetweenPassiveStart:)
-/// 0xb7d4: cbz  x20, #0xb7e0   ; error == nil ?
-/// 0xb7d8: fmov d0, #6.50000000;  成功 → 6.5s
-/// 0xb7e0: fmov d0, #29.00000000; 失败 → 29.0s
+/// 0xb708: mov  x0, x2           ; 第 3 参数 = error（第一个显式参数在 x2）
+/// 0xb70c: bl   _objc_retain
+/// 0xb710: mov  x20, x0          ; x20 = retain(error)
+/// 0xb7d0: ldr  x1, #0x276e0     ; @selector(setTimeBetweenPassiveStart:)
+/// 0xb7d4: cbz  x20, #0xb7e0     ; x20 == 0 ?
+/// 0xb7d8: fmov d0, #6.50000000  ;   error != nil（**失败**）→ 6.5
+/// 0xb7e0: fmov d0, #29.00000000 ;   error == nil（**成功**）→ 29.0
 /// 0xb7f0: bl   cancelPreviousPassiveStartCommands
-/// 0xb800: ldr  x2, #0x276d0   ; @selector(launchPassiveEntryCommands)
+/// 0xb800: ldr  x2, #0x276d0     ; @selector(launchPassiveEntryCommands)
 /// 0xb80c: ldr  d0, [x19, _timeBetweenPassiveStart]
 /// 0xb814: bl   performSelector:withObject:afterDelay:
 /// ```
+///
+/// ⚠️ **2026-10-31 纠正**：这里原来写的是「成功 6.5 / 失败 29」，理由是
+/// 「`cbz x20` 判的是 self 是否为 nil」。但 `x20` 是 `x2`（error）retain 之后
+/// 的值，**不是 self**；方向恰好相反。抓包 `btsnoop_ign` 互证：
+/// 20:49:47.738 收到 `04 00` 后 6.2 秒就发下一轮（车端随即断开 → 算 error），
+/// 而 20:49:54.294 那轮正常结束 → 28.7 秒后才发。**成功慢、失败快。**
 ///
 /// ### ⑥ 停止
 /// `-[IBVehicle stopPreAuthentication]` @`0xb444`：
@@ -86,19 +96,13 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - 常量（地址见类型注释）
 
-    /// 一次预认证往返结束后的重试间隔。
+    /// **成功**后的重试间隔 —— 反汇编 `0xb7e0: fmov d0, #29.00000000`。
     ///
-    /// 取 **29.0 秒**，不是反汇编里的 `6.5`——
-    /// 原因见 `didComplete()` 的完整说明：`0xb7d4: cbz x20` 判的是
-    /// **self 是否为 nil**（不是 error），`6.5` 是固定值；而日志里 339 次
-    /// `0x01` 的间隔主导值是 **30 秒**（29 秒等待 + 约 1 秒执行）。
+    /// 29 秒等待 + 约 1 秒连接/鉴权执行 ≈ 原 App 实测的 30 秒节奏
+    /// （`btsnoop_ctl` 静止状态下 51 轮，平均间隔 28 秒）。
     ///
-    /// 若按 6.5 秒跑会快 4.5 倍，且会撞上车端「7 秒内不接受第二次加密重连」。
+    /// 失败走另一档 `failureRetryInterval`（6.5 秒），见 `didComplete(success:)`。
     public static let retryInterval: TimeInterval = 29.0
-
-    /// 反汇编 `0xb7d8` 的立即数，**仅作记录，不参与调度**
-    /// （`setTimeBetweenPassiveStart:6.5`，实际节奏被 RSSI 窗口拉到 30 秒）
-    public static let disassemblyInterval: TimeInterval = 6.5
 
     /// 已连接时再发起连接的延迟 —— `0xb590: fmov d0, #1.0`
     public static let connectedDelay: TimeInterval = 1.0
@@ -267,8 +271,8 @@ public final class PreAuthenticationController: ObservableObject {
         let elapsed = Date().timeIntervalSince(last)
         // ★ 用 `effectiveRetryInterval` 而不是写死的 29 秒（2026-10-30 审查）。
         //   广播驱动补发和 `didComplete` 的定时器必须用**同一个**判据：
-        //   点火窗口把间隔压到 10 秒，若这里还按 29 秒判，
-        //   窗口内一旦定时器没推进（后台），补发就会迟到 19 秒 ——
+        //   点火窗口把间隔压到 6.5 秒，若这里还按 29 秒判，
+        //   窗口内一旦定时器没推进（后台），补发就会迟到 22 秒 ——
         //   用户按启动按钮时车端早已忘了钥匙。
         guard elapsed >= effectiveRetryInterval else { return }
         onLog?(String(format: "广播唤醒：距上次 0x0C 已 %.0f 秒（定时器未推进）→ 提前补发", elapsed))
@@ -345,14 +349,8 @@ public final class PreAuthenticationController: ObservableObject {
     ///
     /// 这也解释了「7 秒内不接受第二次加密重连」那条约束是**失败重连**的产物：
     /// 原厂失败后用 6.5 秒重试，本身就在这条边界上跳舞，但它是**授权**的路径。
-    /// ```
     ///
-    /// `cbz x20` 判的是 **self 是否为 nil**（编译器为 weak self 生成的判空），
-    /// **不是 error**。也就是说 `6.5` 是固定值，`29.0` 走不到。
-    ///
-    /// （此前把它读成「成功 6.5 / 失败 29.0」是误读，已纠正。）
-    ///
-    /// ## 但日志实测的节奏是 **30 秒**
+    /// ## 与日志的对照
     ///
     /// 339 次 `0x01` 的间隔分布（`Docs/evidence/xiaoka_vcc.log`）：
     ///
@@ -361,12 +359,8 @@ public final class PreAuthenticationController: ObservableObject {
     /// 6.4–7.1s 合计只有 ~6 次
     /// ```
     ///
-    /// 说明 6.5 秒之后还有别的门槛（RSSI 滑窗满 10 个值 / 区域判定）
-    /// 把实际节奏拉到了 30 秒。我们没实现那套前置条件，
-    /// **若按 6.5 秒重试会比原 App 快 4.5 倍** —— 而车端在 7 秒内
-    /// 不接受第二次加密重连（2026-10-29 06:14:38 成功、06:14:45 加密超时）。
-    ///
-    /// 所以这里统一用 **29 秒**：29 秒等待 + 约 1 秒连接/鉴权执行 ≈ 实测的 30 秒。
+    /// 绝大多数落在 30 秒档 → **成功轮次占绝大多数**；那一小撮 6.5 秒
+    /// 正是失败后的快速重试。与上面 `cbz x20` 的两个分支完全吻合。
     public func didComplete(success: Bool = true) {
         guard isEnabled, didStart else { return }
         // ★ 反汇编 0xb7d4 的真实语义：error == nil（成功）→ 29 秒；
@@ -378,6 +372,22 @@ public final class PreAuthenticationController: ObservableObject {
         cancelPending()
         onLog?(String(format: "预认证往返结束（%@），%.1f 秒后重试",
                       success ? "成功" : "失败", timeBetweenPassiveStart))
+        schedule(after: timeBetweenPassiveStart) { [weak self] in
+            self?.launchEntryCommands()
+        }
+    }
+
+    /// 间隔被外部改动（点火窗口开 / 关）后**立即按新节奏重排**，且不谎报「往返结束」。
+    ///
+    /// 为什么单独开一个方法：`startIgnitionWindow()` 若直接调 `didComplete()`，
+    /// 日志里会打出一行「预认证往返结束（成功），6.5 秒后重试」——
+    /// 而那一刻根本没有往返结束（用户刚点下「准备点火」），
+    /// 看到这行只会让人以为是上一轮刚成功，排查时被带偏。
+    public func rescheduleForIntervalChange() {
+        guard isEnabled, didStart else { return }
+        timeBetweenPassiveStart = effectiveRetryInterval
+        cancelPending()
+        onLog?(String(format: "心跳间隔改为 %.1f 秒，已按新节奏重排", timeBetweenPassiveStart))
         schedule(after: timeBetweenPassiveStart) { [weak self] in
             self?.launchEntryCommands()
         }

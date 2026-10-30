@@ -1585,18 +1585,20 @@ public final class AppModel: ObservableObject {
             statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
             return
         }
-        // ★★★ 开启「点火窗口」（2026-10-30 真车反馈驱动）。
+        // ★★★ 开启「点火窗口」（2026-10-30 真车反馈驱动，2026-10-31 重校数值）。
         //
-        // 车端对「钥匙在场」的记忆有时效，而默认心跳 29 秒一轮 ——
+        // 车端对「钥匙在场」的记忆有时效，而默认心跳 **成功档 29 秒一轮** ——
         // 用户按启动按钮是随机时刻，落在两轮之间的空窗里就打不着火。
         // 真车日志：19:00–19:02 连点 16 次「准备点火」，绝大多数都落在空窗。
         //
-        // 这里把接下来 5 分钟的心跳压到 **10 秒**（仍在车端「7 秒内不接受
-        // 第二次加密重连」的安全边界之外），让车端几乎一直认为钥匙在场。
+        // 这里把接下来 5 分钟的心跳压到 **6.5 秒**（= 反汇编里原厂的**失败重试**档，
+        // 也是 `btsnoop_ign` 抓到的真实间隔：6.2 秒连发两轮都拿到 `04 00`）。
+        // 注意 6.5 秒确实落在「7 秒内不接受第二次加密重连」这条边界之内，
+        // 但那条约束是**失败重连**的产物，抓包里 6.2 秒的成功往返直接否掉了它。
         startIgnitionWindow()
         measured.recordNote(
-            "手动补发预认证（用户请求）→ 开启 5 分钟点火窗口，心跳改为每 10 秒一轮")
-        statusLine = "点火窗口已开启（5 分钟内每 10 秒保活一次）…"
+            "手动补发预认证（用户请求）→ 开启 5 分钟点火窗口，心跳改为每 6.5 秒一轮")
+        statusLine = "点火窗口已开启（5 分钟内每 6.5 秒保活一次）…"
         beginMeasuredAuth(asPreAuthentication: true)
     }
 
@@ -1636,8 +1638,12 @@ public final class AppModel: ObservableObject {
         let until = Date().addingTimeInterval(Self.ignitionWindowSeconds)
         ignitionWindowEndsAt = until
         preAuth.retryIntervalOverride = Self.ignitionInterval
-        // 让当前这一轮的排期立即改用 10 秒（否则要等原来的 29 秒走完）
-        preAuth.didComplete()
+        // 让当前这一轮的排期立即改用 6.5 秒（否则要等原来那 29 秒走完）
+        //
+        // ⚠️ 用 `rescheduleForIntervalChange()` 而不是 `didComplete()`：
+        //   后者会往日志里写「预认证往返结束（成功），6.5 秒后重试」，
+        //   可此刻根本没有往返结束（用户刚点下按钮），纯属误导。
+        preAuth.rescheduleForIntervalChange()
         // 续期：取消旧的收尾任务，按新的截止点重排（只 sleep 一次，不循环）
         ignitionWindowTask?.cancel()
         ignitionWindowTask = Task { @MainActor [weak self] in
@@ -1662,7 +1668,7 @@ public final class AppModel: ObservableObject {
     /// 三个出口都要走这里（2026-10-30 审查）：
     /// ① 窗口自然到期；② 用户关掉「预认证保活」；③ 解绑。
     /// 原来只有①③，**②漏了** —— 关掉保活后界面还在倒计时，
-    /// 而且 `retryIntervalOverride` 留在 10 秒，下次再开保活就是 10 秒一轮。
+    /// 而且 `retryIntervalOverride` 留在 6.5 秒，下次再开保活就是 6.5 秒一轮。
     private func endIgnitionWindow(reason: String) {
         ignitionWindowTask?.cancel()
         ignitionWindowTask = nil
@@ -1670,12 +1676,15 @@ public final class AppModel: ObservableObject {
         guard ignitionWindowEndsAt != nil else { return }
         ignitionWindowEndsAt = nil
         measured.recordNote("点火窗口结束（\(reason)）→ 心跳恢复 29 秒一轮")
+        // 立刻按 29 秒重排 —— 否则已经排好的那一轮还会在 6.5 秒后再发一次
+        // （窗口关了却还按窗口内的节奏跑一轮，日志上看像是"关不掉"）。
+        preAuth.rescheduleForIntervalChange()
     }
 
     /// 用户手动开关「预认证保活」的**唯一入口**。
     ///
     /// 以前 UI 直接调 `preAuth.setEnabled(_:)`，于是关掉保活时点火窗口不知道
-    /// 自己被作废了：界面还在倒计时、`retryIntervalOverride` 还挂在 10 秒。
+    /// 自己被作废了：界面还在倒计时、`retryIntervalOverride` 还挂在 6.5 秒。
     public func setPreAuthEnabled(_ on: Bool) {
         preAuth.setEnabled(on)
         if !on {
@@ -1792,6 +1801,10 @@ public final class AppModel: ObservableObject {
             // 车端周期推送的 `0x05` 状态帧也能把 01→04 的超时撤掉，
             // 表现为「命令没回应也不报超时，界面一直挂着」。
             if cmd != 0x05 { cancelCommandTimeout() }
+            // ★ 本轮归属（预认证 / 用户动作）—— **必须在 `measured.handle` 之前取**。
+            //   失败路径里 `abortRound` 会清掉 `pendingAction`，之后再判会一律
+            //   变成「预认证」，把用户动作的失败也错记成心跳失败。
+            let roundWasPreAuth = (measured.pendingAction == nil)
             if let next = measured.handle(bytes) {
                 // 收到 02 后自动回 03 —— 事件驱动，不用等固定延时
                 if ble.send(next) {
@@ -1805,26 +1818,60 @@ public final class AppModel: ObservableObject {
                     // 永不触发 → 预认证续发链死掉。这是典型的静默失败。
                     startCommandTimeout("鉴权3")
                 } else {
-                    statusLine = "鉴权3 写入失败（写特征未就绪）"
+                    // ★★★ 03 写不出去 = 本轮已死，必须收口（2026-10-31 审查）。
+                    //
+                    // 原来这里**只改 statusLine**。后果有两层，第二层是致命的：
+                    //   ① `preAuth.didComplete()` 永不触发 → 续发链停摆；
+                    //   ② `phase` 停在 `.sentAuth3`，而 4 秒超时在 02 到达时
+                    //      已经被 `cancelCommandTimeout()` 撤掉、新的没起
+                    //      → **没有任何计时器会来收尾**。于是 v8.2 的防重入判据
+                    //      看到 `.sentAuth3`，之后每一轮预认证都被判「重入」直接
+                    //      return：心跳彻底死掉，界面还显示保活开着，
+                    //      只有用户手动点一次控车（那条路径会 reset）才解开。
+                    // 收口动作与「帧被拒」分支保持一致。
+                    let wasPreAuth = (measured.pendingAction == nil)
+                    measured.abortRound("鉴权3 写入失败（写特征未就绪）")
+                    resolveIntent(false)
+                    endPreAuthBackgroundTask()
+                    if wasPreAuth { preAuth.didComplete(success: false) }
+                    if pendingPassiveEntryValue != nil {
+                        settlePassiveEntryToggle(.refused(0x2BB))
+                    }
+                    statusLine = "鉴权3 写入失败（链路已断），请重试"
                 }
             } else {
                     // ★ 04 结果码 → 成功/失败分流（原 App `checkResultMessage:` 三种结局）
                 if cmd == 0x04, let result = measured.lastResult {
                     // 预认证往返结束 → 交给控制器排下一次（29.0s 调度，实测约 30s）
                     // 依据：`didPassiveStartCompletedWithError:` @0xb6cc
-                    let isPreAuth = (measured.pendingAction == nil)
+                    let isPreAuth = roundWasPreAuth
                     switch result {
                     case .success:
                         recordAuthSuccess()
+                        // 不再写「约 30 秒后自动续发」：点火窗口内是 6.5 秒一轮，
+                        // 写死的数字必然是错的（具体间隔下面 `didComplete` 会写进日志）。
                         statusLine = isPreAuth
-                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮（约 30 秒后自动续发）"
+                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮"
                             : "「\(measured.lastSucceededAction?.label ?? "动作")」执行成功（04 00）"
                     case .acceptedAwaitingNames:
                         statusLine = "已受理，等待车端回 0x0F 设备名"
                     case .refused(let code):
                         // 失败码：记入防爆破计数（原 App 无此逻辑，属安全增强）
                         // lastStatusCode 保留车端 04 结果字节，这里 code 是原 App 错误码
-                        recordAuthFailure("原 App 错误码 0x\(String(format: "%03X", code))")
+                        //
+                        // ★★ **预认证轮次不计入**（2026-10-31 审查）。
+                        //   防爆破锁定的目的是拦住「有人反复试钥匙」，而心跳是
+                        //   App 自己发的，不该由它把用户锁在车外。v8.1 把失败重试
+                        //   从 29 秒改成 6.5 秒后，5 次失败只要半分钟 —— 一次
+                        //   车端繁忙 / 钥匙被停用就能让「已锁定，60 秒后可重试」
+                        //   挡在所有按钮前面，而用户根本没动过手。
+                        if isPreAuth {
+                            measured.recordNote(
+                                "预认证被车端拒绝（0x\(String(format: "%03X", code))）"
+                                + "→ 不计入防爆破计数，6.5 秒后重试")
+                        } else {
+                            recordAuthFailure("原 App 错误码 0x\(String(format: "%03X", code))")
+                        }
                     case .paired:
                         statusLine = "✅ 配对成功"
                     case .timedOut:
@@ -1899,8 +1946,16 @@ public final class AppModel: ObservableObject {
                     statusLine += code == 0x00 ? "（成功）" : "（失败码 \(String(format: "%02X", code))）"
                 }
                 // ★ 03 自校验失败 → 原 App 的 0x278，重试无用，必须重新配对
+                //
+                // ★ 预认证轮次不计入防爆破（同 `.refused` 分支，2026-10-31 审查）：
+                //   心跳的自校验失败多半是信号弱 / 帧被截断，不是有人在猜钥匙。
                 if measured.challengeVerified == false {
-                    recordAuthFailure(ProtocolErrorCode.wrongChallenge.message)
+                    if roundWasPreAuth {
+                        measured.recordNote(
+                            "预认证挑战自校验失败 → 不计入防爆破计数（多半是信号弱丢帧）")
+                    } else {
+                        recordAuthFailure(ProtocolErrorCode.wrongChallenge.message)
+                    }
                 }
             }
             return
@@ -1922,20 +1977,6 @@ public final class AppModel: ObservableObject {
     ///   **不会**沿用上一次的控车动作（否则定时预认证会误发锁/解锁）。
     public func beginMeasuredAuth(action: IBCommandType? = nil,
                                   asPreAuthentication: Bool = false) {
-        // ★★ 预认证**一进来就申请后台执行时间**（2026-10-30）。
-        //
-        // 必须放在最前面，包括「链路未就绪 → 挂起 → 等 `.ready` 补发」那条路 ——
-        // 因为连接（1–2 秒）+ 鉴权往返（0.5–1 秒）全程都需要后台执行权。
-        //
-        // 原来只在 `preAuth.onSend` 里申请，于是有两条路径**没有保护**：
-        //   · `.ready` 回调里的「补发预认证」—— 后台最常见的就是这条
-        //   · 诊断页手动「立即发送预认证」
-        // 表现为：后台唤醒后连接还没建完就被系统挂起，这一轮白费。
-        //
-        // 放在唯一入口后三条路径全覆盖，且 `beginPreAuthBackgroundTask`
-        // 内部有 `guard preAuthBGTask == .invalid`，重复调用无副作用。
-        if asPreAuthentication { beginPreAuthBackgroundTask() }
-
         // ★★★ 预认证防重入（2026-10-31 真车日志实证，v8.2）
         //
         // 预认证有**两条触发路径**，时间重叠时会各发一条 `01`：
@@ -1969,6 +2010,22 @@ public final class AppModel: ObservableObject {
             }
         }
 
+        // ★★ 预认证**在这一刻申请后台执行时间**（2026-10-30；2026-10-31 审查挪到防重入之后）。
+        //
+        // 必须覆盖「链路未就绪 → 挂起 → 等 `.ready` 补发」那条路 ——
+        // 因为连接（1–2 秒）+ 鉴权往返（0.5–1 秒）全程都需要后台执行权。
+        // 原来只在 `preAuth.onSend` 里申请，于是有两条路径**没有保护**：
+        //   · `.ready` 回调里的「补发预认证」—— 后台最常见的就是这条
+        //   · 诊断页手动「立即发送预认证」
+        // 表现为：后台唤醒后连接还没建完就被系统挂起，这一轮白费。
+        //
+        // ⚠️ 顺序（2026-10-31 审查）：必须放在**防重入判断之后**。
+        //   原来放在函数最前面，于是被防重入拒掉的那些调用也会申请一次
+        //   后台执行权 —— 而这一轮根本不存在，没有任何地方会去 `end` 它，
+        //   只能等系统收回，日志里还会多出一条
+        //   「后台执行时间到期，本轮未走完（系统收回）」，把真正的失败原因盖掉。
+        if asPreAuthentication { beginPreAuthBackgroundTask() }
+
         guard ble.isWriteReady else {
             if asPreAuthentication {
                 // ★★ 预认证**不能丢**：它的触发时机（刚进入被动启动区域）
@@ -1993,11 +2050,15 @@ public final class AppModel: ObservableObject {
         // ★ 防爆破：预认证与手动动作都要走同一道闸
         guard !isLockedOut else {
             statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
+            // 这一轮不会发生 → 把刚申请的后台执行权还回去，
+            // 否则它只能等系统收回，日志里多一条误导性的「后台执行时间到期」。
+            if asPreAuthentication { endPreAuthBackgroundTask() }
             return
         }
         // ★ 密钥完整性：校验明确失败时不再发帧（此前只提示、不拦截）
         guard keyIntegrityOK != false else {
             statusLine = "密钥完整性校验未通过：\(keyIntegrityDetail)"
+            if asPreAuthentication { endPreAuthBackgroundTask() }
             return
         }
         let target = action ?? pendingAction

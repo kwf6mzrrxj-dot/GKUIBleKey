@@ -784,7 +784,23 @@ public final class WatchVehicleController: ObservableObject {
                 //   链路在 02 和 03 之间断掉是真实会发生的（车端 1.5 秒即断）。
                 busy = false
                 pendingAction = nil
-                statusLine = "鉴权3 写入失败（链路已断），请再点一次"
+                // ★★ 心跳轮次必须**一起释放 `preAuthInFlight`**（2026-10-31 审查）。
+                //
+                // 原来只清 busy/pendingAction，`preAuthInFlight` 留在 true：
+                //   · `beginPreAuthRound` 的 `guard !preAuthInFlight` 永久拦住心跳；
+                //   · `perform()` 永久停在「等这一轮保活结束，随后执行…」——
+                //     按钮全部变成哑的，只能杀 App。
+                // 而且 `didComplete` 不调 → 连「下一轮」都不会排。
+                measured.abortRound(preAuthInFlight
+                                    ? "保活心跳 03 写入失败（链路已断）"
+                                    : "鉴权3 写入失败（链路已断）")
+                if preAuthInFlight {
+                    preAuthInFlight = false
+                    preAuth.didComplete(success: false)
+                    statusLine = "保活心跳写入失败（链路已断），稍后自动重试"
+                } else {
+                    statusLine = "鉴权3 写入失败（链路已断），请再点一次"
+                }
                 scheduleStopScan(after: 1)
             }
             return
@@ -803,18 +819,26 @@ public final class WatchVehicleController: ObservableObject {
             preAuthInFlight = false
             busy = false
             heartbeatCount = preAuth.sentCount
+            // ★ 成功/失败必须分开（2026-10-31 审查）。
+            //   原来不管结果一律 `didComplete(success: true)` → 车端回失败码
+            //   也要干等 29 秒才重试；而反汇编 `0xb7d4` 的语义是
+            //   「成功 29 秒 / **失败 6.5 秒**」—— 失败时正是最该快点回来的时刻。
+            let ok: Bool
             switch measured.lastResult {
             case .success:
+                ok = true
                 statusLine = "保活心跳已确认（每 30 秒一轮）"
             case .refused(let code):
-                statusLine = "保活心跳被拒（0x\(String(format: "%03X", code))）"
+                ok = false
+                statusLine = "保活心跳被拒（0x\(String(format: "%03X", code))），6.5 秒后重试"
             case .timedOut:
-                statusLine = "保活心跳超时"
+                ok = false
+                statusLine = "保活心跳超时，稍后重试"
             default:
+                ok = true
                 statusLine = "保活心跳已发送"
             }
-            // 排下一轮：收到 04 算成功 → 29 秒（反汇编 `0xb7d4`，失败才是 6.5）
-            preAuth.didComplete(success: true)
+            preAuth.didComplete(success: ok)
             // 这一轮里用户点过按钮 → 现在补发
             if let action = pendingAction {
                 pendingAction = nil

@@ -5,6 +5,76 @@
 
 ---
 
+## v8.3（2026-10-31）—— iOS 端复审：两处「心跳永久卡死」+ 预认证把用户锁在车外
+
+> 复审范围：v8.0–v8.2 新代码。以下 6 条都是**这几版自己带进来的**，
+> 其中 ①② 会让心跳/按钮**永久卡死**，③ 会让用户打不开车门。
+
+### ① `03` 写失败不收口 → v8.2 的防重入把心跳永久锁死（严重）
+
+`handleIncomingFrame` 里 02 到达后自动回 03，`ble.send(next)` 失败时**只改 statusLine**：
+
+- `phase` 停在 `.sentAuth3`；
+- 4 秒超时在 02 到达时已被 `cancelCommandTimeout()` 撤掉，**新的没起** → 没有任何计时器来收尾；
+- v8.2 的防重入判据看到 `.sentAuth3` → 之后**每一轮预认证都被判「重入」直接 return**。
+
+结果：保活开关亮着、界面一切正常，心跳一帧不发，只有用户手动点一次控车
+（那条路径会 reset）才解开。修法与「帧被拒」分支一致：`abortRound` +
+`endPreAuthBackgroundTask` + `didComplete(success: false)` + 结算无感进入 / Intent。
+
+### ② 手表端同一处写失败不清 `preAuthInFlight`（严重）
+
+`busy` / `pendingAction` 都清了，但 `preAuthInFlight` 留着 `true`：
+
+- `beginPreAuthRound` 的 `guard !preAuthInFlight` **永久拦住心跳**；
+- `perform()` 永久停在「等这一轮保活结束，随后执行…」—— 按钮全变哑的。
+
+修：按轮次类型分派 `abortRound`，心跳轮清 `preAuthInFlight` 并排下一轮。
+
+### ③ 预认证失败被计入防爆破锁定 → 把用户锁在车外
+
+`04` 带回失败码、或挑战自校验失败时都调 `recordAuthFailure`，**预认证轮次也算**。
+v8.1 把失败重试从 29 秒改成 6.5 秒后，**5 次失败只要半分钟**，
+一次车端繁忙/钥匙被停用就能让「已锁定，60 秒后可重试」挡在所有按钮前面 ——
+而用户根本没动过手。修：预认证轮次只记日志，不计入计数
+（`roundWasPreAuth` 在 `measured.handle` **之前**取，否则 `abortRound` 清掉
+`pendingAction` 后会被误判成心跳）。
+
+### ④ 手表端心跳收到失败码仍按「成功」排 29 秒
+
+`finishAction` 里不分结果一律 `didComplete(success: true)`。车端回失败码时
+反而要干等 29 秒。修：按 `measured.lastResult` 分流。
+
+### ⑤ 防重入检查排在「申请后台执行时间」之后
+
+被拒的那些调用也申请了一次后台执行权，而这一轮根本不存在、没有地方去 `end` 它，
+只能等系统收回，日志里多出一条「后台执行时间到期，本轮未走完（系统收回）」——
+正是上一轮排查时最容易误导人的那行。修：防重入前置；另外锁定 / 密钥不完整
+两个提前返回也把后台执行权还回去。
+
+### ⑥ 文档与文案仍停在旧结论
+
+| 位置 | 原来 | 现在 |
+|---|---|---|
+| `PreAuthenticationController` 类型头 | 「成功 6.5 / 失败 29」 | 「成功 29 / 失败 6.5」，附 `x20 == error` 的推导 |
+| `retryInterval` 注释 | 「`cbz x20` 判 self，6.5 是固定值」 | 删除，改指 `didComplete(success:)` |
+| `disassemblyInterval` | 死常量（无人引用） | 删除（与 `failureRetryInterval` 重复） |
+| 「准备点火」副标题 / 状态行 / 日志 | 「每 10 秒一轮」 | 「每 6.5 秒一轮」 |
+| 04 成功文案 | 「约 30 秒后自动续发」 | 去掉写死的数字（窗口内是 6.5 秒） |
+| `startIgnitionWindow` | 调 `didComplete()`，日志打出「往返结束（成功）」 | 新增 `rescheduleForIntervalChange()`，只重排不谎报 |
+
+### 顺带
+
+`endIgnitionWindow` 里补 `rescheduleForIntervalChange()` —— 原来窗口关掉后
+已排好的那一轮仍会在 6.5 秒后发出，日志上看像「关不掉」。
+
+### 验证
+
+L1 主 App / Widget / Watch 三份 typecheck 0 error；L2 主 App + Watch 均 BUILD SUCCEEDED。
+**L4 未做**：③ 是否真能让点火更稳，仍要真车按一次才算。
+
+---
+
 ## v8.2（2026-10-31）—— 预认证重入：0.15 秒发出两条 `01`，挑战自校验必然失败
 
 ### 现象（用户 v7.9 真车日志）

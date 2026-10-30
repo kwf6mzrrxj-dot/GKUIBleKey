@@ -410,8 +410,14 @@ startPairing
 |---|---|---|
 | 在场判据 | `isInPassiveStartArea`（RSSI > `calibration − 32`，需标定） | **能收到本车广播**（`onBroadcastStatus` 只在 `hit` 通过时回调） |
 | 扫描 | 常开（含后台） | 前台常开，后台全停 |
-| 节奏 | 29 秒一轮 | 同（`PreAuthenticationController.retryInterval`） |
+| 节奏 | **成功 29s / 失败 6.5s** | 同（`PreAuthenticationController.didComplete(success:)`） |
 | 与用户动作 | 用户优先 | 用户优先（`preAuthInFlight` 互斥） |
+| 点火窗口 | 点「准备点火」后 5 分钟压到 6.5s | 无（手表是主动点按的场景） |
+
+> **节奏的来源（v8.1 纠正）**：`-[IBVehicle didPassiveStartCompletedWithError:]`
+> 的 `0xb7d4: cbz x20` 判的是 **error**（`x2` retain 后存 `x20`），不是 self。
+> `error == nil` → `0xb7e0: 29.0`；`error != nil` → `0xb7d8: 6.5`。
+> 即**成功慢、失败快**。（此前本文档与代码注释都写反过，见 CHANGELOG v8.1。）
 
 手表不用 `calibration` 的原因：手表没有标定流程，`calibration` 恒 `nil`
 → 按 0 算 → 阈值 −32 dBm → 正常距离永远满足不了 → 一帧都发不出去。
