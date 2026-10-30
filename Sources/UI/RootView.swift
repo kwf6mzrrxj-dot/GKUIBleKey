@@ -501,12 +501,20 @@ struct RootView: View {
                             Text("准备点火")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text(model.ignitionWindowRemaining > 0
-                                 ? "点火窗口开启中 · 还剩 \(model.ignitionWindowRemaining) 秒"
-                                 : "上车前点一下，让车端先认出手机")
+                            // 倒计时交给 `Text(timerInterval:)` 由渲染层驱动 ——
+                            // 不占 AppModel 的 @Published，5 分钟不重算整页 body。
+                            if let end = model.ignitionWindowEndsAt, end > Date() {
+                                HStack(spacing: 2) {
+                                    Text("点火窗口开启中 · 还剩")
+                                    Text(timerInterval: Date()...end, countsDown: true)
+                                }
                                 .font(.caption2)
-                                .foregroundStyle(model.ignitionWindowRemaining > 0
-                                                 ? .cyan : .secondary)
+                                .foregroundStyle(.cyan)
+                            } else {
+                                Text("上车前点一下，让车端先认出手机")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
@@ -777,7 +785,7 @@ struct DeveloperMenuView: View {
                     // 预认证保活开关
                     Toggle(isOn: Binding(
                         get: { model.preAuth.isEnabled },
-                        set: { model.preAuth.setEnabled($0) }
+                        set: { model.setPreAuthEnabled($0) }
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("预认证保活").font(.subheadline).foregroundStyle(.primary)

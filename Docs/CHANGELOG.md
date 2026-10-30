@@ -5,6 +5,45 @@
 
 ---
 
+## v7.9（2026-10-30）—— iOS 端复审：今天新代码引入的 6 处问题
+
+### 审查范围
+
+今天 v7.4–v7.8 对 iOS 端的改动：
+`AppModel`（点火窗口）、`BLECentral`（`connect` 返回 Bool / `disconnecting`）、
+`PreAuthenticationController`（`retryIntervalOverride`）、`RootView`（倒计时文案）。
+
+按 gkui-review 的 A/B（静默失败 / 状态收口）优先顺序过。
+
+### 确认并已修
+
+| # | 位置 | 问题 | 现象 | 修法 |
+|---|---|---|---|---|
+| 1 | `AppModel.setPreAuthEnabled` | 用户**关掉「预认证保活」**时，点火窗口没作废 | 界面继续倒计时；`retryIntervalOverride` 留在 10 秒，下次再开保活就是 10 秒一轮 | 新增 `setPreAuthEnabled(_:)` 唯一入口，关闭时 `endIgnitionWindow` |
+| 2 | `PreAuthenticationController.tickIfNeeded` | 补发判据**硬编码 29 秒**，窗口内不生效 | 窗口把定时器压到 10 秒，但广播补发仍等 29 秒；后台时补发迟到 19 秒 | 改用 `effectiveRetryInterval`，与 `didComplete` 同一判据 |
+| 3 | `AppModel.startIgnitionWindow` | 续期竞态：旧收尾任务睡醒后会把**新窗口**的 override 清掉 | 连点两次「准备点火」后，心跳莫名回到 29 秒 | 收尾前比对截止点 `ignitionWindowEndsAt == until` |
+| 4 | `RootView` 点火按钮 | 每秒 publish 一个 `ignitionWindowRemaining` | 5 分钟 = **300 次整页 body 重算**（ScrollView + 一排卡片） | 改成 `@Published ignitionWindowEndsAt` + `Text(timerInterval:)`，倒计时交给渲染层 |
+| 5 | `BLECentral.connect` 的 `disconnecting` 分支 | 扫描常开时**每 500ms 被调一次**，每次都写日志 + `cancelPeripheralConnection` | 日志 2 条/秒刷屏，反复 cancel 反而搅乱状态机 | 日志与 cancel 各按 2 秒节流 |
+| 6 | `connectSystemPaired` / `connect(_ device:)` | 丢弃 `connect()` 的返回值 | 外设卡在 `disconnecting` 时**谎报「正在连接」** | 用返回值，失败提示「正在断开收尾，稍后重试」 |
+
+### 已排除（查过，确认不是问题）
+
+| 项 | 结论 |
+|---|---|
+| `linkState = .discovering/.connecting` 的看门狗 | 5 处赋值全部 `arm=true`，缺 0 处 |
+| `rights = F0` / `sd == ed` | 反汇编确认 `rights` 只被 `%@%@%@%@%@` 拼进明文、**无任何位测试**；`sd==ed` 与原厂 App 提取的密钥模板一致（`9742355f`），是车端设计 |
+| 窗口内心跳撞「7 秒内不接受二次加密重连」 | `didComplete` 从本轮结束才开始排 10 秒，实际间隔 ≥11 秒 |
+| 点火窗口跨 App 重启残留 | 不持久化，新实例 `retryIntervalOverride` 默认 `nil` |
+
+### 验证
+
+- **L1**：主 App / Widget / Watch 三份 typecheck 0 error 0 warning
+- **L2**：主 App + Watch 均 BUILD SUCCEEDED
+- **L3**：装机 v7.9/79
+- **L4**：点火窗口仍待真车复测
+
+---
+
 ## v7.8（2026-10-30）—— 点火窗口：把 29 秒心跳压到 10 秒，堵住「按按钮落空窗」
 
 ### 现象（用户真车反馈）

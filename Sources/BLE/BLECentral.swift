@@ -51,6 +51,10 @@ public final class BLECentral: NSObject, ObservableObject {
     /// 常开扫描在手表上纯属耗电，没有对应的收益。
     public var autoScanOnDisconnect = true
 
+    /// `disconnecting` 状态的日志/取消节流时间戳（见 `connect(_:)` 的 disconnecting 分支）
+    private var lastDisconnectingLogAt: Date?
+    private var lastDisconnectingCancelAt: Date?
+
     public struct DiscoveredDevice: Identifiable, Hashable, Sendable {
         public let id: UUID
         public let name: String
@@ -516,7 +520,12 @@ public final class BLECentral: NSObject, ObservableObject {
         if let p = connected.first {
             peripheralCache[p.identifier] = p
             lastMessage = "发现系统已连接的车辆模块（\(p.name ?? "无名")），正在连接…"
-            connect(p)
+            // ★ 用返回值：外设若卡在 disconnecting，`connect` 不会真的发起连接，
+            //   这里就不能谎报成功（2026-10-30）
+            guard connect(p) else {
+                lastMessage = "设备正在断开收尾（disconnecting），请稍后重试或改用扫描"
+                return false
+            }
             return true
         }
 
@@ -525,7 +534,10 @@ public final class BLECentral: NSObject, ObservableObject {
             if let p = central.retrievePeripherals(withIdentifiers: [saved]).first {
                 peripheralCache[p.identifier] = p
                 lastMessage = "用已记住的设备标识重连…"
-                connect(p)
+                guard connect(p) else {
+                    lastMessage = "设备正在断开收尾（disconnecting），请稍后重试或改用扫描"
+                    return false
+                }
                 return true
             }
         }
@@ -544,13 +556,17 @@ public final class BLECentral: NSObject, ObservableObject {
         // identifier 就查不到了，retrievePeripherals 返回空 → 连接失败 →
         // 只能重新扫描，白白耗掉时间（这正是"要点很多次"的一个隐藏成因）。
         if let cached = peripheralCache[device.id] {
-            connect(cached)
+            if !connect(cached) {
+                lastMessage = "该设备正在断开收尾（disconnecting），稍后重试"
+            }
             return
         }
         // 退路：真的没缓存时才走 retrieve
         if let p = central.retrievePeripherals(withIdentifiers: [device.id]).first {
             peripheralCache[device.id] = p
-            connect(p)
+            if !connect(p) {
+                lastMessage = "该设备正在断开收尾（disconnecting），稍后重试"
+            }
             return
         }
         lastMessage = "设备已从系统缓存中淘汰，请重新扫描"
@@ -749,9 +765,20 @@ public final class BLECentral: NSObject, ObservableObject {
                 // 车端主动断开之后 iOS 侧常停在这里，正常几十毫秒，
                 // 信号弱时会拖到几十秒。主动再 cancel 一次能推动状态机，
                 // 但**不能**在这里 connect（一定被系统忽略）。
-                note("设备状态 disconnecting：断开还没收尾（信号弱时可达数十秒）"
-                     + " → 主动推进状态机，本次改走扫描", level: .warning)
-                central.cancelPeripheralConnection(p)
+                //
+                // ★ 必须节流（2026-10-30 审查）：扫描常开时本方法**每 500ms
+                //   被调一次**（每帧广播都试连），不限流就会 2 条/秒地刷日志、
+                //   每秒 cancel 两次，反而把状态机搅乱。
+                let now = Date()
+                if lastDisconnectingLogAt.map({ now.timeIntervalSince($0) >= 2 }) ?? true {
+                    lastDisconnectingLogAt = now
+                    note("设备状态 disconnecting：断开还没收尾（信号弱时可达数十秒）"
+                         + " → 推进状态机，本次改走扫描", level: .warning)
+                }
+                if lastDisconnectingCancelAt.map({ now.timeIntervalSince($0) >= 2 }) ?? true {
+                    lastDisconnectingCancelAt = now
+                    central.cancelPeripheralConnection(p)
+                }
                 return false
             default:
                 note("设备状态 \(p.state.rawValue)：未知/过渡态，本次跳过", level: .warning)

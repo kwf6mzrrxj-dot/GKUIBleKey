@@ -265,7 +265,12 @@ public final class PreAuthenticationController: ObservableObject {
             return
         }
         let elapsed = Date().timeIntervalSince(last)
-        guard elapsed >= Self.retryInterval else { return }
+        // ★ 用 `effectiveRetryInterval` 而不是写死的 29 秒（2026-10-30 审查）。
+        //   广播驱动补发和 `didComplete` 的定时器必须用**同一个**判据：
+        //   点火窗口把间隔压到 10 秒，若这里还按 29 秒判，
+        //   窗口内一旦定时器没推进（后台），补发就会迟到 19 秒 ——
+        //   用户按启动按钮时车端早已忘了钥匙。
+        guard elapsed >= effectiveRetryInterval else { return }
         onLog?(String(format: "广播唤醒：距上次 0x0C 已 %.0f 秒（定时器未推进）→ 提前补发", elapsed))
         launchEntryCommands()
     }

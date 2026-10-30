@@ -1190,10 +1190,7 @@ public final class AppModel: ObservableObject {
         //   同时清掉「用户显式设置过」的痕迹，重新配对后才能自动开启。
         preAuth.resetForUnbind()
         // 点火窗口一并收掉（否则解绑后计时器还在跑、界面还显示倒计时）
-        ignitionWindowTask?.cancel()
-        ignitionWindowTask = nil
-        ignitionWindowUntil = nil
-        ignitionWindowRemaining = 0
+        endIgnitionWindow(reason: "已解绑")
         passiveEntryEnabled = false
         pendingAction = nil
         pendingActionAfterConnect = nil
@@ -1610,38 +1607,65 @@ public final class AppModel: ObservableObject {
     /// 窗口内的心跳间隔（车端 7 秒内不接受第二次加密重连，10 秒留足余量）
     private static let ignitionInterval: TimeInterval = 10.0
 
-    /// 窗口截止时刻（nil = 没开窗）
-    private var ignitionWindowUntil: Date?
     private var ignitionWindowTask: Task<Void, Never>?
-    /// 剩余秒数，供界面显示倒计时
-    @Published public private(set) var ignitionWindowRemaining: Int = 0
+
+    /// 窗口截止时刻（nil = 没开窗）。界面用 `Text(timerInterval:)` 自己倒数。
+    ///
+    /// ★ 为什么不再每秒 publish 一个「剩余秒数」（2026-10-30 审查）：
+    /// 那样会让 `@Published` 每秒变化一次，5 分钟 = **300 次整页 body 重算**
+    /// （RootView 里是 ScrollView + 一整排卡片），白白吃 CPU 和电。
+    /// 交给系统的 `Text(timerInterval:)` 后，倒计时由渲染层驱动，AppModel 只在
+    /// 开始/结束时各变一次。
+    @Published public private(set) var ignitionWindowEndsAt: Date?
 
     private func startIgnitionWindow() {
-        // 已经开过窗 → 续期即可，不重复起任务
         let until = Date().addingTimeInterval(Self.ignitionWindowSeconds)
-        ignitionWindowUntil = until
+        ignitionWindowEndsAt = until
         preAuth.retryIntervalOverride = Self.ignitionInterval
         // 让当前这一轮的排期立即改用 10 秒（否则要等原来的 29 秒走完）
         preAuth.didComplete()
-        guard ignitionWindowTask == nil else { return }
+        // 续期：取消旧的收尾任务，按新的截止点重排（只 sleep 一次，不循环）
+        ignitionWindowTask?.cancel()
         ignitionWindowTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                let left = Int((self.ignitionWindowUntil ?? Date()).timeIntervalSinceNow.rounded(.up))
-                self.ignitionWindowRemaining = max(0, left)
-                if left <= 0 { break }
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(1) * 1_000_000_000)
-                } catch {
-                    return
-                }
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(Self.ignitionWindowSeconds) * 1_000_000_000)
+            } catch {
+                return          // 被续期/清理取消
             }
             guard let self else { return }
-            self.preAuth.retryIntervalOverride = nil
-            self.ignitionWindowUntil = nil
-            self.ignitionWindowRemaining = 0
-            self.ignitionWindowTask = nil
-            self.measured.recordNote("点火窗口结束（5 分钟）→ 心跳恢复 29 秒一轮")
+            // ★ 竞态护栏（2026-10-30 审查）：这一轮睡醒时窗口可能已经被**续期**
+            //   或**重开**（用户又点了一次）。如果截止点已经不是我设的那个，
+            //   说明有新窗口在跑，旧任务不许收尾 —— 否则会把新窗口的
+            //   `retryIntervalOverride` 清掉，心跳莫名回到 29 秒。
+            guard self.ignitionWindowEndsAt == until else { return }
+            self.endIgnitionWindow(reason: "5 分钟到")
+        }
+    }
+
+    /// 收掉点火窗口：恢复 29 秒心跳、清界面倒计时。
+    ///
+    /// 三个出口都要走这里（2026-10-30 审查）：
+    /// ① 窗口自然到期；② 用户关掉「预认证保活」；③ 解绑。
+    /// 原来只有①③，**②漏了** —— 关掉保活后界面还在倒计时，
+    /// 而且 `retryIntervalOverride` 留在 10 秒，下次再开保活就是 10 秒一轮。
+    private func endIgnitionWindow(reason: String) {
+        ignitionWindowTask?.cancel()
+        ignitionWindowTask = nil
+        preAuth.retryIntervalOverride = nil
+        guard ignitionWindowEndsAt != nil else { return }
+        ignitionWindowEndsAt = nil
+        measured.recordNote("点火窗口结束（\(reason)）→ 心跳恢复 29 秒一轮")
+    }
+
+    /// 用户手动开关「预认证保活」的**唯一入口**。
+    ///
+    /// 以前 UI 直接调 `preAuth.setEnabled(_:)`，于是关掉保活时点火窗口不知道
+    /// 自己被作废了：界面还在倒计时、`retryIntervalOverride` 还挂在 10 秒。
+    public func setPreAuthEnabled(_ on: Bool) {
+        preAuth.setEnabled(on)
+        if !on {
+            endIgnitionWindow(reason: "保活已关闭")
         }
     }
 
