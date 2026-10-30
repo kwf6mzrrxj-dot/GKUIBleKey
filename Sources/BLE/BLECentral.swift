@@ -640,8 +640,11 @@ public final class BLECentral: NSObject, ObservableObject {
         guard let p else { return false }
         peripheralCache[p.identifier] = p
         note("直接连接已知设备 \(p.name ?? id.uuidString)（不等扫描广播）")
-        connect(p)
-        return true
+        // ★ 必须用 `connect` 的返回值（2026-10-30 真车修复）。
+        //   原来无条件 `return true`：当外设卡在 `disconnecting` 时
+        //   `connect()` 什么都没做，上层却以为「正在连接」→ 不扫描、不重试，
+        //   用户点「准备点火」连点 6 次一次都没发出去。
+        return connect(p)
     }
 
     /// 同时更新界面文案与日志文件。
@@ -661,7 +664,24 @@ public final class BLECentral: NSObject, ObservableObject {
         }
     }
 
-    public func connect(_ p: CBPeripheral) {
+    /// 发起连接。返回 **本次是否真的发起了连接**。
+    ///
+    /// ## 为什么必须返回 Bool（2026-10-30 真车排查）
+    ///
+    /// 车端每条命令后主动断开，iOS 侧会经历一段 `disconnecting`（rawValue **3**）。
+    /// 原来这个方法在 `p.state != .disconnected` 时**只打一条日志就 return**，
+    /// 而 `connectRemembered()` 无条件 `return true` —— 上层（`beginMeasuredAuth`）
+    /// 以为「正在连接」，于是**不扫描、不重试**，动作永久悬空。
+    ///
+    /// 日志实证（真车，19:00:00–19:00:26）：外设卡在 `disconnecting` **26 秒**，
+    /// 用户连点 6 次「准备点火」全部无效，一条 `← 04` 都没有。
+    /// 期间日志还写着「设备状态 3（连接中）」—— **3 是 disconnecting，不是连接中**，
+    /// 这个错误文案把排查方向带偏过一次。
+    ///
+    /// 现在：发起成功返回 `true`；`.connecting` / `.disconnecting` 返回 `false`，
+    /// 让上层改走扫描（扫描不依赖 peripheral 状态，且能拿回最新状态）。
+    @discardableResult
+    public func connect(_ p: CBPeripheral) -> Bool {
         // ★ 照原 App `-[VCBDevice connect]` @`0x8de4` 的前置检查（L3）：
         //   `if ([self isConnectable]) { if ([self state] != 0) → 报
         //   "The device is not disconnected" 并返回；否则才真正 connect }`
@@ -683,7 +703,7 @@ public final class BLECentral: NSObject, ObservableObject {
                 // ```
                 if linkState == .ready, peripheral === p {
                     forceConnectOnce = false
-                    return
+                    return true
                 }
                 // 已连接：直接进入服务发现（复用现有连接，不 cancel、不重连）
                 note("设备已连接，直接发现服务")
@@ -705,10 +725,38 @@ public final class BLECentral: NSObject, ObservableObject {
                 // `connectRemembered()` 判僵尸态、`autoConnect()` 早退、
                 // 用户点按钮全部石沉大海。
                 armDiscoverTimeout()
-            } else {
-                note("设备状态 \(p.state.rawValue)（连接中），跳过重复连接", level: .warning)
+                return true
             }
-            return
+
+            // ★★★ 这里就是「真车点火困难」的根因位置（2026-10-30 修复）。
+            //
+            // `CBPeripheralState` 的真实取值：
+            //   0 = disconnected   1 = connecting
+            //   **3 = disconnecting**   2 = connected
+            //
+            // 原来这里统一写「设备状态 \(rawValue)（连接中）」然后 return ——
+            // 3 被说成「连接中」，排查时被带偏；而且 return 之后
+            // `connectRemembered()` 仍 `return true`，上层以为「正在连」，
+            // 于是**不扫描也不重试**。
+            //
+            // 实测（真车 19:00:00–19:00:26，信号 −93 dBm）：外设卡在
+            // `disconnecting` **26 秒**，用户连点 6 次「准备点火」全部无效。
+            switch p.state {
+            case .connecting:
+                note("设备状态 connecting：上一次连接还没结束，本次跳过", level: .warning)
+                return false
+            case .disconnecting:
+                // 车端主动断开之后 iOS 侧常停在这里，正常几十毫秒，
+                // 信号弱时会拖到几十秒。主动再 cancel 一次能推动状态机，
+                // 但**不能**在这里 connect（一定被系统忽略）。
+                note("设备状态 disconnecting：断开还没收尾（信号弱时可达数十秒）"
+                     + " → 主动推进状态机，本次改走扫描", level: .warning)
+                central.cancelPeripheralConnection(p)
+                return false
+            default:
+                note("设备状态 \(p.state.rawValue)：未知/过渡态，本次跳过", level: .warning)
+                return false
+            }
         }
         // ★ 先把状态切到 .connecting，**再** stopScan()。
         //   反过来会让 stopScan 把 `.scanning` 改成 `.idle`，上层把 `.idle`
@@ -722,6 +770,7 @@ public final class BLECentral: NSObject, ObservableObject {
         // 原 App 同款：`connectPeripheral:options: nil`（`0x5de0: mov x3, #0`）
         central.connect(p, options: nil)
         armConnectTimeout()
+        return true
     }
 
     /// 起「连接阶段」看门狗。只覆盖 `.connecting`，不管 `.discovering`
@@ -1312,7 +1361,11 @@ extension BLECentral: CBCentralManagerDelegate {
                 // 本车优先：已经有归属结论时直接连；未确认归属也连（这是配对新设备的场景）
                 lastMessage = "发现目标设备 \(advName.isEmpty ? peripheralID.uuidString : advName)"
                     + "（\(adv?.genLabel ?? "?")·\(identity.rawValue)），正在连接…"
-                connect(peripheral)
+                // ★ 没真正发起连接（外设卡在 disconnecting 等）→ 把一次性标志还回去，
+                //   否则这一次广播就把机会用掉了，下一帧广播不会再连（2026-10-30）。
+                if !connect(peripheral) {
+                    forceConnectOnce = true
+                }
                 return
             }
             // 缓存只在本次扫描会话内有效，避免无限增长
