@@ -4,6 +4,8 @@
 # Xcode / DerivedData
 DerivedData/
 build/
+# ★ 手表端单独构建用的派生数据目录（2026-10-30 审查发现它被误入库）
+build-watch/
 *.xcuserstate
 xcuserdata/
 

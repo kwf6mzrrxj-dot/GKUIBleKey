@@ -1,27 +1,34 @@
 # 按原 App 闭环的最终核对
 
-> 核对时间：2026-10-25 11:30（v0.9）
+> 核对时间：2026-10-25 11:30（v0.9）；**2026-10-30 复核（v7.4）修正了配对口径与手表端**
 > 判定基准：原 App（GKUI/小卡）iOS 版反汇编为唯一权威，抓包仅作参考
 
 ---
 
 ## 一、核心链路闭环核对
 
-### 1. 配对 ✅ 闭环（0x55 鉴权链）
+### 1. 配对 ✅ 闭环（`0x0D` 登记帧）
+
+> ⚠️ **2026-10-30 更正**：本节原来写的是「配对走 0x55 鉴权链」，那是
+> 2026-10-25 之前的错误实现。反汇编 `generateFirstMessage:` @0xff98 里
+> `cmp #0x55 → generatePairingMessage` 说明：配对发的是 **`0x0D` 登记帧**，
+> 不走 `01→02→03` 挑战-响应。真实链路见下。
 
 ```
 startFullPairing → stopScan/cancel/prepareForPairingScan → startScan
-  → didDiscover 兜底自动连接 → connect → didConnect(exitQuietMode→发现服务→订阅)
-  → linkState ready → beginMeasuredAuthPairing → preparePairing(0x55)
-  → buildAuth1(配对占位) → 车端回 02 → buildAuth3(控制码0x55)
+  → didDiscover 兜底自动连接 → connect → didConnect(发现服务→订阅)
+  → linkState ready → beginMeasuredAuthPairing
+  → buildPairingMessage（0D + sidpu 16B + 设备名 20B = 37B）
   → 车端回 0x0E(62B 密钥) → saveKeyData → loadCalibration
 ```
 
-- 配对走 **0x55 鉴权链**（`startPairing` @0xa350 → `openConnexionForCommand:0x55`）
-- 配对 01 帧占位：**9 零 + RND1@[9,13) + 3 零**（`stringToData` 每 2 字符 strtoul，
-  每个 nil 字段 `"(null)"`(6字符)=3 零，非 4 零）
+- 配对走 **`0x0D` 登记帧**（`+[IBMessageFactory pairingMessage]` @`0x13afc`），
+  **没有挑战-响应**，手机上不需要算任何东西
+- `sidpu` 是**固定 16 字节常量** `628f07…2f92`（`getSidpu` @`0x11a28`），
+  与手机身份无关；只有设备名来自 `UIDevice.name`（截断/补零到 20B）
 - `0x0E` 密钥帧：`saveKeysData:` @0x12660，62B 切 7 字段 ✅
 - 配对后重读标定（cidpu 配对后才确定）✅
+- **配对前提在车外**：诊断仪先登记槽位 + 6 位码 bonding（见 `INBLUE_PROTOCOL_SPEC` 5.10）
 
 ### 2. 鉴权 + 控车 ✅ 闭环
 
@@ -104,19 +111,45 @@ requestPairedDeviceNames → perform(.requestPairedDevices, 0x0D控制码)
 - `isInPassiveStartArea` 需 `calibration`，标定写入端跨 GLBLE 协议（本车无）
 - 未标定基准 -32 几乎不触发，与原 App `[nil intValue]=0` 一致，**是原 App 设计**
 
-### 偏差 2：0x0D 登记帧为备用路径
+### 偏差 2：~~0x0D 登记帧为备用路径~~ → **已更正：0x0D 才是主路径**
 
-- 主配对走 0x55 鉴权链；`InBluePairing.buildPairingMessage`（0x0D 37B 登记帧）
-  保留为原 App `generatePairingMessage` @0xfecc 的还原，当前未调用
+- 2026-10-25 曾误判「主配对走 0x55 鉴权链，0x0D 是 `generatePairingMessage`
+  的备用还原、当前未调用」。
+- 实际相反：`startFullPairing` 走的就是 `0x0D` 登记帧（见第一节 1）；
+  `0x55` 那条链是早期按 `openConnexionForCommand:0x55` 猜出来的错误实现，
+  **代码与文档均已删除**。
 
 ---
 
-## 五、最终结论
+## 五、Apple Watch 端（v7.4，A 方案）
 
-**核心功能全部按原 App 闭环**：配对（0x55 链）、鉴权、控车、查询已配对手机、
+手表是**独立的钥匙**：自己扫描 / 连接 / 鉴权 / 配对，与手机之间没有任何
+密钥传输（车端一车可挂 5 台，每台各有自己的槽位密钥）。
+
+| 能力 | 手机 App | 手表 App |
+|---|---|---|
+| 配对 `0x0D → 0x0E` | ✅ | ✅（v7.4 新增） |
+| 控车 `01→02→03→04` | ✅ | ✅ |
+| 车辆状态（广播解密） | ✅ | ✅（120 秒过期窗口） |
+| 无感进入 `0x11/0x12` | ✅ | ❌ 刻意不做 |
+| 预认证心跳 `0x0C` | ✅ 29 秒一轮 | ❌ 刻意不做（耗电） |
+| 扫描策略 | 常开（原 App 稳态） | 按需（操作时扫，完事 5 秒停） |
+| 后台保活 | Live Activity + bluetooth-central | ❌ 手表无后台 BLE |
+
+**未闭环项（只能真机验）**：
+1. watchOS 的 Passkey Entry 弹窗能否输入 6 位码；
+2. 诊断仪登记槽位时是否接受手表。
+
+---
+
+## 六、最终结论
+
+**核心功能全部按原 App 闭环**：配对（`0x0D` 登记帧）、鉴权、控车、查询已配对手机、
 广播匹配、车辆状态（广播解密）、无感进入、安全机制，每一条都能追到反汇编地址。
+**Apple Watch 端**（v7.4）复用同一套协议栈，代码已就绪。
 
-**唯一未闭环的是「真机连车跑一遍」**：代码层面已 100% 就绪，需真车验证：
-1. 绑定车辆 → 看是否走通 0x55 链拿到 0x0E 密钥
+**唯一未闭环的是「真机跑一遍」**：代码层面已就绪，需真车验证：
+1. 绑定车辆 → 看是否发 `0x0D` 并收到 `0x0E`（62B 密钥）
 2. 解锁 → 看日志 `01→02→03…02→04 00`
-3. 查询已配对手机 → 看 0x0F 设备名
+3. 查询已配对手机 → 看 `0x0F` 设备名
+4. 手表配对 → 看是否弹 6 位码、诊断仪是否认这台设备

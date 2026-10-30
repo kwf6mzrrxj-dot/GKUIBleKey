@@ -40,6 +40,17 @@ public final class BLECentral: NSObject, ObservableObject {
     /// 是否启用「连接失败 → 改用扫描重试」的回退（原 App 无自动重连，仅保留扫描回退）
     public var autoReconnect = true
 
+    /// 断连后要不要自动恢复常开扫描。
+    ///
+    /// 手机端必须为 `true`：原 App 的扫描**常开**（`Docs/evidence/xiaoka_vcc.log`
+    /// 里断开事件发生时扫描已经在跑），无感进入的 RSSI 采样、预认证的广播驱动
+    /// 全都依赖它。
+    ///
+    /// 手表端要设 `false`：手表电池只有手机的 1/6，而且手表端**不做**无感进入与
+    /// 预认证心跳，只需要「用户点按钮 → 扫一次 → 连 → 发 → 停」。
+    /// 常开扫描在手表上纯属耗电，没有对应的收益。
+    public var autoScanOnDisconnect = true
+
     public struct DiscoveredDevice: Identifiable, Hashable, Sendable {
         public let id: UUID
         public let name: String
@@ -1522,12 +1533,19 @@ extension BLECentral: CBCentralManagerDelegate {
             note("断开后未重扫：蓝牙适配器 \(stateText(central.state))", level: .warning)
             return
         }
-        // 连续快速断开计数
+        // ★ 本轮连接的统计先收尾，与「要不要重扫」无关。
+        //   放在早退之前，否则 `connectedAt` 会一直挂着上一轮的值，
+        //   下次真正重扫时 `lived` 算出来是个环数（假「快速断开」）。
         let now = Date()
         let lived = connectedAt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
         connectedAt = nil
         let sentThisRound = sentFramesThisConnection
         sentFramesThisConnection = 0
+        guard autoScanOnDisconnect else {
+            note("断开后不自动重扫（按需扫描模式）")
+            return
+        }
+        // 连续快速断开计数
         // ★ 只有「**空连接**」（连上却一帧没发就被踢）才算异常快速断开（2026-10-29）
         //
         // 车端的正常行为是：**每执行完一条命令就主动断开**（发完 0x05 后约 0.1 秒），

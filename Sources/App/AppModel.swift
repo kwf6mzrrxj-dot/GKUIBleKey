@@ -124,29 +124,8 @@ public final class AppModel: ObservableObject {
         return "\(s / 60) 分 \(s % 60) 秒前"
     }
 
-    /// 给手表的一句话结论（WatchConnectivity 回执用）。
-    ///
-    /// 手表只显示这一行文字，所以要把「成功/拒绝码/超时」都翻成人话 ——
-    /// 不要把 `ActionResult` 原样丢过去。
-    public var watchResultText: String {
-        guard let result = measured.lastResult else {
-            return "未执行（可在手机上看日志）"
-        }
-        switch result {
-        case .success:
-            return "「\(measured.lastSucceededAction?.label ?? "动作")」成功"
-        case .refused(let code):
-            return "车端拒绝（0x\(String(format: "%03X", code))）"
-        case .timedOut:
-            return "超时：车端没有回应"
-        case .paired:
-            return "配对完成"
-        case .acceptedAwaitingNames:
-            return "已受理"
-        }
-    }
-
-    private func markVehicleContact() {        // 1 秒节流：一轮命令里 `01→02→03→04` 会连来好几帧，
+    private func markVehicleContact() {
+        // 1 秒节流：一轮命令里 `01→02→03→04` 会连来好几帧，
         // 每次都给 `@Published` 赋值会带着整个主界面重算一遍。
         let now = Date()
         if let last = lastVehicleContactAt, now.timeIntervalSince(last) < 1 { return }
@@ -586,9 +565,11 @@ public final class AppModel: ObservableObject {
         // 启动即读取无感进入开关状态（靠近车辆拉门把手解锁）
         loadPassiveEntryState()
 
-        // ★ 激活与 Apple Watch 的遥控通道（2026-10-30）
-        //   手表不直接连车（BLE 绑定密钥导不出来），只发命令给这里执行。
-        WatchRemoteBridge.shared.activate()
+        // ★ Apple Watch 端是**独立的钥匙**，不经过本 App（2026-10-30 改回 A 方案）。
+        //   它在手表上自己走 0x0D → 0x0E 配对、自己走 01→02→03→04 控车，
+        //   与手机之间不需要 WatchConnectivity：车端一车可挂 5 台设备，
+        //   每台各有自己的槽位密钥。所以这里不再激活任何跨设备通道。
+        //   （B 方案的 WatchRemoteBridge 已删除，理由见 WatchVehicleController 顶部注释。）
 
         // ★ 照原 App：有钥匙就该有心跳。原 App 26 天日志里 69 次 `0x0C` 没有断过，
         //   配对完就一直在跑；我们这个开关原来默认 false、又没有引导，

@@ -370,9 +370,35 @@ startPairing
 「诊断仪窗口 → 6 位码 → 0x0D → 0x0E」**，而不是把手机的密钥拷过去。
 拷过去能不能过车端校验，取决于车端是否把密钥与槽位/设备绑定 —— 未验证。
 
-**手表端的两个未知**（真要移植时先验这两条）：
+**手表端的两个未知**（代码解决不了，必须真机验）：
+
 1. watchOS 的配对弹窗能不能输入 6 位码（Passkey Entry）；
 2. 诊断仪登记槽位时，是否接受「一台手表」当作一台手机。
+
+### 5.11 手表端实现（v7.4，A 方案）
+
+手表是**独立的钥匙**，不是手机的遥控器 —— 它自己连车、自己配对，
+拿到的是属于自己槽位的密钥。与手机之间**没有任何密钥传输**。
+
+| 步骤 | 手表端动作 | 代码位置 |
+|---|---|---|
+| ① | 提示用户先用诊断仪开窗口 | `WatchPairingView` 第一步文案 |
+| ② | 停扫/断开 → `prepareForPairingScan` → `autoConnectWhilePairing = true` → 扫描 | `WatchVehicleController.beginPairing()` |
+| ③ | 链路 `.ready`（订阅完成）→ 发 `0x0D`（37B） | `sendPairingFrame()` |
+| ④ | 收 `0x0E`（62B）→ `MeasuredSession.handle` → `saveKeyData` 写 Keychain | `handleIncoming` 的 `0x0E` 分支 |
+| ⑤ | 校验 `lastResult == .paired` **且** Keychain 真能读出密钥 → 主动断开 | `finishPairingOK()` |
+
+**两个必须照抄手机端的细节**：
+
+1. `0x0D` **必须在上层拦掉**，不能进 `MeasuredSession.handle` ——
+   它的 `switch` 没有 `.pairingReq` 分支，落进 `default` 会被判
+   「Invalid Message type」并把本轮标成 `refused`（手机端
+   `handlePairingFrame` 同样是先拦）。
+2. 发 `0x0D` 前必须 `resetPacketCounter()` —— 否则上一轮收过 `0x0F`(15) 时，
+   本次 `0x0E`(14) 会被单调校验判为乱序。
+
+**手表端刻意不做**：预认证 `0x0C` 心跳、常开扫描（`autoScanOnDisconnect = false`）、
+从 iPhone 同步密钥（会覆盖自己那份槽位密钥，且「拷过去能否过校验」本条 6 已标注未验证）。
 
 ---
 

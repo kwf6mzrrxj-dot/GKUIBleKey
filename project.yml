@@ -111,28 +111,37 @@ targets:
         SKIP_INSTALL: YES
         OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"
 
-  # ── Apple Watch 端（2026-10-30）─────────────────────────────────
-  # 手表端 = **iPhone 的遥控器**，自己不连车。
+  # ── Apple Watch 端（2026-10-30 建，同日改回 A 方案）────────────────
+  # 手表端 = **独立的钥匙**，自己连车、自己配对。
   #
-  # 为什么不让手表自己连：
-  #   BLE 的绑定密钥（LTK/IRK）在 iPhone 的蓝牙控制器里，没有 API 能导出；
-  #   「仿冒 iPhone」过不了链路加密这一关。手表连车就必然要**二次绑定**：
-  #   诊断仪开窗口 → 6 位码 → 0x0D → 0x0E 下发密钥（详见 INBLUE_PROTOCOL_SPEC 5.10）。
-  #   车端**一车可挂 5 台**，不用解绑手机 —— 槽位不是瓶颈，未知的是
-  #   watchOS 能否输 6 位码、诊断仪是否认手表。
-  #   走 iPhone 转发则完全复用现有绑定与密钥，车端根本不认识手表。
+  # 为什么不是「手机遥控器」：
+  #   BLE 的绑定密钥（LTK/IRK）确实导不出来，但那只说明**不能复用手机的绑定**，
+  #   不等于手表不能有自己的绑定。车端一车可挂 **5 台**设备，
+  #   手表自己走一遍「诊断仪开窗口 → 6 位码 → 0x0D → 0x0E」就拿到
+  #   属于自己槽位的密钥（详见 INBLUE_PROTOCOL_SPEC 5.10）。
+  #   遥控方案的代价是「iPhone 必须在附近且 App 能被唤起」——
+  #   而用户要的正是「手机不在也能开车」。
   #
-  # 代价：iPhone 必须在附近且 App 能被唤起 → 手表**不排队命令**，
-  #   不可达时直接失败（延迟执行的锁车指令比失败更危险）。
+  # 手表端刻意不做的三件事（省电 + 避免与手机端语义冲突）：
+  #   1. 预认证心跳 0x0C（手表不做无感进入）
+  #   2. 常开扫描（ble.autoScanOnDisconnect = false，只在用户操作时扫）
+  #   3. 从 iPhone 同步密钥（会覆盖手表自己的槽位密钥，且 5.10 标注未验证）
   GKUIBleKeyWatch:
     type: application
     platform: watchOS
     deploymentTarget: "26.0"
-    # 手表端**不碰 BLE**：只做遥控，命令经 WatchConnectivity 交给 iPhone 执行。
-    # 所以这里只需要自己的 UI + 通信层，不需要协议栈/Keychain。理由见
-    # `Sources/Watch/WatchRemoteController.swift` 顶部注释。
+    # 手表端需要完整协议栈：BLE 传输 + 会话状态机 + 0x0D 配对帧 + Keychain。
+    # 只排除 iOS-only 的几块（App/UI/Intents/LiveActivity/Widget/Security）。
     sources:
       - path: Sources/Watch
+      - path: Sources/Protocol
+      - path: Sources/Keychain
+      - path: Sources/BLE
+      # 密码学原语（AES / HMAC）：Foundation + CryptoKit + CommonCrypto，watchOS 全有
+      - path: Sources/Crypto
+      # BLE 层依赖的两个支撑文件（都只有 Foundation；UIApplication 部分已用 #if os(iOS) 隔离）
+      - path: Sources/Support/FileLogger.swift
+      - path: Sources/Support/BackgroundMonitor.swift
     info:
       path: Sources/Watch/Info.plist
       properties:
