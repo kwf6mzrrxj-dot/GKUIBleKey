@@ -1604,8 +1604,22 @@ public final class AppModel: ObservableObject {
 
     /// 一次「准备点火」管多久
     private static let ignitionWindowSeconds: TimeInterval = 300
-    /// 窗口内的心跳间隔（车端 7 秒内不接受第二次加密重连，10 秒留足余量）
-    private static let ignitionInterval: TimeInterval = 10.0
+    /// 窗口内的心跳间隔
+    ///
+    /// ★ 6.5 秒 —— 来自**原厂 App 的真实抓包**（`gkui_work/captures/btsnoop_ign_*.log`）：
+    /// ```text
+    /// 20:49:47.451  → 01 (33B)
+    /// 20:49:47.738  ← 04 00       成功
+    /// 20:49:53.940  → 01 (33B)    ← 只隔 6.2 秒
+    /// 20:49:54.294  ← 04 00       成功
+    /// ```
+    /// 原厂点火时就是 **6.2 秒一轮连发**，两次都拿 `04 00`。
+    ///
+    /// 我们原来注释里写「车端 7 秒内不接受第二次加密重连、所以统一 29 秒」，
+    /// 那是把「失败后立刻重连被拒」误推广成了「成功后也不能快」——
+    /// 抓包直接否掉了这个推论。29 秒意味着车端只有 ~5% 的时间「记得钥匙」，
+    /// 用户按启动按钮落在空窗里就必然失败，这才是「试好多次才打着」的数学原因。
+    private static let ignitionInterval: TimeInterval = 6.5
 
     private var ignitionWindowTask: Task<Void, Never>?
 
