@@ -5,6 +5,30 @@
 
 ---
 
+## v7.1（2026-10-30）—— 用 gkui-review 技能实跑一遍：2 处
+
+首次用 `.workbuddy/skills/gkui-review/` 的流程实跑（scan.py → 逐条回源码 → verify.sh）。
+
+### 确认的问题
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `AppModel` 预认证成功文案 | 写「6.5s 后自动续发」，实际调度 **29.0s（≈30s）** —— 6.5 是反汇编里的固定立即数，不参与调度 | 改「约 30 秒后自动续发」 |
+| `isVehicleOnline` | 解绑瞬间 `linkState` 仍是 `.ready`（断开是异步的）→ 顶栏替已解绑的车闪一下「车辆在线」 | 加 `guard hasLocalKey \|\| pairingArmed` |
+
+### 已排除（scan.py 的 14 条候选逐条核对）
+
+`guard state == .poweredOn`（等下次状态）、tick 的空转守卫、`settlePassiveEntryToggle`
+的 nil 提前返回（`defer` 会复位）、`autoConnect` 的三态早退、`resolveIntent` 幂等、
+`endPreAuthBackgroundTask` 幂等、标定采样守卫、`cancelConnection` 的已断开分支 —— 全部设计如此。
+UI 层仅剩诊断页与开发者页引用 `linkState`，符合预期。
+
+### 验证
+
+- L1 `swiftc -typecheck`（主 App + Widget）：0 error / 0 warning
+- L2 `xcodebuild`：BUILD SUCCEEDED
+- L3/L4：**未做** —— 手机锁屏装不进去；v6.9/v7.0/v7.1 三个包都还没上机
+
 ## v7.0（2026-10-30）—— 「是否已连接」的口径统一 + 整体审查
 
 v6.9 只改了顶栏。这一版把**所有对外判断“连没连上”的地方**统一到同一个口径

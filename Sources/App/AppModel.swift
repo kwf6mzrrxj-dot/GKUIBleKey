@@ -104,6 +104,10 @@ public final class AppModel: ObservableObject {
     /// 车在不在（顶栏用）
     public var isVehicleOnline: Bool {
         _ = onlineTick          // 读取它，让视图随 tick 重算
+        // 没绑定也没在配对 → 没有"你的车"可在线。
+        // 少了这一条，解绑瞬间 `linkState` 还是 `.ready`（断开是异步的），
+        // 顶栏会替一辆已经解绑的车闪一下「车辆在线」。
+        guard hasLocalKey || pairingArmed else { return false }
         // 链路就绪是最强的「车在」证据 —— 刚连上时可能还没收到广播，
         // 只看 `lastVehicleContactAt` 会短暂显示离线（回前台首帧尤其明显）。
         if ble.linkState == .ready { return true }
@@ -1705,14 +1709,14 @@ public final class AppModel: ObservableObject {
             } else {
                     // ★ 04 结果码 → 成功/失败分流（原 App `checkResultMessage:` 三种结局）
                 if cmd == 0x04, let result = measured.lastResult {
-                    // 预认证往返结束 → 交给控制器排下一次（6.5s / 29.0s）
+                    // 预认证往返结束 → 交给控制器排下一次（29.0s 调度，实测约 30s）
                     // 依据：`didPassiveStartCompletedWithError:` @0xb6cc
                     let isPreAuth = (measured.pendingAction == nil)
                     switch result {
                     case .success:
                         recordAuthSuccess()
                         statusLine = isPreAuth
-                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮（6.5s 后自动续发）"
+                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮（约 30 秒后自动续发）"
                             : "「\(measured.lastSucceededAction?.label ?? "动作")」执行成功（04 00）"
                     case .acceptedAwaitingNames:
                         statusLine = "已受理，等待车端回 0x0F 设备名"
