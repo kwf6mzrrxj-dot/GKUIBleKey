@@ -503,15 +503,23 @@ struct RootView: View {
                                 .foregroundStyle(.primary)
                             // 倒计时交给 `Text(timerInterval:)` 由渲染层驱动 ——
                             // 不占 AppModel 的 @Published，5 分钟不重算整页 body。
-                            if let end = model.ignitionWindowEndsAt, end > Date() {
+                            // 显示顺序按「约束强弱」：2 分钟的可启动授权 > 5 分钟心跳窗口。
+                            // 心跳还在跑但授权已过期时**必须说出来**，否则用户会以为
+                            // 蓝色倒计时还在就代表能点火（这正是真车踩过的坑）。
+                            if let end = model.unlockWindowEndsAt, end > Date() {
+                                // 原厂文案：解锁后「两分钟内可以启动车辆」
                                 HStack(spacing: 2) {
-                                    Text("点火窗口开启中 · 还剩")
+                                    Text("可启动 · 还剩")
                                     Text(timerInterval: Date()...end, countsDown: true)
                                 }
                                 .font(.caption2)
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(.green)
+                            } else if let end = model.ignitionWindowEndsAt, end > Date() {
+                                Text("可启动授权已过期 · 再点一次刷新")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
                             } else {
-                                Text("上车前点一下，让车端先认出手机")
+                                Text("上车前点一下：会先刷新解锁授权")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }

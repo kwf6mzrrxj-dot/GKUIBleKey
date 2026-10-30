@@ -100,8 +100,8 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "8.3"
-        CFBundleVersion: "83"
+        CFBundleShortVersionString: "8.4"
+        CFBundleVersion: "84"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -158,8 +158,8 @@ targets:
       #   一个设备都扫不到，且不会报错（v7.4 就踩过：手改 plist 被抹掉）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "8.3"
-        CFBundleVersion: "83"
+        CFBundleShortVersionString: "8.4"
+        CFBundleVersion: "84"
         NSBluetoothAlwaysUsageDescription: 手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey

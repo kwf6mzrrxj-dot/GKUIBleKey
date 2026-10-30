@@ -192,6 +192,42 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var keyIntegrityOK: Bool?
     @Published public private(set) var keyIntegrityDetail = "未校验"
 
+    // ── 「解锁 → 可启动」的 2 分钟授权窗（2026-10-31）───────────────
+    //
+    // 依据是**原厂 App 自己的文案**（Android v1.6.3.1 `res/values/strings.xml`）：
+    // ```xml
+    // <string name="unlock_succ">解锁成功，两分钟内可以启动车辆</string>
+    // ```
+    // 也就是说：**解锁是「可以启动」的起点，车端只认接下来这 2 分钟**。
+    // 这解释了真车反馈的「第一次点着、后面一直打不着」—— 第一次恰好落在
+    // 解锁后的 2 分钟内，后面几次已经过期，再怎么发 `0x0C` 也不会重新授权
+    // （心跳证明的是「钥匙在场」，不等于「允许启动」）。
+    //
+    // 说明：iOS 包（v1.5.11）里搜不到这条文案，只有 Android 版有，
+    // 且 smali 里没有引用（遗留字符串）。所以它是**产品语义级**的证据，
+    // 不是协议级 —— 车端真实的判定逻辑仍然看不到，标注为「待真车验证」。
+    /// 原厂文案里的窗口长度：两分钟
+    public static let unlockWindowSeconds: TimeInterval = 120
+    /// 「可启动」授权截止时刻（nil = 没有有效授权）
+    @Published public private(set) var unlockWindowEndsAt: Date?
+    /// 当前是否处于「解锁后 2 分钟内」
+    public var isUnlockWindowActive: Bool {
+        guard let end = unlockWindowEndsAt else { return false }
+        return end > Date()
+    }
+    /// 剩余秒数（仅用于日志 / 文案，界面倒计时交给 `Text(timerInterval:)`）
+    public var unlockWindowRemaining: Int {
+        guard let end = unlockWindowEndsAt else { return 0 }
+        return max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
+    }
+    /// 车辆是否已上电 / 引擎在转（来自广播解密的 `05` 状态）。
+    ///
+    /// 用来拦住「行驶中补发解锁」这种危险动作 —— 见 `sendPreAuthNow`。
+    private var carIsAwake: Bool {
+        guard let s = measured.status else { return false }
+        return s.isEngineRunning || s.isIgnitionOn
+    }
+
     public init() {
         // ★ 后台保活监控：记录进程启动 / 前后台切换 / 30 秒心跳。
         //   `App Intents` 后台冷启动时这里同样会跑，所以日志能区分
@@ -1204,6 +1240,8 @@ public final class AppModel: ObservableObject {
         rssiAntennaOne = nil
         rssiAntennaTwo = nil
         lastRelayAlarm = nil
+        // 解绑 = 这把钥匙不存在了，「可启动」授权也一并作废
+        unlockWindowEndsAt = nil
         // ★ 解绑后不该再说「车辆在线」——否则顶栏会替一辆已经解除绑定的车
         //   继续显示在线，直到 60 秒窗口过期。
         lastVehicleContactAt = nil
@@ -1596,10 +1634,32 @@ public final class AppModel: ObservableObject {
         // 注意 6.5 秒确实落在「7 秒内不接受第二次加密重连」这条边界之内，
         // 但那条约束是**失败重连**的产物，抓包里 6.2 秒的成功往返直接否掉了它。
         startIgnitionWindow()
-        measured.recordNote(
-            "手动补发预认证（用户请求）→ 开启 5 分钟点火窗口，心跳改为每 6.5 秒一轮")
-        statusLine = "点火窗口已开启（5 分钟内每 6.5 秒保活一次）…"
-        beginMeasuredAuth(asPreAuthentication: true)
+        // ★★ 关键分支（2026-10-31，依据原厂文案「解锁成功，两分钟内可以启动车辆」）：
+        //
+        // 心跳 `0x0C` 证明的是「**钥匙在场**」，不是「**允许启动**」。
+        // 允许启动是解锁带来的、只有 2 分钟。所以：
+        //   · 还在 2 分钟内 → 发心跳保活（接力）；
+        //   · 已经过期 / 开机后没解锁过 → **先补一次解锁刷新授权**，
+        //     否则心跳发得再密，车端也不会让点火 —— 这正是真车反馈的
+        //     「第一次点着、后面一直打不着」（第一次落在解锁后的窗口内）。
+        if isUnlockWindowActive {
+            measured.recordNote(
+                "手动补发预认证（用户请求）→ 点火窗口开启，心跳每 6.5 秒一轮"
+                + "（解锁授权还剩 \(unlockWindowRemaining) 秒）")
+            statusLine = "点火窗口已开启（5 分钟内每 6.5 秒保活一次）…"
+            beginMeasuredAuth(asPreAuthentication: true)
+        } else if carIsAwake {
+            // ★ 安全闸（2026-10-31）：车辆已上电 / 引擎在转时**绝不补发解锁** ——
+            //   行驶中解锁车门是危险动作。这时只发心跳（心跳本身不改车辆状态）。
+            measured.recordNote("车辆已上电/已启动 → 不发解锁，只发预认证心跳")
+            statusLine = "车辆已在运行，只做保活（不重复解锁）"
+            beginMeasuredAuth(asPreAuthentication: true)
+        } else {
+            measured.recordNote(
+                "上次解锁已超过 2 分钟（或无解锁记录）→ 先补一次解锁刷新「可启动」授权")
+            statusLine = "点火窗口已开启；正在刷新解锁授权…"
+            beginMeasuredAuth(action: .unlock)
+        }
     }
 
     // MARK: - ★ 点火窗口（2026-10-30）
@@ -1848,11 +1908,27 @@ public final class AppModel: ObservableObject {
                     switch result {
                     case .success:
                         recordAuthSuccess()
+                        // ★ 解锁成功 = 「可启动」授权的起点（原厂文案：
+                        //   「解锁成功，两分钟内可以启动车辆」）。落一个 2 分钟截止点，
+                        //   界面据此显示倒计时，「准备点火」据此决定要不要先补解锁。
+                        let acted = measured.lastSucceededAction
+                        if !isPreAuth, acted == .unlock {
+                            unlockWindowEndsAt = Date()
+                                .addingTimeInterval(Self.unlockWindowSeconds)
+                        }
+                        // 锁车 = 授权结束：留着倒计时只会骗自己「还能启动」
+                        if !isPreAuth, acted == .lock {
+                            unlockWindowEndsAt = nil
+                        }
                         // 不再写「约 30 秒后自动续发」：点火窗口内是 6.5 秒一轮，
                         // 写死的数字必然是错的（具体间隔下面 `didComplete` 会写进日志）。
-                        statusLine = isPreAuth
-                            ? "✅ 钥匙已被车内认可，可踩刹车按启动按钮"
-                            : "「\(measured.lastSucceededAction?.label ?? "动作")」执行成功（04 00）"
+                        if isPreAuth {
+                            statusLine = "✅ 钥匙已被车内认可，可踩刹车按启动按钮"
+                        } else if acted == .unlock {
+                            statusLine = "✅ 解锁成功，两分钟内可以启动车辆"
+                        } else {
+                            statusLine = "「\(acted?.label ?? "动作")」执行成功（04 00）"
+                        }
                     case .acceptedAwaitingNames:
                         statusLine = "已受理，等待车端回 0x0F 设备名"
                     case .refused(let code):
