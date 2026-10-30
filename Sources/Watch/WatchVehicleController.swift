@@ -645,12 +645,12 @@ public final class WatchVehicleController: ObservableObject {
         guard !frame.isEmpty else {
             preAuthInFlight = false
             measured.recordNote("预认证帧构造失败（密钥不完整）")
-            preAuth.didComplete()          // 排下一轮，别把心跳卡死
+            preAuth.didComplete(success: false)   // 帧构造失败 → 失败（6.5 秒重试）
             return
         }
         guard ble.send(frame) else {
             preAuthInFlight = false
-            preAuth.didComplete()
+            preAuth.didComplete(success: false)
             return
         }
         heartbeatCount = preAuth.sentCount
@@ -813,8 +813,8 @@ public final class WatchVehicleController: ObservableObject {
             default:
                 statusLine = "保活心跳已发送"
             }
-            // 排下一轮（原 App `didPassiveStartCompletedWithError:` → 29 秒）
-            preAuth.didComplete()
+            // 排下一轮：收到 04 算成功 → 29 秒（反汇编 `0xb7d4`，失败才是 6.5）
+            preAuth.didComplete(success: true)
             // 这一轮里用户点过按钮 → 现在补发
             if let action = pendingAction {
                 pendingAction = nil
@@ -882,7 +882,7 @@ public final class WatchVehicleController: ObservableObject {
                 self.preAuthInFlight = false
                 self.busy = false
                 self.statusLine = "保活心跳超时（车端无回应）"
-                self.preAuth.didComplete()
+                self.preAuth.didComplete(success: false)
                 if let action = self.pendingAction {
                     self.pendingAction = nil
                     self.start(action)

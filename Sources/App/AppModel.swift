@@ -1046,7 +1046,7 @@ public final class AppModel: ObservableObject {
             // 前台没事（0.5 秒就有一帧），**后台广播稀疏到 10–31 秒甚至更久时，
             // 「位置没动、预认证却断了几分钟」就是这么来的** —— 点火抽奖的一个来源。
             if wasPreAuth {
-                self.preAuth.didComplete()
+                self.preAuth.didComplete(success: false)
             }
             self.statusLine = "❌ \(what) 超时（\(Int(seconds))s，code 690）"
             // ★★★ 超时必须**收口所有「等待中」的状态**（2026-10-29 修复）。
@@ -1851,9 +1851,10 @@ public final class AppModel: ObservableObject {
                         settlePassiveEntryToggle(result)
                     }
                     if isPreAuth {
-                        // 不区分成功/失败：反汇编 `0xb7d4` 的 `cbz x20` 是 self 判空，
-                        // 不是 error 分支；实测节奏 30 秒（见 `didComplete()` 说明）。
-                        preAuth.didComplete()
+                        // ★ 反汇编 `0xb7d4: cbz x20` 的 x20 是 **error**（不是 self）：
+                        //   error == nil（成功）→ 29 秒；error != nil（失败）→ 6.5 秒。
+                        //   这里能走到说明拿到 04，算成功。
+                        preAuth.didComplete(success: true)
                         // 本轮走完了 → 释放后台执行权（见 `beginPreAuthBackgroundTask`）
                         endPreAuthBackgroundTask()
                     }
@@ -1888,7 +1889,7 @@ public final class AppModel: ObservableObject {
                     // 本轮中止 → 释放后台执行权
                     endPreAuthBackgroundTask()
                     // ★ 同超时分支：预认证轮次中止也要排下一轮，否则续发链停摆
-                    if wasPreAuth { preAuth.didComplete() }
+                    if wasPreAuth { preAuth.didComplete(success: false) }
                     if pendingPassiveEntryValue != nil {
                         settlePassiveEntryToggle(.refused(0x2BB))
                     }

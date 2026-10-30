@@ -299,36 +299,52 @@ public final class PreAuthenticationController: ObservableObject {
 
     // MARK: - ⑤ didPassiveStartCompletedWithError:
 
-    /// 覆盖默认的 29 秒间隔 —— 用于「点火窗口」。
+    /// 覆盖间隔上限 —— 用于「点火窗口」（窗口内强制更快）。
     ///
-    /// ## 为什么需要（2026-10-30 真车反馈）
-    ///
-    /// 车端对「钥匙在场」的记忆是有时效的。默认 29 秒一轮意味着**每轮之间有
-    /// 近 30 秒的空窗**，而用户按启动按钮是随机时刻 —— 落在空窗里就打不着火。
-    /// 真车日志印证：19:00–19:02 连点 16 次「准备点火」，绝大多数都落在空窗。
-    ///
-    /// 用户点「准备点火」时置成 **10 秒**（仍在车端「7 秒内不接受第二次加密
-    /// 重连」的安全边界之外），让接下来 5 分钟内车端几乎一直认为钥匙在场。
-    /// 窗口结束置回 `nil`，恢复 29 秒的省电节奏。
+    /// 只作为**上限**参与 `min`：`didComplete` 算出的原厂间隔如果本来就更快，
+    /// 不会被它拖慢。窗口结束置回 `nil`。
     public var retryIntervalOverride: TimeInterval?
 
-    /// 实际生效的重试间隔
+    /// 实际生效的重试间隔（窗口内取更快的那个）
     public var effectiveRetryInterval: TimeInterval {
-        retryIntervalOverride ?? Self.retryInterval
+        let base = Self.retryInterval
+        guard let o = retryIntervalOverride else { return base }
+        return min(base, o)
     }
+
+    /// **失败**后的快速重试间隔 —— 反汇编 `0xb7d8: fmov d0, #6.50000000`
+    ///
+    /// 抓包实证（`btsnoop_ign`）：20:49:47 那轮虽然收到 `04 00`，但车端随即断开，
+    /// App 侧按「有 error」处理 → **6.2 秒后就发了下一轮**。
+    public static let failureRetryInterval: TimeInterval = 6.5
 
     /// 一次预认证往返结束后的重试间隔。
     ///
-    /// ## 反汇编里其实**没有**「成功/失败」分支
+    /// ## 反汇编：成功慢、失败快（2026-10-31 纠正，之前的注释读反了）
     ///
     /// `-[IBVehicle didPassiveStartCompletedWithError:]` @`0xb6cc`：
     ///
     /// ```asm
-    /// 0xb710: mov  x20, x0                       ; x20 = self
+    /// 0xb6e8: mov  x23, x2        ; x23 = 第 3 参数
+    /// 0xb708: mov  x0, x2
+    /// 0xb70c: bl   _objc_retain
+    /// 0xb710: mov  x20, x0        ; ★ x20 = retain(第3参数) = error
+    /// ...
     /// 0xb7d0: ldr  x1, @selector(setTimeBetweenPassiveStart:)
-    /// 0xb7d4: cbz  x20, #0xb7e0                  ; self == nil → 29.0
-    /// 0xb7d8: fmov d0, #6.5                      ; self != nil → 固定 6.5
-    /// 0xb7e0: fmov d0, #29.0                     ; （不可达的占位）
+    /// 0xb7d4: cbz  x20, #0xb7e0   ; ★ error == nil → 跳 0xb7e0
+    /// 0xb7d8: fmov d0, #6.5       ; error != nil（失败）→ 6.5
+    /// 0xb7dc: b    #0xb7e4
+    /// 0xb7e0: fmov d0, #29.0      ; error == nil（成功）→ 29
+    /// ```
+    ///
+    /// **`x20` 是 `error` 而不是 `self`** —— `didPassiveStartCompletedWithError:`
+    /// 只有一个显式参数，按 arm64 调用约定就在 `x2`。旧注释误判成 weak-self 判空，
+    /// 于是得出「6.5 是固定值、29 走不到」，把语义**整个读反了**。
+    ///
+    /// 正确语义：**成功 → 29 秒（省电）；失败 → 6.5 秒（快速重试抢回来）**。
+    ///
+    /// 这也解释了「7 秒内不接受第二次加密重连」那条约束是**失败重连**的产物：
+    /// 原厂失败后用 6.5 秒重试，本身就在这条边界上跳舞，但它是**授权**的路径。
     /// ```
     ///
     /// `cbz x20` 判的是 **self 是否为 nil**（编译器为 weak self 生成的判空），
@@ -351,12 +367,17 @@ public final class PreAuthenticationController: ObservableObject {
     /// 不接受第二次加密重连（2026-10-29 06:14:38 成功、06:14:45 加密超时）。
     ///
     /// 所以这里统一用 **29 秒**：29 秒等待 + 约 1 秒连接/鉴权执行 ≈ 实测的 30 秒。
-    public func didComplete() {
+    public func didComplete(success: Bool = true) {
         guard isEnabled, didStart else { return }
-        // ★ 用 `effectiveRetryInterval`：点火窗口内是 10 秒，平时 29 秒
-        timeBetweenPassiveStart = effectiveRetryInterval
+        // ★ 反汇编 0xb7d4 的真实语义：error == nil（成功）→ 29 秒；
+        //   error != nil（失败）→ 6.5 秒。**成功慢、失败快**。
+        let base = success ? Self.retryInterval : Self.failureRetryInterval
+        // 点火窗口只作为「上限」参与 min —— 窗口内即使成功也压到 6.5，
+        // 但不允许把原厂更快的失败重试（6.5）拖慢。
+        timeBetweenPassiveStart = retryIntervalOverride.map { min(base, $0) } ?? base
         cancelPending()
-        onLog?(String(format: "预认证往返结束，%.1f 秒后重试", timeBetweenPassiveStart))
+        onLog?(String(format: "预认证往返结束（%@），%.1f 秒后重试",
+                      success ? "成功" : "失败", timeBetweenPassiveStart))
         schedule(after: timeBetweenPassiveStart) { [weak self] in
             self?.launchEntryCommands()
         }
