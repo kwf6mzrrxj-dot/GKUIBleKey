@@ -131,6 +131,16 @@ public final class PreAuthenticationController: ObservableObject {
         isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
     }
 
+    /// 用户是否**显式**动过这个开关。
+    ///
+    /// 用途：原 App 配对成功后心跳就是常开的（26 天日志里 69 次 `0x0C` 没有断过），
+    /// 而我们这个开关默认 `false`、又没有 UI 引导，等于「配对完了但不保活」。
+    /// 但也不能每次启动都强行打开 —— 那会把用户主动关掉的选择覆盖掉。
+    /// 所以只在 `UserDefaults` 里**没有这个键**时自动开启（`hasExplicitPreference == false`）。
+    public var hasExplicitPreference: Bool {
+        UserDefaults.standard.object(forKey: Self.enabledKey) != nil
+    }
+
     public func setEnabled(_ on: Bool) {
         isEnabled = on
         UserDefaults.standard.set(on, forKey: Self.enabledKey)

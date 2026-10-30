@@ -125,6 +125,10 @@ struct DiagnosticsView: View {
                 readonlyRow("蓝牙适配器", model.ble.bluetoothStatusText)
                 readonlyRow("位置权限", model.ble.locationAuthText)
                 readonlyRow("链路状态", model.ble.linkState.rawValue)
+                // ★ 顶栏只说「在线/离线」，这里保留原始状态与最近联络时间 ——
+                //   排查时要看的正是这两者的差值（例如"在线但链路 failed"）。
+                readonlyRow("车辆在线", model.isVehicleOnline ? "是" : "否")
+                readonlyRow("最近联络", model.lastContactText)
                 readonlyRow("写特征", model.ble.isWriteReady ? "已就绪" : "未就绪")
                 // ★ candidates 从不清空（全项目无 `candidates = []`），
                 //   所以这是「本进程累计」，不是本次扫描的实时数量 ——

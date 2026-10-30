@@ -113,12 +113,12 @@ struct RootView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            // 连接状态胶囊（点色 + 文案）
+            // 车辆状态胶囊（点色 + 文案）—— 只说车在不在
             HStack(spacing: 6) {
                 Circle()
-                    .fill(linkStateColor)
+                    .fill(vehicleStatusColor)
                     .frame(width: 7, height: 7)
-                Text(linkStateText)
+                Text(vehicleStatusText)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -189,13 +189,10 @@ struct RootView: View {
         }
     }
 
-    private var linkStateColor: Color {
-        switch model.ble.linkState {
-        case .ready:        return .green
-        case .connecting, .discovering, .scanning: return .yellow
-        case .failed:       return .red
-        case .disconnected, .idle: return .gray
-        }
+    /// 顶栏胶囊的颜色 —— 只表达「车在不在」，不表达 GATT 走到哪一步。
+    private var vehicleStatusColor: Color {
+        if model.pairingArmed { return .cyan }
+        return model.isVehicleOnline ? .green : .gray
     }
 
     // MARK: - 车辆标题
@@ -213,19 +210,23 @@ struct RootView: View {
         .padding(.bottom, 4)
     }
 
-    private var linkStateText: String {
+    /// 顶栏文案 —— **语义化状态**，不再显示 BLE 链路阶段。
+    ///
+    /// ## 为什么不再显示「扫描中 / 连接中 / 已连接」
+    ///
+    /// 原 App 实测（26 天日志）：343 段连接、中位 **0.596 秒**、两次断开间隔中位
+    /// **30.0 秒** —— 链路占空比只有 2%。它界面上从不显示链路状态，
+    /// 所以用户感觉「一直是连着的」。
+    ///
+    /// 我们原来把这套内部状态直接画在顶栏，于是每 29 秒必然闪一次
+    /// 「已连接 → 未连接 → 扫描中」。同一个物理过程，观感完全不同 ——
+    /// 那不是不稳定，是把实现细节暴露给了用户。
+    ///
+    /// 现在只说「车辆在线 / 离线」，依据是最近 60 秒内有没有收到车端信号；
+    /// 原始链路状态（扫描中/握手/已连接）在诊断页「BLE 连接状态」里一字不少。
+    private var vehicleStatusText: String {
         if model.pairingArmed { return "配对中" }
-        switch model.ble.linkState {
-        case .ready:        return "已连接"
-        case .connecting:   return "连接中"
-        // 「发现服务」是 BLE 术语（GATT 服务发现），对用户太黑话。
-        // 正常只存在 0.04–0.17 秒，一闪而过；诊断页仍显示原始名。
-        case .discovering:  return "正在握手…"
-        case .scanning:     return "扫描中"
-        case .disconnected: return "未连接"
-        case .failed:       return "连接失败"
-        case .idle:         return "待机"
-        }
+        return model.isVehicleOnline ? "车辆在线" : "车辆离线"
     }
 
     // MARK: - 车辆图（原 App 车辆模型帧 + 状态动画）

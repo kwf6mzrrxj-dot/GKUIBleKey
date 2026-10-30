@@ -72,6 +72,53 @@ public final class AppModel: ObservableObject {
     /// 是否已提示过「RSSI 未标定」（只提示一次）
     private var didWarnUncalibrated = false
 
+    // MARK: - ★ 车辆在线（语义化状态）
+
+    /// 顶栏该回答的问题是「车在不在」，不是「GATT 握到第几步」。
+    ///
+    /// ## 为什么改（2026-10-30）
+    ///
+    /// 原 App 26 天日志里实测：**343 段连接，中位 0.596 秒**，两次断开间隔中位
+    /// **30.0 秒** —— 链路实际占空比只有 2%，它从来没"一直保持连接"。
+    /// 但它界面上不显示链路状态，所以用户感觉"一直是连着的"。
+    ///
+    /// 而我们原来把 `linkState` 直接画在顶栏，于是每 29 秒就闪一次
+    /// 「已连接 → 未连接 → 扫描中」，看起来像"不稳定"，实际两者一模一样。
+    ///
+    /// 现在顶栏只说「车辆在线 / 离线」，判定依据是**最近一次收到车端信号**的时间；
+    /// 扫描中/握手/已连接这些原始状态全部留在诊断页。
+    ///
+    /// 窗口取 **60 秒**（两个心跳周期）：漏掉一轮心跳不会立刻变灰，
+    /// 但真的走远了（RSSI 收不到广播 + 没有帧）两轮之后就会显示离线。
+    public static let vehicleOnlineWindow: TimeInterval = 60
+
+    /// 最近一次「确认车在附近」的时刻：收到本车广播 / 收到车端任意帧 / 命令成功。
+    @Published public private(set) var lastVehicleContactAt: Date?
+
+    /// 只用于让「在线」随时间自然过期 —— SwiftUI 不会因为 `Date()` 推进而重绘。
+    @Published private var onlineTick = Date()
+    private var onlineTickTask: Task<Void, Never>?
+
+    /// 车在不在（顶栏用）
+    public var isVehicleOnline: Bool {
+        _ = onlineTick          // 读取它，让视图随 tick 重算
+        guard let t = lastVehicleContactAt else { return false }
+        return onlineTick.timeIntervalSince(t) < Self.vehicleOnlineWindow
+    }
+
+    /// 最近一次联络距今的描述（诊断页用）
+    public var lastContactText: String {
+        guard let t = lastVehicleContactAt else { return "从未" }
+        let s = Int(Date().timeIntervalSince(t))
+        if s < 1 { return "刚刚" }
+        if s < 60 { return "\(s) 秒前" }
+        return "\(s / 60) 分 \(s % 60) 秒前"
+    }
+
+    private func markVehicleContact() {
+        lastVehicleContactAt = Date()
+    }
+
     // MARK: - ★ 实时日志浮窗
 
     /// 实时日志行（最近 200 行），供浮窗显示。由 `FileLogger` 回调驱动更新。
@@ -272,6 +319,8 @@ public final class AppModel: ObservableObject {
             .compactMap { (raw: Int?) -> Int? in raw }
             .sink { [weak self] (value: Int) in
                 guard let self else { return }
+                // ★ 收到本车广播 = 车在附近（`ble.$rssi` 只在 `hit` 时发布）
+                self.markVehicleContact()
                 self.relayGuard.record(value)
                 // ★ 中继告警要落到日志里，否则这段检测等于不存在
                 //   （原来只 record 不读结果，每次 RSSI 回调都在做无用计算）。
@@ -497,6 +546,33 @@ public final class AppModel: ObservableObject {
         loadCalibration()
         // 启动即读取无感进入开关状态（靠近车辆拉门把手解锁）
         loadPassiveEntryState()
+
+        // ★ 照原 App：有钥匙就该有心跳。原 App 26 天日志里 69 次 `0x0C` 没有断过，
+        //   配对完就一直在跑；我们这个开关原来默认 false、又没有引导，
+        //   等于「配对成功但从不保活」—— 那 29 秒节奏根本不会启动。
+        autoEnablePreAuthIfNeeded(reason: "启动时已有钥匙")
+
+        // ★ 「车辆在线」的定时重算（5 秒一次）
+        //   只在需要让状态**自然过期**时才有意义：`lastVehicleContactAt` 变化会
+        //   自己触发重绘，但"60 秒没联络"这件事没有事件可挂，必须靠 tick。
+        onlineTickTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.onlineTick = Date()
+            }
+        }
+    }
+
+    /// 按原 App 行为打开预认证保活 —— 但**不覆盖用户显式关掉的选择**。
+    ///
+    /// 判据是 `PreAuthenticationController.hasExplicitPreference`：
+    /// - `false`（从没动过开关）→ 自动开，对齐原 App「配对后一直心跳」
+    /// - `true`（用户主动关过）→ 保持关闭，不再骚扰
+    private func autoEnablePreAuthIfNeeded(reason: String) {
+        guard hasLocalKey, !preAuth.isEnabled, !preAuth.hasExplicitPreference else { return }
+        preAuth.setEnabled(true)
+        measured.recordNote("预认证保活：已自动开启（\(reason)；原 App 配对后即持续心跳）")
     }
 
     /// 读取车端标定值 —— 照 `-[IBVehicle getCalibrationSavedValues]` @`0xb83c`。
@@ -1007,6 +1083,9 @@ public final class AppModel: ObservableObject {
             loadCalibration()
             // ★ 新密钥落库 → 立刻重算完整性指纹，避免下次启动才自愈
             verifyKeyIntegrity()
+            // ★ 照原 App：配对成功即开始心跳（`callDidPairingSuccess` 之后
+            //   预认证就一直跑，从不等用户去开开关）
+            autoEnablePreAuthIfNeeded(reason: "配对成功")
             statusLine = "收到车端密钥（\(payload.count)B）已保存，配对完成"
             // ★★★ 原 App 配对成功后 `callDidPairingSuccess` @0x6d6c 里会
             //     `disconnect` @0x6588（实为 `resetCommandTimeout` + `startScan`，
@@ -1549,6 +1628,9 @@ public final class AppModel: ObservableObject {
 
     private func handleIncomingFrame(_ bytes: [UInt8]) {
         // ★★ 实测协议优先：首字节就是命令号
+
+        // ★ 能收到车端的帧 = 车就在旁边（无论后续解析成功与否）
+        markVehicleContact()
 
         // 配对帧（0x0D / 0x0E）先交给配对流程
         if handlePairingFrame(bytes) {
