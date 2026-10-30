@@ -1,5 +1,7 @@
 import Foundation
+#if os(iOS)
 import UIKit
+#endif
 
 /// 后台保活监控 —— 专门回答「App 退到后台 / 被系统回收后，还能不能干活」。
 ///
@@ -166,18 +168,28 @@ public final class BackgroundMonitor {
     private var appLaunchTime = Date()
 
     private var stateText: String {
+        // watchOS 没有 UIApplication（App 生命周期由 SwiftUI 管），
+        // 手表端也没有"后台保活"这个概念 —— 直接给固定值。
+        #if os(iOS)
         switch UIApplication.shared.applicationState {
         case .active:   return "前台"
         case .inactive: return "过渡(inactive)"
         case .background: return "后台"
         @unknown default: return "未知"
         }
+        #else
+        return "手表前台"
+        #endif
     }
 
     private var backgroundRemainingText: String {
+        #if os(iOS)
         let r = UIApplication.shared.backgroundTimeRemaining
         if r.isInfinite || r > 1_000_000 { return "无限" }
         return String(format: "%.0fs", r)
+        #else
+        return "不适用"
+        #endif
     }
 
     private static func format(_ seconds: TimeInterval) -> String {

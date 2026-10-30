@@ -1,6 +1,8 @@
 import Foundation
 import Security
+#if os(iOS)
 import UIKit
+#endif
 
 /// 密钥与凭据的持久化。
 ///
@@ -216,7 +218,13 @@ public final class KeyStore {
     @MainActor
     public var idfvDisplay: String {
         if let s = getString(.idfv) { return s }
+        // watchOS 没有 UIDevice（UIKit 里这个类被裁剪掉了），
+        // 手表端不需要 IDFV 上送，给个固定占位即可。
+        #if os(iOS)
         let s = UIDevice.current.identifierForVendor?.uuidString ?? "未知"
+        #else
+        let s = "watch"
+        #endif
         setString(s, for: .idfv)
         return s
     }

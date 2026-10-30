@@ -8,27 +8,44 @@
 
 /* Begin PBXBuildFile section */
 		00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
+		0999E1D16C95F63E12B20564 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
+		09D316217D79942708241C89 /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
+		150B8869072C6EE07BCC6B0D /* WatchKeySyncResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549E4D279FF6E45DAD37D303 /* WatchKeySyncResponder.swift */; };
+		15ECAB823D720297F0346CD1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
+		17A633D57856533C52E6A77E /* WatchVehicleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */; };
 		21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF19D2E689EE7C245F20164 /* RootView.swift */; };
 		221CF8215A2337F5C1017466 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
+		231B51FAAC8D059D88B97064 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
 		269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */; };
 		27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
+		2A98A4125CC135647FA8F86F /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
+		322F70AC2D60ECC51C9D76D5 /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
+		341A6E588E143A781919EEF1 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
 		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
 		35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7581756575E39739261B2253 /* AppDelegate.swift */; };
+		3B6BC2E088DF70B0579E2040 /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */; };
 		3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
 		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
 		4DEE5D8FFEDFC8411E75569E /* builtin-keys.txt in Resources */ = {isa = PBXBuildFile; fileRef = 03B476E9C21E7763239DBD3E /* builtin-keys.txt */; };
+		531AFB586198A1A2A355F11E /* BackgroundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */; };
 		5A5F177B77B566D517418361 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */; };
+		5FC7F4E886C3406B9E1317FE /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
 		6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
+		6607E6A6E60B3BF59B8E413C /* BuiltInKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */; };
 		6798BD14C932E43943639F5A /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
 		6ADF1204CADB569E36A7B1EC /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72C39E1002B486405A22086 /* VehicleProfile.swift */; };
 		6CF361E72347E0B63E4E60F9 /* car_on.png in Resources */ = {isa = PBXBuildFile; fileRef = 787E575EA2239FE9C258C166 /* car_on.png */; };
+		77CE356F1F1F1F80F903C8F4 /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
 		7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
 		7C74A36AD3E91728A82FA2AC /* car_light.png in Resources */ = {isa = PBXBuildFile; fileRef = C1CF7ACBF0EAF3D137B56617 /* car_light.png */; };
+		7DF0A6D322F24C33B2CFC2A7 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
 		8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
 		85BCF61CB4A0929EAE6DEFD3 /* car_detail.png in Resources */ = {isa = PBXBuildFile; fileRef = E7C32A037F805BE11A1268CE /* car_detail.png */; };
+		8631125992B10088E9089278 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
+		8718614DD8241A01D2F2D71B /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
 		89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
 		8B42A80A93F7C01EFE18FDFC /* car_small.png in Resources */ = {isa = PBXBuildFile; fileRef = E6B273DC3208E17B03DEE527 /* car_small.png */; };
 		95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */; };
@@ -49,10 +66,16 @@
 		D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */; };
 		DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */; };
 		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
+		E23BFEE828EDA0C1168D0C71 /* WatchKeySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044C48954786697D514C0570 /* WatchKeySync.swift */; };
 		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
+		EE460A9579C5A8048801A02B /* GKUIBleKeyWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */; };
+		EEA8AA516C49AD7F102CA91A /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
+		F057CB0E4B64EE74E127426C /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
 		F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF365E39A85492849FCFC1DD /* VehicleIntents.swift */; };
 		F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */; };
 		F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
+		F98802DD7A363381AE029E6E /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
+		FDD541EF654A7046060ECD47 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367D57CD773A3B52A02FAB9C /* WatchRootView.swift */; };
 		FF21906B2EED6B801E55B378 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD10ED24FE80E92462D8D861 /* LiveActivityController.swift */; };
 /* End PBXBuildFile section */
 
@@ -82,6 +105,7 @@
 
 /* Begin PBXFileReference section */
 		03B476E9C21E7763239DBD3E /* builtin-keys.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "builtin-keys.txt"; sourceTree = "<group>"; };
+		044C48954786697D514C0570 /* WatchKeySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchKeySync.swift; sourceTree = "<group>"; };
 		062758546AC7B33C61337BD0 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
 		0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWidgetBundle.swift; sourceTree = "<group>"; };
@@ -92,10 +116,12 @@
 		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
 		32D87676E2E2A3F87BF5416C /* RelayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayGuard.swift; sourceTree = "<group>"; };
+		367D57CD773A3B52A02FAB9C /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatus.swift; sourceTree = "<group>"; };
 		48C56C0A7C2175F4E75072A7 /* car_off.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_off.png; sourceTree = "<group>"; };
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
+		549E4D279FF6E45DAD37D303 /* WatchKeySyncResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchKeySyncResponder.swift; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
 		6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLogFloatingView.swift; sourceTree = "<group>"; };
 		7581756575E39739261B2253 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -113,6 +139,7 @@
 		A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingWindowController.swift; sourceTree = "<group>"; };
 		A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInspectorView.swift; sourceTree = "<group>"; };
 		A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMonitor.swift; sourceTree = "<group>"; };
+		B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchVehicleController.swift; sourceTree = "<group>"; };
 		B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInKeys.swift; sourceTree = "<group>"; };
 		BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleActivityAttributes.swift; sourceTree = "<group>"; };
@@ -121,6 +148,7 @@
 		BF365E39A85492849FCFC1DD /* VehicleIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleIntents.swift; sourceTree = "<group>"; };
 		C1CF7ACBF0EAF3D137B56617 /* car_light.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_light.png; sourceTree = "<group>"; };
 		C72C39E1002B486405A22086 /* VehicleProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleProfile.swift; sourceTree = "<group>"; };
+		C9AB7BD30F349C7FA0524D11 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasuredSession.swift; sourceTree = "<group>"; };
 		D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeTable.swift; sourceTree = "<group>"; };
@@ -130,6 +158,8 @@
 		E6B273DC3208E17B03DEE527 /* car_small.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_small.png; sourceTree = "<group>"; };
 		E7C32A037F805BE11A1268CE /* car_detail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_detail.png; sourceTree = "<group>"; };
 		F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = GKUIBleKeyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GKUIBleKeyWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWatchApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -162,10 +192,23 @@
 			path = LiveActivity;
 			sourceTree = "<group>";
 		};
+		1D9F59B31D0E96419E00488D /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */,
+				C9AB7BD30F349C7FA0524D11 /* Info.plist */,
+				044C48954786697D514C0570 /* WatchKeySync.swift */,
+				367D57CD773A3B52A02FAB9C /* WatchRootView.swift */,
+				B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */,
+			);
+			path = Watch;
+			sourceTree = "<group>";
+		};
 		2C4BFF217D90767F3BE5C80C /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */,
+				F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */,
 				F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */,
 			);
 			name = Products;
@@ -226,6 +269,7 @@
 				900665DD8E86C6537DC8ADE6 /* Security */,
 				0763A5866757F157EF11AEF7 /* Support */,
 				55956701F9A9FE3F9DAB9E64 /* UI */,
+				1D9F59B31D0E96419E00488D /* Watch */,
 				8510F056DAE523FFF386B31A /* Widget */,
 				E484F5C4824BDB2B2B2937BB /* Info.plist */,
 			);
@@ -248,6 +292,7 @@
 				7581756575E39739261B2253 /* AppDelegate.swift */,
 				BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */,
 				7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */,
+				549E4D279FF6E45DAD37D303 /* WatchKeySyncResponder.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -331,6 +376,23 @@
 			productReference = BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */;
 			productType = "com.apple.product-type.application";
 		};
+		7CCD64175ACF5BF9A4D425F6 /* GKUIBleKeyWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 23C0BF2364F0FB204251ED14 /* Build configuration list for PBXNativeTarget "GKUIBleKeyWatch" */;
+			buildPhases = (
+				69FD19F05AD20AA3A4699344 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GKUIBleKeyWatch;
+			packageProductDependencies = (
+			);
+			productName = GKUIBleKeyWatch;
+			productReference = F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FD6C1ECFF6693B02FE8DEA34 /* Build configuration list for PBXNativeTarget "GKUIBleKeyWidget" */;
@@ -361,6 +423,10 @@
 						DevelopmentTeam = 2PQ29MSM39;
 						ProvisioningStyle = Automatic;
 					};
+					7CCD64175ACF5BF9A4D425F6 = {
+						DevelopmentTeam = 2PQ29MSM39;
+						ProvisioningStyle = Automatic;
+					};
 					E40045301D1F74812F6CF8E6 = {
 						DevelopmentTeam = 2PQ29MSM39;
 						ProvisioningStyle = Automatic;
@@ -383,6 +449,7 @@
 			targets = (
 				348CC567198478C16B1AAB18 /* GKUIBleKey */,
 				E40045301D1F74812F6CF8E6 /* GKUIBleKeyWidget */,
+				7CCD64175ACF5BF9A4D425F6 /* GKUIBleKeyWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -413,6 +480,35 @@
 				F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */,
 				3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */,
 				CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		69FD19F05AD20AA3A4699344 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8631125992B10088E9089278 /* BLECentral.swift in Sources */,
+				531AFB586198A1A2A355F11E /* BackgroundMonitor.swift in Sources */,
+				0999E1D16C95F63E12B20564 /* BroadcastParser.swift in Sources */,
+				6607E6A6E60B3BF59B8E413C /* BuiltInKeys.swift in Sources */,
+				5FC7F4E886C3406B9E1317FE /* CryptoBox.swift in Sources */,
+				3B6BC2E088DF70B0579E2040 /* ErrorCodeTable.swift in Sources */,
+				341A6E588E143A781919EEF1 /* FileLogger.swift in Sources */,
+				7DF0A6D322F24C33B2CFC2A7 /* FrameCodec.swift in Sources */,
+				EE460A9579C5A8048801A02B /* GKUIBleKeyWatchApp.swift in Sources */,
+				77CE356F1F1F1F80F903C8F4 /* InBlueAuth.swift in Sources */,
+				EEA8AA516C49AD7F102CA91A /* InBluePairing.swift in Sources */,
+				F98802DD7A363381AE029E6E /* KeyStore.swift in Sources */,
+				322F70AC2D60ECC51C9D76D5 /* MeasuredSession.swift in Sources */,
+				231B51FAAC8D059D88B97064 /* PassiveStart.swift in Sources */,
+				F057CB0E4B64EE74E127426C /* PreAuthenticationController.swift in Sources */,
+				09D316217D79942708241C89 /* ProtocolConstants.swift in Sources */,
+				15ECAB823D720297F0346CD1 /* SelfTest.swift in Sources */,
+				8718614DD8241A01D2F2D71B /* ValeoAdvMatch.swift in Sources */,
+				2A98A4125CC135647FA8F86F /* VehicleStatus.swift in Sources */,
+				E23BFEE828EDA0C1168D0C71 /* WatchKeySync.swift in Sources */,
+				FDD541EF654A7046060ECD47 /* WatchRootView.swift in Sources */,
+				17A633D57856533C52E6A77E /* WatchVehicleController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -455,6 +551,7 @@
 				F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */,
 				6ADF1204CADB569E36A7B1EC /* VehicleProfile.swift in Sources */,
 				6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */,
+				150B8869072C6EE07BCC6B0D /* WatchKeySyncResponder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -598,13 +695,33 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
+		};
+		3D1C5432C71773A33B4A3B27 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Watch/Info.plist;
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey.watchkitapp;
+				PRODUCT_NAME = GKUIBleKeyWatch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
 		};
 		72821C530EDE58BD385D91E8 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -629,6 +746,27 @@
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
+		};
+		D0F2AD505CAA4469F748A90D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2PQ29MSM39;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/Watch/Info.plist;
+				OTHER_SWIFT_FLAGS = "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/usr/lib/swift/host/plugins";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mmxisme.gkuiblekey.watchkitapp;
+				PRODUCT_NAME = GKUIBleKeyWatch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
 		};
 		DBDBA4E7FB5B778C1C0EB81D /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -680,7 +818,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -691,6 +828,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		23C0BF2364F0FB204251ED14 /* Build configuration list for PBXNativeTarget "GKUIBleKeyWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D0F2AD505CAA4469F748A90D /* Debug */,
+				3D1C5432C71773A33B4A3B27 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		2F706303403387158D85A9D0 /* Build configuration list for PBXProject "GKUIBleKey" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

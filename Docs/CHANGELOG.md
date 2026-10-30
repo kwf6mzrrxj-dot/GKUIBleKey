@@ -5,6 +5,74 @@
 
 ---
 
+## v7.2（2026-10-30）—— Apple Watch 端（前台控车）：代码完成，卡在签名
+
+### 做了什么
+
+新增 `GKUIBleKeyWatch` target（watchOS 26+），协议栈**完全复用**手机端：
+
+| 文件 | 作用 |
+|---|---|
+| `Sources/Watch/GKUIBleKeyWatchApp.swift` | 入口，`@main` |
+| `Sources/Watch/WatchVehicleController.swift` | 最小闭环：扫描 → 连接 → `01/02/03/04` → 结果，4 秒超时 |
+| `Sources/Watch/WatchRootView.swift` | 锁状态 + 解锁/闭锁/寻车 |
+| `Sources/Watch/WatchKeySync.swift` | WatchConnectivity 收密钥（手表侧） |
+| `Sources/App/WatchKeySyncResponder.swift` | WatchConnectivity 发密钥（手机侧） |
+
+复用：`BLECentral`（扫描/连接/分包/广播解密）+ `MeasuredSession`（鉴权状态机、序号）+
+`KeyStore`（Keychain）+ `CryptoBox`。手表只多一层更小的 UI 和一条密钥通道。
+
+### 能力边界（写进代码注释，避免以后误判"没做完"）
+
+**做**：抬腕 → 打开 App → 解锁 / 闭锁 / 寻车，显示车锁状态。
+**不做**：无感进入、点火保活。
+
+原因不是懒：watchOS 不给普通 App 持续的后台 BLE —— 一退出前台就挂起，
+`Task.sleep` 不推进、扫描也停。手机端能维持 30 秒心跳靠的是
+`bluetooth-central` + Live Activity 提权，watchOS 两者都没有。
+
+### 为复用剥离的 4 处 iOS-only API
+
+| 位置 | 问题 | 处理 |
+|---|---|---|
+| `KeyStore.idfvDisplay` | `UIDevice` 在 watchOS 被裁剪（UIKit 还在，**判 `canImport(UIKit)` 会踩坑**） | `#if os(iOS)`，手表返回 `"watch"` |
+| `InBluePairing.currentDeviceName` | 同上，且原来判的是 `canImport(UIKit)` | 改成 `#if os(iOS)` |
+| `BackgroundMonitor` | `UIApplication.applicationState` / `backgroundTimeRemaining`；import UIKit | `#if os(iOS)`，手表返回固定文案 |
+| `BLECentral` | `CLLocationManager.pausesLocationUpdatesAutomatically` 在 watchOS 不可用 | `#if os(iOS)` 包住后台定位两行 |
+
+### 密钥同步
+
+手机 `exportBackup()` 的文本 → `WCSession.updateApplicationContext` → 手表
+`KeyStore.importBackup()`。只在 `isPaired && isWatchAppInstalled` 时推送。
+安全含义：**钥匙材料由此存在第二台设备上**（手表丢了等于多一把钥匙在外面），
+用户已确认接受。
+
+### 验证
+
+- watchOS 模拟器：**BUILD SUCCEEDED**（`-destination 'generic/platform=watchOS Simulator'`）
+- iOS 侧：**BUILD SUCCEEDED**（4 处 `#if` 没破坏手机端）
+- 真机：**未做**
+
+### ⚠️ 阻塞：watchkitapp 没有描述文件
+
+```
+error: No profiles for 'com.mmxisme.gkuiblekey.watchkitapp' were found
+error: No Accounts
+```
+
+本机只有 `com.mmxisme.gkuiblekey` 与 `.widget` 两个 profile，没有 watch 的。
+`embed: true` 一旦挂上会**连手机 App 一起构建失败**，所以已在 `project.yml` 注释掉，
+手表 target 独立保留（能编、还不能装）。
+
+**解除办法**：Xcode 登录账号 + 手表解锁并处于连接状态（让 Xcode 能注册设备 UDID），
+生成 `watchkitapp` profile 后，把 `project.yml` 里那两行取消注释即可。
+
+### 最大的未知（不是代码问题）
+
+车端的 BLE 绑定是**按设备**的。表要控车必须和车端再绑一次（大概率弹 6 位码），
+而**车端是否允许第三个绑定设备，原厂 App 从没验证过**（它没有 Watch 端）。
+这一条只能真机试，失败就只能停在"手机能控、手表不行"。
+
 ## v7.1（2026-10-30）—— 用 gkui-review 技能实跑一遍：2 处
 
 首次用 `.workbuddy/skills/gkui-review/` 的流程实跑（scan.py → 逐条回源码 → verify.sh）。

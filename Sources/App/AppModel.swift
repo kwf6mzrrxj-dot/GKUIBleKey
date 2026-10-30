@@ -565,6 +565,11 @@ public final class AppModel: ObservableObject {
         // 启动即读取无感进入开关状态（靠近车辆拉门把手解锁）
         loadPassiveEntryState()
 
+        // ★ 激活与 Apple Watch 的密钥通道（2026-10-30）
+        //   手表读不到手机 Keychain，只能走 WatchConnectivity。
+        //   这里只激活会话；真正推送发生在「手表装了 App 且配对」时。
+        WatchKeySyncResponder.shared.activate()
+
         // ★ 照原 App：有钥匙就该有心跳。原 App 26 天日志里 69 次 `0x0C` 没有断过，
         //   配对完就一直在跑；我们这个开关原来默认 false、又没有引导，
         //   等于「配对成功但从不保活」—— 那 29 秒节奏根本不会启动。

@@ -305,8 +305,12 @@ public final class BLECentral: NSObject, ObservableObject {
         //   `allowsBackgroundLocationUpdates` 让 App 退后台后仍能接收定位事件，
         //   从而在后台扫描/发现靠近的车辆。原 App 同样开了这个（见其二进制
         //   `setAllowsBackgroundLocationUpdates:` 字符串）。
+        // watchOS 不支持"后台定位更新"这套 API（手表没有常驻后台定位），
+        // 手表端也不需要 —— 它只做前台控车。
+        #if os(iOS)
         locationManager.allowsBackgroundLocationUpdates = true
         locationManager.pausesLocationUpdatesAutomatically = false
+        #endif
         refreshLocationAuth()
     }
 

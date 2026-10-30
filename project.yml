@@ -24,9 +24,22 @@ targets:
           # ★ Widget 扩展的 UI 代码不能编进主 App（它有自己的 @main），
           #   但 `Sources/LiveActivity` 的共享类型两边都要编。
           - "Widget/**"
+          # ★ 手表端有自己的一套 @main 与 UI，不能编进手机 App。
+          - "Watch/**"
       - path: Resources
     dependencies:
       - target: GKUIBleKeyWidget
+      # ⚠️ 手表 App 先进项目、暂不嵌入主 App（2026-10-30）
+      #
+      # 原因：`com.mmxisme.gkuiblekey.watchkitapp` 还没有描述文件，
+      #   Xcode 报 `No Accounts` / `No profiles for ...watchkitapp`，
+      #   一旦 embed 就会让**手机 App 也构建失败**。
+      #
+      # 手表 target 本身已能编译（模拟器 BUILD SUCCEEDED）。
+      # 等 Xcode 能给 watchkitapp 生成 profile（需要登录账号 + 手表解锁在线）后，
+      # 把下面这行取消注释即可：
+      # - target: GKUIBleKeyWatch
+      #   embed: true
     settings:
       base:
         # 关于 bundle id 与 IDFV（2026-10-29 调查结论，避免以后重复踩坑）
@@ -97,3 +110,49 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         SKIP_INSTALL: YES
         OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/swift/host/plugins"
+
+  # ── Apple Watch 端（2026-10-30）─────────────────────────────────
+  # 只做**前台控车**：抬腕 → 打开 App → 解锁/闭锁/寻车。
+  #
+  # 为什么不做无感进入 / 点火保活：
+  #   watchOS 不给普通 App 持续的后台 BLE —— 一退到前台之外就被挂起，
+  #   `Task.sleep` 不推进、扫描也停。手机端能维持 30 秒心跳靠的是
+  #   `bluetooth-central` 后台模式 + Live Activity 提权，watchOS 两者都没有。
+  #
+  # 协议栈完全复用 `Sources/Protocol` + `Sources/Keychain` + `Sources/BLE`，
+  # 手表只多一层 UI 和一条密钥同步通道（WatchConnectivity）。
+  GKUIBleKeyWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources/Watch
+      - path: Sources/Protocol
+      - path: Sources/Keychain
+      - path: Sources/BLE
+      # 密码学原语（AES / HMAC）：Foundation + CryptoKit + CommonCrypto，watchOS 全有
+      - path: Sources/Crypto
+      # BLE 层依赖的两个支撑文件（都只有 Foundation；UIApplication 部分已用 #if os(iOS) 隔离）
+      - path: Sources/Support/FileLogger.swift
+      - path: Sources/Support/BackgroundMonitor.swift
+    info:
+      path: Sources/Watch/Info.plist
+      properties:
+        CFBundleDisplayName: 蓝牙钥匙
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey.watchkitapp
+        PRODUCT_NAME: GKUIBleKeyWatch
+        TARGETED_DEVICE_FAMILY: "4"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/Watch/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2PQ29MSM39
+        CODE_SIGNING_REQUIRED: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "Apple Development"
+        SKIP_INSTALL: YES
+        # 宏插件路径要指到 watchOS 平台，指 iPhoneOS 会展开失败
+        OTHER_SWIFT_FLAGS: "-plugin-path /Applications/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/usr/lib/swift/host/plugins"

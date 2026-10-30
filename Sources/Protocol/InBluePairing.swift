@@ -153,10 +153,13 @@ public final class InBluePairing: ObservableObject {
     }
 
     public static func currentDeviceName() -> String {
-        #if canImport(UIKit)
+        // ⚠️ 必须判 `os(iOS)`，不能判 `canImport(UIKit)`：
+        //    watchOS 上 UIKit **存在**，但 `UIDevice` 被裁剪掉了 ——
+        //    用 canImport 会在 Watch 端编译失败。
+        #if os(iOS)
         return UIDevice.current.name
         #else
-        return "iPhone"
+        return "Apple Watch"
         #endif
     }
 
