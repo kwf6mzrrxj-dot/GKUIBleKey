@@ -13,6 +13,37 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
 
+# ★★ 显式声明 scheme（2026-11-02）
+#
+# 不写这一段时，`xcodegen generate` 会**清掉** Xcode 之前自动生成的 scheme，
+# 之后 `xcodebuild -scheme GKUIBleKey` 直接报
+# `does not contain a scheme named "GKUIBleKey"` —— 命令行构建全靠运气，
+# 取决于 Xcode 有没有重新打开过工程。三个 scheme 名字与 verify.sh、
+# tools/sync.sh、部署脚本里的调用保持一致，不要改名。
+schemes:
+  GKUIBleKey:
+    build:
+      targets:
+        GKUIBleKey: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  GKUIBleKeyWidget:
+    build:
+      targets:
+        GKUIBleKeyWidget: all
+    run:
+      config: Debug
+  GKUIBleKeyWatch:
+    build:
+      targets:
+        GKUIBleKeyWatch: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   GKUIBleKey:
     type: application
@@ -100,8 +131,8 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "8.4"
-        CFBundleVersion: "84"
+        CFBundleShortVersionString: "8.5"
+        CFBundleVersion: "85"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -158,8 +189,8 @@ targets:
       #   一个设备都扫不到，且不会报错（v7.4 就踩过：手改 plist 被抹掉）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "8.4"
-        CFBundleVersion: "84"
+        CFBundleShortVersionString: "8.5"
+        CFBundleVersion: "85"
         NSBluetoothAlwaysUsageDescription: 手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey

@@ -220,12 +220,18 @@ public final class AppModel: ObservableObject {
         guard let end = unlockWindowEndsAt else { return 0 }
         return max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
     }
-    /// 车辆是否已上电 / 引擎在转（来自广播解密的 `05` 状态）。
+    /// 引擎是否**正在运转**（来自广播解密的车辆状态）。
     ///
-    /// 用来拦住「行驶中补发解锁」这种危险动作 —— 见 `sendPreAuthNow`。
-    private var carIsAwake: Bool {
-        guard let s = measured.status else { return false }
-        return s.isEngineRunning || s.isIgnitionOn
+    /// 只有它才该拦住「补发解锁」：行驶中开门是危险动作。
+    ///
+    /// ★ v8.5 修正（2026-11-02 真车日志）：原来这里写的是
+    /// `isEngineRunning || isIgnitionOn`，把「已上电 / ACC 开」也算成"车在动"。
+    /// 而用户按第一下启动按钮后，车恰好就是 **ACC 开、引擎没着** 这个状态
+    /// （日志 `06:19:57` 的状态迁移可见 上电/ACC开/发动机运行 这组标志）——
+    /// 于是最需要刷新授权的那一刻，`sendPreAuthNow` 反而拒绝了补解锁，
+    /// 只能干发心跳。**这正是「点火困难」的一个直接原因。**
+    private var engineIsRunning: Bool {
+        measured.status?.isEngineRunning ?? false
     }
 
     public init() {
@@ -1648,11 +1654,12 @@ public final class AppModel: ObservableObject {
                 + "（解锁授权还剩 \(unlockWindowRemaining) 秒）")
             statusLine = "点火窗口已开启（5 分钟内每 6.5 秒保活一次）…"
             beginMeasuredAuth(asPreAuthentication: true)
-        } else if carIsAwake {
-            // ★ 安全闸（2026-10-31）：车辆已上电 / 引擎在转时**绝不补发解锁** ——
-            //   行驶中解锁车门是危险动作。这时只发心跳（心跳本身不改车辆状态）。
-            measured.recordNote("车辆已上电/已启动 → 不发解锁，只发预认证心跳")
-            statusLine = "车辆已在运行，只做保活（不重复解锁）"
+        } else if engineIsRunning {
+            // ★ 安全闸：**引擎在转**时绝不补发解锁（行驶中开门是危险动作）。
+            //   注意判据只用 `isEngineRunning` —— ACC 开但引擎没着时**要**补解锁，
+            //   那正是用户按完第一下启动按钮、等着车认钥匙的时刻（v8.5 修正）。
+            measured.recordNote("引擎正在运行 → 不发解锁，只发预认证心跳")
+            statusLine = "车辆已在行驶/怠速，只做保活（不重复解锁）"
             beginMeasuredAuth(asPreAuthentication: true)
         } else {
             measured.recordNote(
