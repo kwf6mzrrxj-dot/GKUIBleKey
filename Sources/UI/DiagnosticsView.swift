@@ -113,6 +113,32 @@ struct DiagnosticsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glass)
+
+                Divider()
+
+                // ★ 保持连接测试（2026-11-02，iOS 27 诊断）
+                //
+                // 目的：判断车端是否允许「长连接」。如果允许，点火时可以改成
+                // 只连不发，避开 iOS 27 上 1.5–4 秒的重连开销。
+                Text("保持连接测试（不发任何帧）")
+                    .font(.caption.weight(.semibold))
+                readonlyRow("测试状态", model.idleHoldState ?? "未运行")
+                Text("连上后一帧都不发，看车端多久主动断开。"
+                     + "若超过 30 秒仍未断开，说明可以改成「点火时常驻连接」。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Button {
+                    if model.idleHoldState == nil || !model.idleHoldActive {
+                        model.startIdleHoldTest()
+                    } else {
+                        model.stopIdleHoldTest()
+                    }
+                } label: {
+                    Label(model.idleHoldActive ? "停止测试" : "开始保持连接测试",
+                          systemImage: model.idleHoldActive ? "stop.circle" : "link")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
             }
         }
     }

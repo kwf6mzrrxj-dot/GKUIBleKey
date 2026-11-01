@@ -1669,6 +1669,108 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - ★ 保持连接测试（2026-11-02，iOS 27 诊断）
+
+    //
+    // ## 为什么要做这个测试
+    //
+    // 现状：每轮心跳都是「**连上 → 发一帧 0x0C → 车端断开 → 等 6.5 秒 → 重连**」。
+    // 真车日志实测，一轮 8.2 秒里只有约 2.2 秒是连着的（占空比 27%），
+    // 而 iOS 27 上一次重连要 1.5–4 秒（iOS 26 上原厂 App 没这个问题）。
+    //
+    // 如果车端**允许长连接**（连上后不发帧也不被踢），那点火时就可以改成
+    // 「只连不发」，手机一直在线，车端 LF 一喊立刻能回 —— 延迟从"最多 8 秒"
+    // 降到几十毫秒。这可能是原厂都没做到的事。
+    //
+    // 如果车端几秒就把我们踢掉，这条路直接否掉，也就不必再往这个方向投入。
+    //
+    // 测试期间**一帧都不发**，所以不能与心跳同时跑：`beginMeasuredAuth`
+    // 里对 `asPreAuthentication` 做了短路（见那里的 `idleHoldActive`）。
+
+    /// 测试状态文案（nil = 未运行），诊断页显示
+    @Published public private(set) var idleHoldState: String?
+    private var idleHoldStartedAt: Date?
+    private var idleHoldTimeoutTask: Task<Void, Never>?
+    private var idleHoldStateCancellable: AnyCancellable?
+    /// 是否已经连上过一次（用来判定"从 ready 掉下来"= 车端断开）
+    private var idleHoldWasReady = false
+    /// 测试中：屏蔽预认证发帧
+    public var idleHoldActive: Bool { idleHoldStartedAt != nil }
+
+    /// 开始：连上后什么都不发，只记录车端多久断开。
+    public func startIdleHoldTest() {
+        guard idleHoldStartedAt == nil else { return }
+        guard ble.isBluetoothReady else {
+            statusLine = "蓝牙未就绪，无法开始测试"
+            return
+        }
+        idleHoldStartedAt = Date()
+        idleHoldWasReady = false
+        idleHoldState = "正在连接…"
+        measured.recordNote("保持连接测试：开始（**期间一帧都不发**，观察车端多久断开）")
+
+        // 监听链路状态：ready → 记开始时间；从 ready 掉下来 → 车端踢了
+        idleHoldStateCancellable = ble.$linkState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self, self.idleHoldStartedAt != nil else { return }
+                if state == .ready, !self.idleHoldWasReady {
+                    self.idleHoldWasReady = true
+                    self.idleHoldState = "已连接 · 计时中（不发帧）"
+                    self.measured.recordNote(
+                        "保持连接测试：链路已就绪，开始计时（建链耗时 "
+                        + String(format: "%.1f", Date().timeIntervalSince(self.idleHoldStartedAt ?? Date()))
+                        + " 秒）")
+                } else if state != .ready, self.idleHoldWasReady {
+                    let held = Date().timeIntervalSince(self.idleHoldStartedAt ?? Date())
+                    self.idleHoldState = String(format: "车端已断开（保持 %.1f 秒）", held)
+                    self.measured.recordNote(
+                        String(format: "保持连接测试：**车端主动断开**，连接共保持 %.1f 秒", held))
+                    self.finishIdleHoldTest(keepText: true)
+                }
+            }
+
+        // 兜底：3 分钟还没断开就算"长连接可行"（正常心跳 8 秒一轮，3 分钟远超需求）
+        idleHoldTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(180) * 1_000_000_000)
+            } catch { return }
+            guard let self, let started = self.idleHoldStartedAt else { return }
+            let held = Date().timeIntervalSince(started)
+            self.idleHoldState = String(format: "3 分钟未断开（保持 %.0f 秒）", held)
+            self.measured.recordNote(
+                String(format: "保持连接测试：3 分钟内车端未断开（已保持 %.0f 秒）"
+                       + "→ **长连接可行**，点火时可改为只连不发", held))
+            self.finishIdleHoldTest(keepText: true)
+        }
+
+        // 发起连接：已知设备直接连，否则扫描
+        if !ble.connectRemembered() {
+            ble.startScan()
+        }
+        statusLine = "保持连接测试进行中（不要操作车控按钮）…"
+    }
+
+    /// 结束测试（手动停止 / 已得到结论）
+    public func stopIdleHoldTest() {
+        guard idleHoldStartedAt != nil else { return }
+        let held = Date().timeIntervalSince(idleHoldStartedAt ?? Date())
+        measured.recordNote(String(format: "保持连接测试：手动结束（共 %.1f 秒）", held))
+        finishIdleHoldTest(keepText: false)
+        idleHoldState = String(format: "已停止（保持 %.1f 秒）", held)
+        statusLine = "保持连接测试已结束"
+    }
+
+    private func finishIdleHoldTest(keepText: Bool) {
+        idleHoldTimeoutTask?.cancel()
+        idleHoldTimeoutTask = nil
+        idleHoldStateCancellable?.cancel()
+        idleHoldStateCancellable = nil
+        idleHoldStartedAt = nil
+        idleHoldWasReady = false
+        if !keepText { idleHoldState = nil }
+    }
+
     // MARK: - ★ 点火窗口（2026-10-30）
 
     /// 一次「准备点火」管多久
@@ -2060,6 +2162,11 @@ public final class AppModel: ObservableObject {
     ///   **不会**沿用上一次的控车动作（否则定时预认证会误发锁/解锁）。
     public func beginMeasuredAuth(action: IBCommandType? = nil,
                                   asPreAuthentication: Bool = false) {
+        // ★★ 保持连接测试期间，预认证**一帧都不许发**（2026-11-02）。
+        //   测试的全部意义就是"连上但不说话"，发一帧 0x0C 车端就会断开，
+        //   测出来的"保持时长"立刻失真。用户手动点控车不受影响（那是显式意图）。
+        if asPreAuthentication, idleHoldActive { return }
+
         // ★★★ 预认证防重入（2026-10-31 真车日志实证，v8.2）
         //
         // 预认证有**两条触发路径**，时间重叠时会各发一条 `01`：
