@@ -5,6 +5,48 @@
 
 ---
 
+## v8.7（2026-11-02）—— 审查 v8.6 的「保持连接测试」：3 处会让测试失真的问题
+
+### ① 测试期间心跳仍在空转计数（会让结果不可信）
+
+`launchEntryCommands()` 的顺序是**先** `sentCount += 1` / `lastSentAt = Date()`、
+**再**调 `onSend`。v8.6 只在 `AppModel` 里拦 `onSend`，于是测试期间：
+
+- 每 6.5 秒仍会「假发」一轮 → 诊断页「已发起次数」虚增（3 分钟约 27 次）
+- `lastSentAt` 被推到当前时刻 → 测试结束后第一轮真实心跳还要多等一个周期
+
+修：`PreAuthenticationController.suppressSends`，在 `launchEntryCommands` /
+`tickIfNeeded` 的**源头**拦住，计数与时间戳都不被污染。
+
+### ② 开始测试时如果链路本来就连着，状态会永远停在「正在连接…」
+
+订阅是 `ble.$linkState` 的**变化**回调。上一次命令的链路还没断时，
+`linkState` 已经是 `.ready`，之后再不会变化 → 回调永远不触发。
+修：启动时补一次即时判定。
+
+### ③ 连不上时没有任何反馈，要干等 3 分钟
+
+修：30 秒时检查一次，未就绪则状态改成「30 秒还没连上（信号弱 / 车不在旁）」
+并写日志，避免用户以为测试卡死。
+
+### ④ 编译错误（审查时 L1 抓到）
+
+超时任务里写了两次 `guard let self`（第一次已解包，第二次 self 不再是 Optional）
+→ `initializer for conditional binding must have Optional type`。已修。
+
+### 已排除（查过，不是问题）
+
+- 挂起类标志：`idleHoldStartedAt` 有 180 秒兜底；`suppressSends` 在
+  `finishIdleHoldTest` 里必被复位（自动结束/手动停止两条路径都走它）
+- `linkState` 看门狗：5 处 `.connecting/.discovering` 赋值仍全部覆盖
+- v8.5 的 `engineIsRunning`：全局搜索无 `carIsAwake` 残留
+
+### 验证
+
+L1 三份 typecheck 0 error；L2 主 App + Watch BUILD SUCCEEDED。
+
+---
+
 ## v8.6（2026-11-02）—— 新增「保持连接测试」：验证车端是否允许长连接
 
 ### 背景（用户实测的三组对照）

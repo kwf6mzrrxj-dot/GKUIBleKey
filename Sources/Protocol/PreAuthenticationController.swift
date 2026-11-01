@@ -213,8 +213,20 @@ public final class PreAuthenticationController: ObservableObject {
     /// 正在排/发（防止广播高频触发反复 cancel 定时器）
     private var isSending = false
 
+    /// **暂停发帧**（但保留 `isEnabled` / `didStart` 等用户状态）。
+    ///
+    /// 专供「保持连接测试」使用：那个测试要求"连上但一帧不发"。
+    ///
+    /// 为什么不在 `AppModel` 里拦 `onSend`：`launchEntryCommands` 是**先**
+    /// `sentCount += 1` / `lastSentAt = Date()`，**再**调 `onSend` 的 ——
+    /// 光拦 `onSend` 会让测试期间空转的每一轮都虚增"已发起次数"，
+    /// 并把 `lastSentAt` 推到当前时刻，测试结束后第一轮真实心跳还要多等一个周期。
+    /// 在源头（这里）拦住，计数与时间戳都不会被污染。
+    public var suppressSends = false
+
     private func launchEntryCommands() {
         guard isEnabled, didStart else { return }
+        guard !suppressSends else { return }
         cancelPending()
         isSending = true
         // `0xb584` 断开立即发；`0xb590` 已连接延迟 1 秒
@@ -249,6 +261,8 @@ public final class PreAuthenticationController: ObservableObject {
     /// 定时器保留作兜底（前台精确、后台失效都不影响结果）。
     public func tickIfNeeded() {
         guard isEnabled, isInArea, didStart else { return }
+        // 保持连接测试期间不发（见 `suppressSends`）
+        guard !suppressSends else { return }
         guard !isSending else { return }
         guard let last = lastSentAt else {
             // ★ 首帧补救（2026-10-29，后台保活）。

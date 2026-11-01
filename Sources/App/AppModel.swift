@@ -1707,6 +1707,8 @@ public final class AppModel: ObservableObject {
         idleHoldStartedAt = Date()
         idleHoldWasReady = false
         idleHoldState = "正在连接…"
+        // ★ 从源头暂停心跳（保住 `sentCount` / `lastSentAt` 不被空转污染）
+        preAuth.suppressSends = true
         measured.recordNote("保持连接测试：开始（**期间一帧都不发**，观察车端多久断开）")
 
         // 监听链路状态：ready → 记开始时间；从 ready 掉下来 → 车端踢了
@@ -1732,10 +1734,21 @@ public final class AppModel: ObservableObject {
 
         // 兜底：3 分钟还没断开就算"长连接可行"（正常心跳 8 秒一轮，3 分钟远超需求）
         idleHoldTimeoutTask = Task { @MainActor [weak self] in
+            // 先等 30 秒：连都连不上时得让人知道，而不是干等 3 分钟
             do {
-                try await Task.sleep(nanoseconds: UInt64(180) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: UInt64(30) * 1_000_000_000)
             } catch { return }
-            guard let self, let started = self.idleHoldStartedAt else { return }
+            guard let self, self.idleHoldStartedAt != nil else { return }
+            if !self.idleHoldWasReady {
+                self.idleHoldState = "30 秒还没连上（信号弱 / 车不在旁）"
+                self.measured.recordNote(
+                    "保持连接测试：30 秒仍未连上 —— 先排除信号/距离，再重测")
+            }
+            // 剩余 150 秒
+            do {
+                try await Task.sleep(nanoseconds: UInt64(150) * 1_000_000_000)
+            } catch { return }
+            guard let started = self.idleHoldStartedAt, self.idleHoldWasReady else { return }
             let held = Date().timeIntervalSince(started)
             self.idleHoldState = String(format: "3 分钟未断开（保持 %.0f 秒）", held)
             self.measured.recordNote(
@@ -1747,6 +1760,14 @@ public final class AppModel: ObservableObject {
         // 发起连接：已知设备直接连，否则扫描
         if !ble.connectRemembered() {
             ble.startScan()
+        }
+        // ★ 可能本来就是连着进来的（上一次命令的链路还没断）：
+        //   那种情况 `linkState` 不会再变化，订阅永远收不到 `.ready`，
+        //   测试会一直停在"正在连接…"。这里补一次即时判定。
+        if ble.linkState == .ready, !idleHoldWasReady {
+            idleHoldWasReady = true
+            idleHoldState = "已连接 · 计时中（不发帧）"
+            measured.recordNote("保持连接测试：开始时就已就绪（无需重连），开始计时")
         }
         statusLine = "保持连接测试进行中（不要操作车控按钮）…"
     }
@@ -1768,6 +1789,8 @@ public final class AppModel: ObservableObject {
         idleHoldStateCancellable = nil
         idleHoldStartedAt = nil
         idleHoldWasReady = false
+        // 恢复心跳（`launchEntryCommands` / `tickIfNeeded` 的闸门）
+        preAuth.suppressSends = false
         if !keepText { idleHoldState = nil }
     }
 
