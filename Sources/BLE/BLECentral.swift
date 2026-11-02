@@ -52,6 +52,15 @@ public final class BLECentral: NSObject, ObservableObject {
     public var autoScanOnDisconnect = true
 
     /// `disconnecting` 状态的日志/取消节流时间戳（见 `connect(_:)` 的 disconnecting 分支）
+    // ── 建链三段计时（2026-11-02，iOS 27 建链慢的归因用）──────────
+    //
+    // 一次建链 = ① connect 请求 → 已连接  ② 已连接 → 特征就绪  ③ 订阅（bonding）
+    // 原来只有 ③ 的耗时（`notifyRequestedAt`），前两段没有数据，
+    // 所以「1.5–4 秒到底花在哪」一直只能猜。
+    private var connectRequestedAt: Date?
+    private var gattDoneAt: Date?
+    // 注：`connectedAt` 复用上面已有的那个（「连接存活时长」计时起点）
+
     private var lastDisconnectingLogAt: Date?
     private var lastDisconnectingCancelAt: Date?
 
@@ -795,6 +804,7 @@ public final class BLECentral: NSObject, ObservableObject {
         note("正在连接 \(p.name ?? p.identifier.uuidString)…")
         // 连接后系统如需 MITM 配对（6 位码）会自动弹窗，App 无需干预
         // 原 App 同款：`connectPeripheral:options: nil`（`0x5de0: mov x3, #0`）
+        connectRequestedAt = Date()
         central.connect(p, options: nil)
         armConnectTimeout()
         return true
@@ -1452,6 +1462,10 @@ extension BLECentral: CBCentralManagerDelegate {
     public nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
             BackgroundMonitor.shared.noteConnect()
+            if let t0 = connectRequestedAt {
+                let ms = Int(Date().timeIntervalSince(t0) * 1000)
+                note("① 连接建立：\(ms) ms（请求 → didConnect）")
+            }
             cancelConnectTimeout()
             sentFramesThisConnection = 0     // 每轮连接重新计数
             linkState = .discovering
@@ -1732,7 +1746,8 @@ extension BLECentral: CBPeripheralDelegate {
             //   不等 didUpdateNotificationState（原 App @`0xaa88` setState: +
             //   @`0xaac0` deviceDidReadyToExchangeData:）。
             characteristicsReady = true
-            notifyRequestedAt = Date()             // ← 订阅耗时计时起点
+            gattDoneAt = Date()                    // ← ② 特征就绪（GATT 发现结束）
+            notifyRequestedAt = Date()             // ← ③ 订阅耗时计时起点
             note("特征就绪：write=FF11 / read+notify=FF12，已请求订阅"
                  + "（照原 App 此刻即置 deviceDidReadyToExchangeData）")
         }
@@ -1814,6 +1829,15 @@ extension BLECentral: CBPeripheralDelegate {
                          + "若车端无响应可从信号强度排查）", level: .warning)
                 } else {
                     note("链路就绪：订阅成功，耗时 \(timing)（<0.3s = bonding 已复用，链路已加密）")
+                }
+                // ★ 三段拆分（2026-11-02）：iOS 27 建链 1.5–4 秒，先把钱花在哪一段量出来。
+                //   没有这行，所有"慢"的结论都只能归到"系统"两个字上。
+                if let c = connectedAt, let req = connectRequestedAt {
+                    let a = Int(c.timeIntervalSince(req) * 1000)
+                    let b = gattDoneAt.map { max(0, Int($0.timeIntervalSince(c) * 1000)) } ?? -1
+                    let d = elapsed >= 0 ? Int(elapsed * 1000) : -1
+                    note("建链拆分：①连接 \(a) ms · ②GATT \(b) ms · ③订阅 \(d) ms"
+                         + "（合计 \(a + max(0, b) + max(0, d)) ms）")
                 }
             }
         }
