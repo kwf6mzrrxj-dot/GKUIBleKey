@@ -176,7 +176,7 @@ public struct PassiveStartJudge: Sendable {
     /// 一帧 RSSI < -77 → isInPassiveStartArea = false
     ///   → updateArea(false) → stop() → didStart = false（预认证停）
     /// 下一帧 RSSI > -77 → updateArea(true) → launchPreAuthentication()
-    ///   → 又发一帧 0x0C（可能撞车端「7 秒内不接受第二次加密重连」）
+    ///   → 又发一帧 0x0C（节奏被打成几秒一轮）
     /// ```
     /// 一次抖动就是一次「停 + 重启」，后台待机时反复发生 ——
     /// 这就是「切到后台预认证保不住」的核心机制。

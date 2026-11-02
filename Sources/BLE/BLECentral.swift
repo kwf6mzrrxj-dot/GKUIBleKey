@@ -278,7 +278,7 @@ public final class BLECentral: NSObject, ObservableObject {
     // ── 扫描常开（对齐原 App 稳态）─────────────────────────────
     /// 本次连接建立时刻 —— 用于判断"是不是 3 秒内就被断开"
     private var connectedAt: Date?
-    /// 连续快速断开次数（3 秒内断开算一次）
+    /// 连续「空连接」次数（连上、一帧没发、<3 秒就被踢，才算一次）
     private var quickDisconnectCount = 0
     /// 冷却定时器（连续快速断开 5 次后暂停重扫 30 秒）
     private var scanCooldownTask: Task<Void, Never>?
