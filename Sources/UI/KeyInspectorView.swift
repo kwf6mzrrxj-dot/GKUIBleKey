@@ -12,10 +12,23 @@ import UniformTypeIdentifiers
 /// 因此本 App 不提供「从原 App 导入」（2026-10-25 移除，此前误以为可以）。
 /// 「备份 / 恢复」导出的只是**本 App 自己的**密钥（升级/换机兜底）。
 ///
-/// ## 为什么必须保持 IDFV 不变
-/// 车端会校验 `mobileId`（= IDFV）。IDFV 对「同一开发者签名 + 同一设备」稳定，
-/// 因此本 App 必须与原 App 使用**相同的 bundle id 与签名证书**，
-/// 否则会收到 `error_sdk_50003 数字钥匙校验mobileId错误`。
+/// ## 关于 IDFV（mobileId）—— 2026-11-02 修正
+///
+/// 这里原来写：「车端会校验 `mobileId`，因此必须与原 App 用相同的 bundle id
+/// 与签名证书，否则报 `error_sdk_50003`」。**这条结论是错的**，两层都不成立：
+///
+/// 1. **IDFV 由 bundle id 的 vendor 前缀（前两段）决定，与签名证书无关。**
+///    我们是 `com.mmxisme.*`、原厂是 `cn.com.ecarx.*`，本来就不同；
+///    换证书也换不来对方的 IDFV。
+/// 2. **`mobileId` 不在 BLE 帧里。** 它只在 GLBLEAuthSDK / 云端接口层出现
+///    （`error_sdk_50003` 就是那一层报的）。而 `0x0D` = 命令 + sidpu(16) + 名称(20)、
+///    `0x01` = `sd + ed + RndTRx + RND1 + rights`，都不含 mobileId。
+///    本 App 根本不走那个 SDK，用的是自己实现的 BLE 链路。
+///
+/// **实证**：本 App 用完全不同的 bundle id 与证书，解锁 / 预认证 / 点火都正常。
+/// 若车端真在 BLE 上校验 IDFV，这些操作不可能成功。
+///
+/// 详见 `KeyStore.swift` 顶部注释与 `project.yml` 里 2026-10-29 的调查结论。
 struct KeyInspectorView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss

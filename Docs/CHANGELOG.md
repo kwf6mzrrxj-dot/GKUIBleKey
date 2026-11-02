@@ -5,6 +5,40 @@
 
 ---
 
+## v9.5（2026-11-02）—— 修正「必须与原厂同 bundle id / 证书」这条错误结论
+
+`KeyInspectorView.swift` 顶部曾写：
+
+> 车端会校验 `mobileId`（= IDFV）。IDFV 对「同一开发者签名 + 同一设备」稳定，
+> 因此本 App 必须与原 App 使用**相同的 bundle id 与签名证书**，
+> 否则会收到 `error_sdk_50003 数字钥匙校验mobileId错误`。
+
+**这条是错的**，而且与同仓库另外两处正确结论互相矛盾
+（`KeyStore.swift` 顶部、`project.yml` 的 2026-10-29 调查结论）。
+
+### 错在哪
+
+| 说法 | 事实 |
+|---|---|
+| IDFV 由「签名证书 + 设备」决定 | IDFV 由 **bundle id 的 vendor 前缀（前两段）** 决定，与证书无关。我们是 `com.mmxisme.*`，原厂是 `cn.com.ecarx.*`，本来就不同 |
+| 车端在 BLE 上校验 mobileId | `mobileId` 只在 **GLBLEAuthSDK / 云端接口**层；BLE 帧里没有这个字段（`0x0D` = 命令+sidpu+名称，`0x01` = sd/ed/RndTRx/RND1/rights） |
+| 否则会报 `error_sdk_50003` | 那是 SDK 层错误码，本 App 不走那个 SDK |
+
+### 实证
+
+本 App 用**完全不同的 bundle id 与证书**，解锁 / 预认证 / 点火都正常。
+若车端真在 BLE 上校验 IDFV，这些操作一次都不可能成功。
+
+### 改动
+
+只改注释：把这条旧结论替换成上面的更正，并指回 `KeyStore.swift` 与 `project.yml`。
+
+### 验证
+
+L1 三份 typecheck 0 error；L2 主 App + Watch BUILD SUCCEEDED。
+
+---
+
 ## v9.4（2026-11-02）—— 清理注释里已被推翻的结论
 
 代码本身没改，只改注释。**被推翻的结论留在注释里，比没有注释更糟** ——

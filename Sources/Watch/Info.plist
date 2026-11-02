@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>9.3</string>
+	<string>9.4</string>
 	<key>CFBundleVersion</key>
-	<string>93</string>
+	<string>94</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。</string>
 	<key>WKApplication</key>
