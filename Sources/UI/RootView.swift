@@ -71,7 +71,27 @@ struct RootView: View {
                 }
             }
             .padding(.horizontal, 20)
+
+            // ★ 控件反馈横幅（2026-11-02）：控制中心点下去后，至少让人看见"收到了"。
+            //   之前整条链断了也没有任何提示，用户只能猜。
+            if let banner = model.controlBanner {
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                        Text(banner).font(.footnote.weight(.medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
+                    Spacer()
+                }
+                .padding(.top, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: model.controlBanner)
         .onAppear { model.autoConnect() }
         .onChange(of: model.ble.bluetoothStatusText) { _, _ in
             if model.ble.isBluetoothReady { model.autoConnect() }

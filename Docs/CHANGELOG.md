@@ -5,6 +5,54 @@
 
 ---
 
+## v9.3（2026-11-02）—— 控制中心：绕开 URL 分发，改用 AppIntent 直达 + 可见反馈
+
+### 真机反馈（决定性）
+
+> 在后台用控制中心操作，**日志一点动静都没有**。
+
+v9.2 加的入口日志 `控件 URL 进入：…` 一条都没出现 → **URL 根本没送达**。
+所以问题不在 `handleExternalURL` 之后的任何一道闸，而在「控件 → App」这一步。
+
+### 改动
+
+**① 控件 action 换成 `QuickControlIntent`（AppIntent）**
+
+| | 原来 | 现在 |
+|---|---|---|
+| action | `OpenURLIntent(gkuiblekey://lock)` | `QuickControlIntent(.lock)` |
+| 路径 | 系统打开自定义 scheme → `onOpenURL` → `handleExternalURL` | `openAppWhenRun = true` → 系统起 App → **在 App 进程里** `perform()` |
+| 断点 | 自定义 scheme 在控件里可能不被接受（实测无日志） | 不经过 URL 分发，少一层 |
+
+**② 可见反馈**
+
+- 顶部弹出 2 秒横幅：`已收到控件：闭锁`（`.ultraThinMaterial` 胶囊，不挡点击）
+- 日志写：`控制中心控件 → 闭锁（AppIntent 直达，不经 URL）`
+
+之前整条链断了也毫无提示，用户只能猜「是不是没点到」。
+
+**③ 工程细节**
+
+- `Sources/Intents/QuickControlIntent.swift` **同时编进主 App 与 Widget 扩展**
+  （控件必须在扩展里声明 action 类型）
+- 扩展里 `perform()` 被 `SWIFT_ACTIVE_COMPILATION_CONDITIONS: WIDGET_EXTENSION` 编空
+  —— 扩展没有 `AppModel`，也不该带 BLE 栈
+- `QuickControlAction` 是自包含枚举（不引用 `IBCommandType`），映射在 App 侧做
+- `verify.sh` 的 L1 Widget 清单同步加入该文件与 `-D WIDGET_EXTENSION`
+  （否则类型检查会报 `cannot find 'QuickControlIntent' in scope`）
+
+### 如果这次还是没反应
+
+那就说明**控件的 action 压根没被系统调用**（不是 URL 层的问题），
+下一步要查控件注册本身：`kind` 是否与系统缓存冲突、扩展是否真的被安装。
+届时可以卸载 App → 重启手机 → 重装，强制系统重建控件注册表。
+
+### 验证
+
+L1 三份 typecheck 0 error；L2 主 App + Watch BUILD SUCCEEDED；已装机 9.3 / 93。
+
+---
+
 ## v9.2（2026-11-02）—— 实时活动显示全部状态 + 控件路径留痕
 
 ### 一、实时活动：从"三行摘要"变成"完整快照"

@@ -1701,6 +1701,42 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - ★ 控制中心 / 锁屏控件（AppIntent 直达）
+
+    /// 控件点下去之后的可见反馈（2026-11-02）。
+    ///
+    /// 之前控件走 `OpenURLIntent`，真机点了**毫无动静**：
+    /// 既没有日志、也没有界面变化，用户无法判断"到底收到没有"。
+    /// 现在改成 `QuickControlIntent`（在 App 进程里执行），
+    /// 除了执行车控，还在顶部弹一条 2 秒的横幅 —— 至少让人知道点到了。
+    @Published public private(set) var controlBanner: String?
+    private var controlBannerTask: Task<Void, Never>?
+
+    func performControlAction(_ action: QuickControlAction) {
+        measured.recordNote("控制中心控件 → \(action.title)（AppIntent 直达，不经 URL）")
+        showControlBanner("已收到控件：\(action.title)")
+        perform(command(for: action))
+    }
+
+    private func command(for action: QuickControlAction) -> IBCommandType {
+        switch action {
+        case .lock:   return .lock
+        case .unlock: return .unlock
+        case .trunk:  return .openCloseTrunk
+        case .find:   return .panic
+        }
+    }
+
+    private func showControlBanner(_ text: String) {
+        controlBannerTask?.cancel()
+        controlBanner = text
+        controlBannerTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.controlBanner = nil
+        }
+    }
+
     // MARK: - ★ 保持连接测试（2026-11-02，iOS 27 诊断）
 
     //

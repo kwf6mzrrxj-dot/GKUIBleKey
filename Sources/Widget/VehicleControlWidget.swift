@@ -4,22 +4,23 @@ import AppIntents
 
 /// 控制中心 / 锁屏的「闭锁」控件。
 ///
-/// ## 为什么用 `OpenURLIntent` 而不是自定义 `AppIntent`
+/// ## 为什么用 `QuickControlIntent` 而不是 `OpenURLIntent`（2026-11-02 改）
 ///
-/// 控件的 action 必须在 **Widget 扩展** 里声明，而我们的车控逻辑
-/// （`AppModel` → `BLECentral` → 加密帧）全在主 App。扩展里既没有这些类型，
-/// 也不该把整套 BLE 栈编进去。
+/// 原来用 `OpenURLIntent(gkuiblekey://lock)`：靠系统打开自定义 scheme，
+/// 再把动作交给 App 的 `onOpenURL`。真机反馈是**点了完全没有日志** ——
+/// 说明 URL 根本没送达，整条链在路上就断了。
 ///
-/// `OpenURLIntent` 是系统提供的，声明时不需要引用任何业务类型：
-/// 点一下就带着 URL 把 App 打开，剩下的交给 App 的 `onOpenURL`。
+/// 现在改用 `QuickControlIntent`：`openAppWhenRun = true`，
+/// 系统先把 App 带到前台，再**在 App 进程里**执行 `perform()`，
+/// 动作直接落到 `AppModel`，不经过 URL 分发。
 ///
-/// 副作用是「点控件会打开 App」—— 但这恰好是**可靠性最高**的路径：
-/// App 一在前台，BLE 权限就是完整的，不用赌后台调度。
+/// 代价与以前一样：点控件会打开 App。好处是前台 BLE 权限完整，
+/// 而且能在界面上给出可见反馈（顶部横幅「已收到控件：闭锁」）。
 struct LockControlWidget: ControlWidget {
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.mmxisme.gkuiblekey.control.lock") {
-            ControlWidgetButton(action: OpenURLIntent(URL(string: "gkuiblekey://lock")!)) {
+            ControlWidgetButton(action: QuickControlIntent(.lock)) {
                 Label("闭锁", systemImage: "lock.fill")
             }
         }
@@ -33,7 +34,7 @@ struct UnlockControlWidget: ControlWidget {
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.mmxisme.gkuiblekey.control.unlock") {
-            ControlWidgetButton(action: OpenURLIntent(URL(string: "gkuiblekey://unlock")!)) {
+            ControlWidgetButton(action: QuickControlIntent(.unlock)) {
                 Label("解锁", systemImage: "lock.open.fill")
             }
         }
@@ -47,7 +48,7 @@ struct FindControlWidget: ControlWidget {
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.mmxisme.gkuiblekey.control.find") {
-            ControlWidgetButton(action: OpenURLIntent(URL(string: "gkuiblekey://find")!)) {
+            ControlWidgetButton(action: QuickControlIntent(.find)) {
                 Label("寻车", systemImage: "location.fill")
             }
         }

@@ -123,6 +123,9 @@ targets:
       # 只共享「数据类型」。`LiveActivityController` 依赖主 App 的 FileLogger，
       # 不能编进扩展（扩展里没有那个符号，也不该带整套日志）。
       - path: Sources/LiveActivity/VehicleActivityAttributes.swift
+      # ★ 控件必须能声明 action 类型 → 这个意图文件要编进扩展；
+      #   但扩展那份 `perform()` 被 `WIDGET_EXTENSION` 编空（扩展没有 AppModel）。
+      - path: Sources/Intents/QuickControlIntent.swift
     info:
       path: Sources/Widget/Info.plist
       # ★ 这里的 properties 会被 xcodegen **整份重写**进 Info.plist，
@@ -131,13 +134,15 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "9.2"
-        CFBundleVersion: "92"
+        CFBundleShortVersionString: "9.3"
+        CFBundleVersion: "93"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mmxisme.gkuiblekey.widget
+        # 让 QuickControlIntent.perform() 在扩展里编空（见该文件注释）
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: WIDGET_EXTENSION
         PRODUCT_NAME: GKUIBleKeyWidget
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
@@ -189,8 +194,8 @@ targets:
       #   一个设备都扫不到，且不会报错（v7.4 就踩过：手改 plist 被抹掉）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "9.2"
-        CFBundleVersion: "92"
+        CFBundleShortVersionString: "9.3"
+        CFBundleVersion: "93"
         NSBluetoothAlwaysUsageDescription: 手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey
