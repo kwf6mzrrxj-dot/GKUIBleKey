@@ -38,16 +38,47 @@ public struct VehicleActivityAttributes: ActivityAttributes, Sendable {
         /// 一句话状态，直接显示在锁屏上
         public var statusText: String
 
+        // ── 以下字段全部 optional，**追加安全**（2026-11-02）──────
+        //
+        // `ContentState` 是 `Codable`，进行中的活动里存着旧结构的 JSON。
+        // 新增非可选字段会让旧数据解码失败 → 活动直接消失。
+        // 所以一律给默认值 nil：缺字段 = "这一项没上报过"，界面显示「—」。
+
+        /// 四门是否全关
+        public var isDoorClosed: Bool?
+        /// 后备箱是否关闭
+        public var isTrunkClosed: Bool?
+        /// 引擎是否在转
+        public var isEngineRunning: Bool?
+        /// ACC 是否开
+        public var isAccOn: Bool?
+        /// 是否已上电（点火档）
+        public var isIgnitionOn: Bool?
+        /// **这份状态是什么时候从车上收到的** —— 离线后它就是"最后一次上报"
+        public var lastReportedAt: Date?
+
         public init(
             isLocked: Bool? = nil,
             isConnected: Bool = false,
             lastPreAuthAt: Date? = nil,
-            statusText: String = "待机"
+            statusText: String = "待机",
+            isDoorClosed: Bool? = nil,
+            isTrunkClosed: Bool? = nil,
+            isEngineRunning: Bool? = nil,
+            isAccOn: Bool? = nil,
+            isIgnitionOn: Bool? = nil,
+            lastReportedAt: Date? = nil
         ) {
             self.isLocked = isLocked
             self.isConnected = isConnected
             self.lastPreAuthAt = lastPreAuthAt
             self.statusText = statusText
+            self.isDoorClosed = isDoorClosed
+            self.isTrunkClosed = isTrunkClosed
+            self.isEngineRunning = isEngineRunning
+            self.isAccOn = isAccOn
+            self.isIgnitionOn = isIgnitionOn
+            self.lastReportedAt = lastReportedAt
         }
     }
 

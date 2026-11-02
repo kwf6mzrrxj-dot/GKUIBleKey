@@ -715,6 +715,7 @@ public final class AppModel: ObservableObject {
             return
         }
         guard !listenOnly else {
+            measured.recordNote("控件/意图被拦：只读监听模式开着")
             statusLine = "只读监听模式：不会发送任何指令"
             return
         }
@@ -1337,13 +1338,25 @@ public final class AppModel: ObservableObject {
         }
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
+        // ★ 车辆全部状态 + 最后上报时刻（2026-11-02）。
+        //
+        // 锁屏卡片现在是一份**完整快照**：即使车开走、离线，这些值也不会被清空，
+        // 只是 `lastReportedAt` 会越走越远 —— 用户扫一眼就知道
+        // 「这是 5 分钟前的状态」而不是「现在就是这样」。
+        let st = measured.status
         let ok = liveActivity.startOrUpdate(
             vehicleName: name,
             state: VehicleActivityAttributes.ContentState(
-                isLocked: measured.status?.isLocked,
+                isLocked: st?.isLocked,
                 isConnected: isVehicleOnline,
                 lastPreAuthAt: preAuth.lastSentAt,
-                statusText: text))
+                statusText: text,
+                isDoorClosed: st?.isDoorClosed,
+                isTrunkClosed: st?.isTrunkClosed,
+                isEngineRunning: st?.isEngineRunning,
+                isAccOn: st?.isAccOn,
+                isIgnitionOn: st?.isIgnitionOn,
+                lastReportedAt: lastVehicleContactAt))
         if !ok {
             // 前台没启动成功通常只有两种原因：系统关了实时活动权限，
             // 或者当前不是前台（`Target is not foreground`）。
@@ -1363,6 +1376,11 @@ public final class AppModel: ObservableObject {
     ///   该入口**只在 App 未运行时**参与，所以它出现就代表这是冷启动的首次投递。
     public func handleExternalURL(_ url: URL, fromDelegate: Bool = false) {
         guard url.scheme?.lowercased() == "gkuiblekey" else { return }
+        // ★ 入口留痕（2026-11-02）：控件"点了没反应"时，
+        //   先要能区分「URL 根本没到」和「到了但被后面的闸拦下」。
+        //   这行在去重**之前**，所以每次投递都会有一条。
+        measured.recordNote("控件 URL 进入：\(url.absoluteString)"
+                            + "（fromDelegate=\(fromDelegate)）")
 
         // ★ 冷启动补发去重（只在这个窗口内生效，理由见 `coldStartURLWindowEnd`）
         if fromDelegate {
@@ -1476,6 +1494,7 @@ public final class AppModel: ObservableObject {
         // ★ 防爆破锁定：此前只记录 `lockoutRemaining` 却没有拦截，
         //   等于锁定形同虚设。这里在唯一入口处硬拦截。
         guard !isLockedOut else {
+            measured.recordNote("控件/意图被拦：防爆破锁定中，还剩 \(lockoutRemaining)s")
             statusLine = "已锁定：连续失败 \(consecutiveAuthFailures) 次，\(lockoutRemaining)s 后可重试"
             // ★ 同上：立刻让 Siri 拿到失败，并把真实原因说清楚
             resolveIntent(false)
@@ -1493,6 +1512,7 @@ public final class AppModel: ObservableObject {
         // 只拦**用户命令**在途（`measured.pendingAction != nil`）；
         // 预认证轮次（`pendingAction == nil`）允许被打断 —— 用户意图优先。
         if measured.pendingAction != nil, commandTimeoutTask != nil {
+            measured.recordNote("控件/意图被拦：上一轮「\(measured.pendingAction?.label ?? "命令")」仍在执行")
             statusLine = "上一轮「\(measured.pendingAction?.label ?? "命令")」仍在执行，请稍候"
             resolveIntent(false)
             return

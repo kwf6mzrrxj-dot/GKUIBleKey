@@ -5,6 +5,55 @@
 
 ---
 
+## v9.2（2026-11-02）—— 实时活动显示全部状态 + 控件路径留痕
+
+### 一、实时活动：从"三行摘要"变成"完整快照"
+
+原来只带 `isLocked / isConnected / lastPreAuthAt / statusText`，锁屏上信息量太小。
+
+`ContentState` 新增（**全部 optional**）：
+
+| 字段 | 来源 |
+|---|---|
+| `isDoorClosed` | 广播解密状态 |
+| `isTrunkClosed` | 同上 |
+| `isEngineRunning` / `isAccOn` / `isIgnitionOn` | 同上 |
+| `lastReportedAt` | `lastVehicleContactAt`（最后一次收到本车数据） |
+
+**为什么必须 optional**：`ContentState` 是 `Codable`，进行中的活动里存着旧结构 JSON；
+新增非可选字段会让旧数据解码失败，活动直接消失。
+
+锁屏布局改为两行：车名/在线/锁态 + **门 · 后箱 · 引擎 · 电源**四个小格，
+右下角显示「X 前」（`lastReportedAt` 的相对时间）。
+
+**"固化最后一次上报"的含义**：车开走、离线后这些值**不会被清空**，
+只是 `lastReportedAt` 越走越远 —— 用户看到的是「5 分钟前的快照」，
+而不是「现在就是这样」。没上报过的项显示「—」，与「上报了是关」区分开。
+
+### 二、控制中心控车：先让它可诊断
+
+代码路径本身看不出断点（控件 → `OpenURLIntent` → `AppDelegate` / `onOpenURL`
+→ `handleExternalURL` → `perform`），但"点了没反应"有三种完全不同的可能，
+现在每一种都会落到日志里：
+
+| 新增日志 | 说明 |
+|---|---|
+| `控件 URL 进入：gkuiblekey://lock（fromDelegate=…）` | 在**去重之前**打，所以"URL 没到"和"到了被去重"能区分 |
+| `控件/意图被拦：只读监听模式开着` | `perform` 第一道闸 |
+| `控件/意图被拦：防爆破锁定中，还剩 Ns` | 第二道闸 |
+| `控件/意图被拦：上一轮「X」仍在执行` | 第三道闸 |
+
+**根因尚未确认**，需要真机点一次看日志落点：
+- 没有「控件 URL 进入」→ 控件没把 App 带起来（系统层 / 控件配置问题）
+- 有「进入」但没有「控件 → 动作」→ 被三道闸之一拦下（日志会写明哪一道）
+- 有「控件 → 动作」但没成功 → 回到 BLE 层问题（另案）
+
+### 验证
+
+L1 三份 typecheck 0 error；L2 主 App + Watch BUILD SUCCEEDED。**L4 未做**。
+
+---
+
 ## v9.1（2026-11-02）—— 日志系统：统一口径 + 手动清空 + 查看历史
 
 ### 用户反馈的三件事

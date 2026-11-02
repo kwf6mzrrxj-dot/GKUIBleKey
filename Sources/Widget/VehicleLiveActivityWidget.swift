@@ -67,39 +67,81 @@ private struct LockScreenView: View {
     let context: ActivityViewContext<VehicleActivityAttributes>
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "car.side.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(.white)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(context.attributes.vehicleName)
-                    .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            // 第一行：车名 / 在线 / 锁态
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "car.side.fill")
+                    .font(.system(size: 22))
                     .foregroundStyle(.white)
-                HStack(spacing: 6) {
-                    StatusDot(ok: context.state.isConnected)
-                    Text(context.state.statusText)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(context.attributes.vehicleName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        StatusDot(ok: context.state.isConnected)
+                        Text(context.state.statusText)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(lockText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(lockColor)
+                    // ★ 离线后**保留**最后一次上报的状态，并明确标出时间
+                    //   —— 不让用户把"5 分钟前的快照"当成实时状态。
+                    if let at = context.state.lastReportedAt {
+                        Text(at, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
                 }
             }
 
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(context.state.isLocked == true ? "已锁" : "未锁")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(context.state.isLocked == true ? .green : .orange)
-                if let at = context.state.lastPreAuthAt {
-                    Text(at, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.55))
-                }
+            // 第二行：全部车辆状态（门 / 后备箱 / 引擎 / 电源）
+            HStack(spacing: 8) {
+                miniStat("门", context.state.isDoorClosed, on: "关", off: "开")
+                miniStat("后箱", context.state.isTrunkClosed, on: "关", off: "开")
+                miniStat("引擎", context.state.isEngineRunning, on: "转", off: "停")
+                miniStat("电源", context.state.isIgnitionOn ?? context.state.isAccOn,
+                         on: "开", off: "关")
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private var lockText: String {
+        guard let locked = context.state.isLocked else { return "状态未知" }
+        return locked ? "已锁" : "未锁"
+    }
+
+    private var lockColor: Color {
+        guard let locked = context.state.isLocked else { return .white.opacity(0.6) }
+        return locked ? .green : .orange
+    }
+
+    /// 一格小状态。`value == nil` 时显示「—」——区分「没上报过」和「上报了是关」
+    private func miniStat(_ title: String, _ value: Bool?,
+                          on: String, off: String) -> some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.5))
+            Text(value == nil ? "—" : (value! ? on : off))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(value == nil
+                                 ? Color.white.opacity(0.35)
+                                 : (value! ? Color.white : Color.orange))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 3)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
