@@ -160,6 +160,18 @@ public final class AppModel: ObservableObject {
     }
     private let liveLogCapacity = 200
 
+    /// **清空界面日志**（2026-11-02）：会话日志 + 实时日志 + 内存缓冲。
+    ///
+    /// 磁盘上的历史文件**不动** —— 「历史」里还能查。
+    /// 三个来源一起清，是因为它们展示的是同一件事的三个视角，
+    /// 只清一个会出现「诊断页空了、浮窗还有」的错位（用户就是这样发现问题的）。
+    public func clearDisplayedLogs() {
+        measured.clearLog()
+        liveLogLines.removeAll(keepingCapacity: true)
+        FileLogger.shared.clearMemory()
+        statusLine = "日志已清空（磁盘历史保留，可点「历史」查看）"
+    }
+
     /// 只读监听模式：**只订阅、不发任何字节**。
     ///
     /// 用途：第一次接触车辆模块时，在**没有密钥、不做任何协议假设**的前提下验证

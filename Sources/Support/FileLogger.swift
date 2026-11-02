@@ -205,6 +205,35 @@ public final class FileLogger: @unchecked Sendable {
         queue.sync { memoryLines }
     }
 
+    /// **清空内存缓冲**（2026-11-02，界面「清空」按钮）。
+    ///
+    /// 只清内存，**不动磁盘文件** —— 历史日志仍可在「历史」里查。
+    /// 清完再写一行「日志已清空」，否则界面会显示成"从没写过日志"，
+    /// 分不清是清空了还是根本没跑起来。
+    public func clearMemory() {
+        queue.sync {
+            memoryLines.removeAll(keepingCapacity: true)
+        }
+        info("—— 日志已清空（内存缓冲）——", module: "日志")
+    }
+
+    /// **删除全部日志文件**（当前 + 轮转），并清空内存。
+    ///
+    /// 只能从「历史日志」页手动触发（带二次确认）。
+    /// 关掉句柄再删 —— 否则写操作会继续写进已被删除的 inode，
+    /// 表现为「删了但文件还在长」。`ensureHandleLocked()` 会在下次写入时重建。
+    public func deleteAllFiles() {
+        let urls = allFileURLs()
+        queue.sync {
+            try? handle?.close()
+            handle = nil
+            currentSize = 0
+            memoryLines.removeAll(keepingCapacity: true)
+            for u in urls { try? FileManager.default.removeItem(at: u) }
+        }
+        info("—— 历史日志已全部删除（\(urls.count) 个文件）——", module: "日志")
+    }
+
     /// 所有日志文件（当前 + 轮转），按新旧排序
     public func allFileURLs() -> [URL] {
         let fm = FileManager.default

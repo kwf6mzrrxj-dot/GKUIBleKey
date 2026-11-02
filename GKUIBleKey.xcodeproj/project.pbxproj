@@ -27,6 +27,7 @@
 		3B6BC2E088DF70B0579E2040 /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */; };
 		3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */; };
+		46A4165C9AE96B14B3DEED9A /* LogHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D5975B130988A252047D36 /* LogHistoryView.swift */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
 		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
 		4DEE5D8FFEDFC8411E75569E /* builtin-keys.txt in Resources */ = {isa = PBXBuildFile; fileRef = 03B476E9C21E7763239DBD3E /* builtin-keys.txt */; };
@@ -129,6 +130,7 @@
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
 		1DE4B7AED8424488DFF8B585 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
+		21D5975B130988A252047D36 /* LogHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogHistoryView.swift; sourceTree = "<group>"; };
 		2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleControlWidget.swift; sourceTree = "<group>"; };
 		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
@@ -266,6 +268,7 @@
 				A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */,
 				A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */,
 				6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */,
+				21D5975B130988A252047D36 /* LogHistoryView.swift */,
 				062758546AC7B33C61337BD0 /* LogView.swift */,
 				3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */,
 				2EF19D2E689EE7C245F20164 /* RootView.swift */,
@@ -555,6 +558,7 @@
 				49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */,
 				FF21906B2EED6B801E55B378 /* LiveActivityController.swift in Sources */,
 				D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */,
+				46A4165C9AE96B14B3DEED9A /* LogHistoryView.swift in Sources */,
 				C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */,
 				A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */,
 				269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */,

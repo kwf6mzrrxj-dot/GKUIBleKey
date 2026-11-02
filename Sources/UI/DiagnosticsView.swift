@@ -11,6 +11,9 @@ struct DiagnosticsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var selfTestResults: [SelfTest.Result] = []
+    /// 日志范围：0 = 协议会话（measured.log），1 = 全部模块（FileLogger 流）
+    @State private var logScope = 0
+    @State private var showLogHistory = false
 
     var body: some View {
         NavigationStack {
@@ -251,23 +254,66 @@ struct DiagnosticsView: View {
     // MARK: - 会话日志
 
     private var logSection: some View {
-        card("会话日志") {
-            if model.measured.log.isEmpty {
-                Text("暂无日志").font(.caption).foregroundStyle(.secondary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(Array(model.measured.log.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+        card("日志") {
+            VStack(alignment: .leading, spacing: 10) {
+                // ★ 两个视角（2026-11-02）：原来诊断页只有「协议会话」，
+                //   而浮窗显示的是 FileLogger 的全部模块流 —— 同一个问题
+                //   在两个地方看到的行数不一样，用户以为日志系统坏了。
+                //   现在两边同源可选，浮窗仍然只显示"全部"。
+                Picker("范围", selection: $logScope) {
+                    Text("协议会话").tag(0)
+                    Text("全部模块").tag(1)
+                }
+                .pickerStyle(.segmented)
+
+                let lines = (logScope == 0) ? model.measured.log : model.liveLogLines
+                if lines.isEmpty {
+                    Text(logScope == 0
+                         ? "暂无协议日志（还没发生过鉴权往返）"
+                         : "暂无全模块日志")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                     }
+                    .frame(maxHeight: 240)
+                    Text("\(lines.count) 行"
+                         + (logScope == 0 ? "（协议层，最多 400）" : "（全模块，最多 \(200)）"))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .frame(maxHeight: 240)
+
+                HStack(spacing: 10) {
+                    Button {
+                        model.clearDisplayedLogs()
+                    } label: {
+                        Label("清空", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+
+                    Button {
+                        showLogHistory = true
+                    } label: {
+                        Label("历史", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+                }
+                Text("「清空」只清界面与内存，磁盘历史保留；点「历史」可以看之前写入的文件。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
+        .sheet(isPresented: $showLogHistory) { LogHistoryView() }
     }
 
     // MARK: - 当前链路参数

@@ -125,6 +125,15 @@ public final class MeasuredSession: ObservableObject {
 
     @Published public private(set) var phase: Phase = .idle
     @Published public private(set) var log: [String] = []
+
+    /// 清空会话日志（2026-11-02，界面「清空」按钮）。
+    ///
+    /// 只清这份**协议会话**日志；磁盘历史不动。清完留一行标记，
+    /// 免得看起来像"没有任何日志"。
+    public func clearLog() {
+        log.removeAll(keepingCapacity: true)
+        append("—— 会话日志已清空 ——")
+    }
     /// `04` 的结果码（`00` = 成功）
     @Published public private(set) var lastStatusCode: UInt8?
     /// ★ 最近一次动作的最终结果
