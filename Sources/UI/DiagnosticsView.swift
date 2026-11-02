@@ -124,7 +124,8 @@ struct DiagnosticsView: View {
                     .font(.caption.weight(.semibold))
                 readonlyRow("测试状态", model.idleHoldState ?? "未运行")
                 Text("连上后一帧都不发，看车端多久主动断开。"
-                     + "若超过 30 秒仍未断开，说明可以改成「点火时常驻连接」。")
+                     + "⚠️ v4.4（2026-10-29）已实测：车端约 2 秒踢掉空闲连接；"
+                     + "本测试只用于复核当前系统/车辆是否仍如此。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Button {
