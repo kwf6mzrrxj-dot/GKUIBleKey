@@ -606,14 +606,12 @@ struct KeyInspectorView: View {
     }
 
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
-        GlassEffectContainer {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                content()
-            }
-            .padding(Glass.cardPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+            content()
         }
+        .padding(Glass.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }

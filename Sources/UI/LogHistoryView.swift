@@ -82,6 +82,9 @@ struct LogHistoryView: View {
                                  + "日志按大小自动轮转，超过 7 天的会被清理。")
                         }
                     }
+                    .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+                    .scrollContentBackground(.hidden)
+                    .background(GlassScreenBackground())
                 }
             }
             .navigationTitle("历史日志")

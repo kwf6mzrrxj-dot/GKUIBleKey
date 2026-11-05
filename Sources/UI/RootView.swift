@@ -1489,6 +1489,9 @@ struct DeveloperMenuView: View {
                     }
                 }
             }
+            .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+            .scrollContentBackground(.hidden)
+            .background(GlassScreenBackground())
             .navigationTitle("开发者")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1651,15 +1654,13 @@ struct PassiveStartDetailView: View {
     }
 
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
-        GlassEffectContainer {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                content()
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+            content()
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }
 

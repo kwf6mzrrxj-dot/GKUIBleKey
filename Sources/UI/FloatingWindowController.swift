@@ -25,9 +25,31 @@ final class FloatingWindowController {
     private var window: FloatingWindow?
     private var hosting: UIHostingController<AnyView>?
     private var currentHeight: CGFloat = LiveLogFloatingView.expandedHeight
+    /// 安全区顶部（每次改高度时要用它重算内容矩形）
+    private var topInset: CGFloat = 0
 
     private let marginX: CGFloat = 16
     private let marginY: CGFloat = 8
+
+    /// 宿主视图比内容四周各大一圈，专门留给投影。
+    ///
+    /// ## 为什么必须留
+    /// SwiftUI 的 `.shadow` 画在内容自身边界**之外**。宿主视图的 frame
+    /// 原来严格等于 300×260，于是投影只剩上沿和左沿一点点能画出来，
+    /// 右沿和下沿直接被宿主视图的边界切掉 —— 表现为"阴影只出现在两个边"，
+    /// 比完全没有阴影更难看。
+    ///
+    /// 多留 24pt（`.floating` 的 radius 20 + 余量），投影才有地方落。
+    /// 多出来的这圈是**透明区**，靠 `contentRect` 做点击穿透，不影响下层操作。
+    private let shadowPad: CGFloat = 24
+
+    /// 浮窗内容在窗口坐标系里的矩形（300 × currentHeight）。点击只在这个范围内生效。
+    private var contentRect: CGRect {
+        CGRect(x: marginX,
+               y: topInset + marginY,
+               width: LiveLogFloatingView.width,
+               height: currentHeight)
+    }
 
     /// 显示浮窗（若已显示则无操作）
     ///
@@ -65,12 +87,15 @@ final class FloatingWindowController {
         win.isHidden = false
 
         // hosting 视图定位到顶部（安全区下方 + 靠左）
-        let topInset = scene.windows.first?.safeAreaInsets.top ?? 0
-        hosting.view.frame = CGRect(x: marginX,
-                                    y: topInset + marginY,
-                                    width: LiveLogFloatingView.width,
-                                    height: currentHeight)
+        topInset = scene.windows.first?.safeAreaInsets.top ?? 0
+        // 宿主比内容四周各大 24pt，给 `.floating` 投影留出绘制空间（见 shadowPad 注释）
+        hosting.view.frame = contentRect.insetBy(dx: -shadowPad, dy: -shadowPad)
         hosting.view.autoresizingMask = []
+        hosting.view.backgroundColor = .clear
+        hosting.view.clipsToBounds = false
+
+        // 点击只认内容矩形，外圈那 24pt 投影区穿透到下层
+        win.contentRect = contentRect
 
         self.window = win
         self.hosting = hosting
@@ -83,12 +108,11 @@ final class FloatingWindowController {
 
     /// 折叠 / 展开后调整宿主视图高度（触摸区随之收缩，见类型注释）。
     func setContentHeight(_ height: CGFloat) {
+        guard abs(currentHeight - height) > 0.5 else { return }
         currentHeight = height
-        guard let hosting else { return }
-        var f = hosting.view.frame
-        guard abs(f.height - height) > 0.5 else { return }
-        f.size.height = height
-        hosting.view.frame = f
+        guard let hosting, let window else { return }
+        hosting.view.frame = contentRect.insetBy(dx: -shadowPad, dy: -shadowPad)
+        window.contentRect = contentRect
     }
 
     private func activeScene() -> UIWindowScene? {
@@ -107,9 +131,14 @@ final class FloatingWindowController {
 
 /// 触摸穿透的窗口：hosting 视图只占浮窗大小，其余透明区命中 window 自身 → 穿透。
 private final class FloatingWindow: UIWindow {
+    /// 浮窗内容在窗口坐标系里的矩形。宿主视图为了投影向外扩了一圈，
+    /// 那一圈是透明的，必须显式放过，否则 24pt 的"空"区域会吃掉点击 ——
+    /// 用户会发现浮窗边缘一小条点不动，却看不出原因。
+    var contentRect: CGRect = .zero
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard contentRect != .zero, contentRect.contains(point) else { return nil }
         let view = super.hitTest(point, with: event)
-        // 透明区（hosting 视图之外）命中 window 自身 → 穿透到下层
         if view == self {
             return nil
         }

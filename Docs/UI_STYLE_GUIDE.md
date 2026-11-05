@@ -136,3 +136,86 @@
 
 **尚未验证**：深色模式（模拟器只有 iOS 26.5 运行时，装不了 iOS 27 包；
 真机切换外观无法脚本化）。深色参数按渲染原理推算，需人工过一眼。
+
+---
+
+## 六、其他页面的阴影/遮罩问题（第二轮排查）
+
+主界面之外还有六处，分三类。
+
+### A. 页面级遮罩断裂：三个列表页
+
+| 页面 | 入口 | 现象 |
+|---|---|---|
+| 设置（`DeveloperMenuView`） | 我的 → 设置 | 整页白色不透明分组底 |
+| 网络通道（`CloudSettingsView`） | 我的 → 网络通道 | 同上（Form） |
+| 历史日志（`LogHistoryView`） | 诊断 → 历史 | 同上 |
+
+**成因**：`List` / `Form` 在 `.insetGrouped` 下自带**不透明的分组底**
+（`secondarySystemGroupedBackground`），它盖在页面背景之上。
+只给外层加 `GlassScreenBackground()` 是无效的 —— 渐变被 List 自己的底遮住了。
+于是从任何一个玻璃页点进这三页，视觉上像切到了另一个 App。
+
+**期望**：底色延续渐变，行是半透明玻璃，分组结构保留。
+
+**修复**（三处同样三行）：
+```swift
+.listRowBackground(Rectangle().fill(.ultraThinMaterial))
+.scrollContentBackground(.hidden)
+.background(GlassScreenBackground())
+```
+- `scrollContentBackground(.hidden)` 去掉 List 的整体底色（不然渐变透不出来）
+- `listRowBackground` 必须**同时**改：它控制每一行的底，默认是纯白。
+  只做前一步会变成"白行浮在渐变上"，比原来更糟
+- 注意 `listRowBackground` 收的是 **View 不是 ShapeStyle**，`.ultraThinMaterial`
+  直接传会报 `generic parameter 'V' could not be inferred`，要包成 `Rectangle().fill(...)`
+
+### B. 多包了一层空容器：三个 `card()`
+
+`RootView.card()`（车辆详情/点火验证）、`DiagnosticsView.card()`、
+`KeyInspectorView.card()` 都是：
+
+```swift
+GlassEffectContainer {       // ← 容器里只有一个元素
+    VStack { ... }.glassCard()
+}
+```
+
+**成因**：`GlassEffectContainer` 的职责是让**多个相邻玻璃融合**
+（morphing / 共享形状）。只包一个元素时它不做任何融合，
+只多一层离屏渲染 —— 并且容器会把内容合成到自己的 bounds 里，
+卡片的 `.shadow` 有被容器边界裁掉的风险。
+
+**修复**：删掉容器外壳，直接返回卡片。融合逻辑真正需要时
+（一屏多张相邻玻璃）再用 `GlassSection` 包**整组**。
+
+### C. 浮窗投影只画出两条边
+
+**位置**：`FloatingWindowController` 的宿主视图。
+
+**现象**：日志浮窗的投影只在上沿、左沿可见，右沿和下沿是硬切边。
+
+**成因**：SwiftUI 的 `.shadow` 画在内容边界**之外**，
+而宿主 `hosting.view.frame` 原来严格等于 300×260（内容尺寸），
+多出来的投影没有地方落，被宿主视图边界裁掉。
+上一轮把 `.clipShape` 和 `.shadow` 的顺序调对了，但没解决宿主尺寸问题 ——
+**两层裁剪，只修了一层**。
+
+**修复**：
+1. 宿主 frame 用 `contentRect.insetBy(dx: -24, dy: -24)`，四周留出投影空间
+2. 宿主 `clipsToBounds = false`
+3. `FloatingWindow.hitTest` 改为只认 `contentRect`，
+   外圈那 24pt 透明区显式放过 —— 否则会变成"浮窗边缘一条点不动"
+
+> 这一条是"修了却没修对"的典型：顺序对了，尺寸没跟上，症状从"全无阴影"
+> 变成"两条边有阴影"，更容易被误认为已修好。
+
+---
+
+## 七、状态
+
+- `typecheck` 0 error 0 warning（64 文件 / 20,734 行）
+- `xcodebuild` BUILD SUCCEEDED
+- **装机未完成**：设备锁屏（`CoreDeviceError 4016`，需要 `powerAssertionTaken`）。
+  上一版 9.7 (100) 已在机上，本轮改动（列表页背景、浮窗宿主、容器移除）
+  需解锁后重装才能验证

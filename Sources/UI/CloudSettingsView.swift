@@ -112,6 +112,9 @@ struct CloudSettingsView: View {
                     }
                 }
             }
+            .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+            .scrollContentBackground(.hidden)
+            .background(GlassScreenBackground())
             .navigationTitle("网络通道")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
