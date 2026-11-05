@@ -166,8 +166,10 @@ struct VehicleTopView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .background {
+            // `.quaternary` ≈ 8% label 色，再 ×0.35 → 约 2.8%，在渐变底上等于没有。
+            // 瓦片于是"没有形状"，只剩一行悬浮文字。改用自适应的 secondary 12%。
             RoundedRectangle(cornerRadius: Glass.pillRadius, style: .continuous)
-                .fill(.quaternary.opacity(0.35))
+                .fill(Color.secondary.opacity(0.12))
         }
     }
 
@@ -193,13 +195,14 @@ struct VehicleTopView: View {
                 Image(systemName: icon).font(.system(size: 10, weight: .semibold))
                 Text(title).font(.system(size: 11, weight: .medium))
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, minHeight: 30)
             .background {
+                // 同上：给这个可点的入口一个真正看得见的底
                 RoundedRectangle(cornerRadius: Glass.pillRadius, style: .continuous)
-                    .fill(.quaternary.opacity(0.35))
+                    .fill(Color.secondary.opacity(0.14))
             }
         }
         .buttonStyle(.plain)

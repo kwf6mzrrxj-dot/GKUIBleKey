@@ -319,7 +319,7 @@ struct LogExportSheet: View {
                     Label("分享 / 存储到「文件」", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .padding(.top, 4)
 
                 Text("这份文件包含磁盘上的全部日志（含已轮转的历史文件），"

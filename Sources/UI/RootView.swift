@@ -33,6 +33,9 @@ struct RootView: View {
 
     /// 远程启动引擎的二次确认（着车有实际后果：尾气、误启动）
     @State private var confirmingEngineStart = false
+    /// 熄火确认。标签固定是「启动引擎」，所以运行时点它要明确说清
+    /// "这一下是熄火"，不能让标签和行为对不上。
+    @State private var confirmingEngineStop = false
     /// 空调温度选择面板
     @State private var showACPicker = false
     /// 上次设定的空调温度（抓包里 `rce` 的值，摄氏度）
@@ -99,12 +102,14 @@ struct RootView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
+                    .glassPill()
+                    // 它盖在所有内容之上 1.5 秒，没有投影就只是"一块糊在文字上的色块"，
+                    // 用户读不清它压住的是什么，也读不清自己。
+                    .glassElevation(.floating)
                     Spacer()
                 }
                 .padding(.top, 54)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Glass.pageMargin)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .allowsHitTesting(false)
             }
@@ -140,6 +145,13 @@ struct RootView: View {
         } message: {
             Text("车辆会启动发动机。请确认车门已关闭、车辆不在密闭空间（车库、室内）。")
         }
+        // 发动机正在转时，同一个按钮执行的是熄火 —— 必须在这里说清楚
+        .alert("发动机正在运行，要熄火吗？", isPresented: $confirmingEngineStop) {
+            Button("取消", role: .cancel) {}
+            Button("熄火", role: .destructive) { model.performOnCloud(.engine(on: false)) }
+        } message: {
+            Text("这个按钮在运行状态下是「熄火」，与标签写的「启动引擎」相反。不确定的话点取消。")
+        }
         // ★ 外部链接来的「开后备箱 / 解锁 / 寻车」必须先确认。
         //   自定义 URL 无法校验来源，不拦就等于允许任意网页开车门。
         .alert("确认操作", isPresented: Binding(
@@ -168,21 +180,17 @@ struct RootView: View {
                     // 四门 / 天窗 / 车窗 / 引擎，再叠一排就是同一份数据看两遍。
                     // 车门/后备箱/上电/ACC 这一组挪到「状态」页做详情。
 
-                    // 准备点火：上车前点一下刷新授权，和"开车"是同一件事，
-                    // 放在控车页才顺 —— 在状态页里它永远想不起来点。
-                    ignitionReadyCard
-                        .padding(.bottom, 12)
-
+                    // 点火 / 启动引擎已经并进控制区网格（与其余按钮同构），
+                    // 这里不再单独占一行卡片。
                     controlSection
                 }
-                // 底部留 72 —— 悬浮标签栏会盖住滚动内容的最后一段，
-                // 不留白的话「启动引擎」那行永远只能露一半。
-                .padding(.bottom, 72)
+                // 底部留白给悬浮标签栏（见 `Glass.tabBarInset`）
+                .padding(.bottom, Glass.tabBarInset)
             }
             // 下拉刷新两条通道（见 `AppModel.refreshAll`）
             .refreshable { await model.refreshAll() }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Glass.pageMargin)
         .background(background)
     }
 
@@ -197,11 +205,11 @@ struct RootView: View {
                     // 而且五个芯片挤在 362 宽里经常折行。删掉。
                     statusSection
                 }
-                .padding(.bottom, 72)
+                .padding(.bottom, Glass.tabBarInset)
             }
             .refreshable { await model.refreshAll() }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Glass.pageMargin)
         .background(background)
     }
 
@@ -215,10 +223,10 @@ struct RootView: View {
                     settingsCard
                     aboutCard
                 }
-                .padding(.bottom, 72)
+                .padding(.bottom, Glass.tabBarInset)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Glass.pageMargin)
         .background(background)
         .task { await loadAccount() }
         .onChange(of: model.cloudConfigured) { _, _ in
@@ -294,11 +302,6 @@ struct RootView: View {
 
     // MARK: - 顶部标题栏
 
-    /// 玻璃底填充色（浅色模式用深色半透明，深色模式用白色半透明）
-    private var glassFill: Color {
-        colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)
-    }
-
     private var topBar: some View {
         HStack(spacing: 10) {
             // 蓝牙状态胶囊（点色 + 文案）—— 只说车在不在。
@@ -372,7 +375,7 @@ struct RootView: View {
             }
             HStack(spacing: 3) {
                 Image(systemName: model.hasLocalKey ? "key.fill" : "key.slash")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                 Text(keyStatusText)
                     .font(.system(size: 9.5, weight: .medium))
                     .monospacedDigit()
@@ -387,7 +390,7 @@ struct RootView: View {
             if let p = proximityStatusText {
                 HStack(spacing: 3) {
                     Image(systemName: "hand.wave.fill")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                     Text(p)
                         .font(.system(size: 9.5, weight: .medium))
                         .monospacedDigit()
@@ -762,9 +765,15 @@ struct RootView: View {
                 ventAction()
                 // 空调 / 引擎启停：车端 BLE 协议里没有，**只能走云端**
                 airConditionerAction
+                // 点火（BLE 预授权）与启动引擎（云端）
+                //
+                // 这两个原来是"通栏卡片 + 通栏按钮"，比其它按钮宽 3 倍、
+                // 字号大一档、还带右箭头 —— 在一屏胶囊里像两个列表项。
+                // 现在并进同一个网格：图标 18 + 标题 caption + 一行 9pt 状态，
+                // 与「微开 / 开空调」的三行结构完全同构。
+                ignitionAction
+                engineAction
             }
-
-            engineAction
 
             // 上一次成功动作（用户可理解，不暴露控制码）
             if let a = model.measured.lastSucceededAction {
@@ -913,8 +922,7 @@ struct RootView: View {
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(isBT ? Color.blue : Color.green.opacity(0.85))
             .padding(2.5)
-            .background(.ultraThinMaterial, in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+            .glassBadge()
             .padding(6)
             .accessibilityLabel(isBT ? "将走蓝牙通道" : "将走网络通道")
     }
@@ -938,7 +946,7 @@ struct RootView: View {
         VStack(spacing: 6) {
             Image(systemName: "wind.circle").font(.system(size: 18))
             Text("微开").font(.caption)
-            Text("需网络").font(.system(size: 8, weight: .semibold))
+            Text("需网络").font(.system(size: 9, weight: .semibold))
         }
         .frame(maxWidth: .infinity, minHeight: 62)
         .overlay(alignment: .topTrailing) {
@@ -982,7 +990,7 @@ struct RootView: View {
                 Text(title).font(.caption)
                 // 副标题只保留温度：参数已固化，不再有"待配置"这个状态
                 Text("\(acTemperature)°" + (on == true ? "" : " 起步"))
-                    .font(.system(size: 8))
+                    .font(.system(size: 9))
             }
             .frame(maxWidth: .infinity, minHeight: 62)
             .foregroundStyle(.primary)
@@ -993,44 +1001,40 @@ struct RootView: View {
         .buttonStyle(.glass)
     }
 
-    /// 远程启动 / 熄火。**一个按钮自动切换**：
-    /// 引擎在转就显示「熄火」，否则显示「启动引擎」。
+    /// 远程启动引擎（云端）。
     ///
-    /// 启动需要二次确认 —— 远程着车有实际后果（尾气、误启动），
-    /// 熄火则直接执行（让它停转不会造成危险）。
+    /// ## 标签为什么固定写「启动引擎」
+    /// 原来这个按钮会随状态改成「熄火 / 启动引擎」。但在一屏胶囊里，
+    /// 一个会自己改标签的按钮反而更迷惑 —— 用户扫一眼不知道该点哪个。
+    /// 现在标签固定，状态放进第三行（运行中 / 已熄火），
+    /// 运行状态下点它仍然执行熄火，但会弹一次明确写"熄火"的确认框。
     private var engineAction: some View {
         let running = model.activeStatus.snapshot?.isEngineRunning
-        let title = running == true ? "熄火" : "启动引擎"
-        let badge = running == true ? "运行中"
-            : (running == false ? "已熄火" : "状态未知")
 
         return Button {
             guard model.cloudConfigured else { return ackNoCloud() }
             if running == true {
-                model.performOnCloud(.engine(on: false))
+                confirmingEngineStop = true
             } else {
-                confirmingEngineStart = true       // 着车先确认
+                confirmingEngineStart = true
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "power").font(.system(size: 16))
-                Text(title).font(.system(size: 14, weight: .medium))
-                Spacer(minLength: 0)
-                Text(badge)
-                    .font(.system(size: 9, weight: .semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.secondary.opacity(0.12), in: Capsule())
+            VStack(spacing: 6) {
+                Image(systemName: "power").font(.system(size: 18))
+                Text("启动引擎").font(.caption)
+                Text(running == true ? "运行中"
+                     : (running == false ? "已熄火" : "状态未知"))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.quaternary.opacity(0.35))
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .overlay(alignment: .topTrailing) {
+                channelBadge(.network)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
     }
 
     private func ackNoCloud() {
@@ -1095,6 +1099,7 @@ struct RootView: View {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: statusLineIcon)
                         .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(statusLineColor)
                         .padding(.top, 1)
                     Text(model.statusLine)
                         .font(.caption2)
@@ -1102,12 +1107,17 @@ struct RootView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
-                .foregroundStyle(statusLineColor)
+                // 图标保留色相（形状 + 颜色双重编码），文字回到 primary。
+                //
+                // 原来整条都用 `statusLineColor` —— 浅色模式下系统 `green` 对浅底
+                // 只有约 2:1、`orange` 约 2:1，低于可读下限。而这行恰恰是
+                // 「失败 / 超时 / 被锁定」的唯一反馈，是最该看清的地方。
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(statusLineColor.opacity(0.10),
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(statusLineColor.opacity(0.13),
+                            in: RoundedRectangle(cornerRadius: Glass.pillRadius, style: .continuous))
             }
         }
         .padding(.bottom, 12)
@@ -1158,7 +1168,7 @@ struct RootView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
-                .background(idx.isMultiple(of: 2) ? Color.clear : glassFill.opacity(0.5))
+                .background(idx.isMultiple(of: 2) ? Color.clear : Glass.zebra(colorScheme))
             }
         }
         .padding(.bottom, 8)
@@ -1187,7 +1197,7 @@ struct RootView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 5)
                             .background(idx.isMultiple(of: 2) ? Color.clear
-                                                               : glassFill.opacity(0.4))
+                                                               : Glass.zebra(colorScheme))
                         }
                     }
                     .padding(.vertical, 4)
@@ -1303,54 +1313,67 @@ struct RootView: View {
         return .secondary
     }
 
-    /// 点火前主动打招呼。预认证的自动节奏是 29 秒一次，
-    /// 而用户上车按按钮是随机时刻 —— 这就是「试好多次才打不着」的数学原因。
-    /// 这个按钮把该发的 0x0C 提前发一次，不做任何新协议动作。
-    @ViewBuilder
-    private var ignitionReadyCard: some View {
-        if model.hasLocalKey, model.preAuth.isEnabled {
-            Button {
-                model.sendPreAuthNow()
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "key.radiowaves.forward.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.cyan)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("准备点火")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        if let end = model.unlockWindowEndsAt, end > Date() {
-                            HStack(spacing: 2) {
-                                Text("可启动 · 还剩")
-                                Text(timerInterval: Date()...end, countsDown: true)
-                            }
-                            .font(.caption2)
-                            .foregroundStyle(.green)
-                        } else if let end = model.ignitionWindowEndsAt, end > Date() {
-                            Text("可启动授权已过期 · 再点一次刷新")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                        } else {
-                            Text("上车前点一下：会先刷新解锁授权")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
+    /// 点火 —— 提前把预认证的 0x0C 发一次。
+    ///
+    /// 预认证是 29 秒一次的自动节奏，而用户上车按按钮是随机时刻 ——
+    /// 这就是「试好多次才打不着」的数学原因。这个按钮不发任何新协议动作，
+    /// 只是把该发的 0x0C 提前一次。
+    ///
+    /// 原来是通栏卡片（整行 88pt、标题 15pt semibold、右侧还带 chevron），
+    /// 和下面 8 个胶囊按钮不是一个物种。现在改成同样的网格按钮：
+    /// 图标 18 + 标题 caption + 一行 9pt 状态，与「微开」结构完全一致。
+    private var ignitionAction: some View {
+        Button {
+            guard model.hasLocalKey else {
+                actionHint = "还没有本车钥匙。先把手机与车配对，才能发送点火授权。"
+                return
             }
-            .buttonStyle(.glass)
+            guard model.preAuth.isEnabled else {
+                actionHint = "预认证已关闭。到「我的 → 设置 → 预认证」打开后再试。"
+                return
+            }
+            model.sendPreAuthNow()
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "key.radiowaves.forward.fill")
+                    .font(.system(size: 18))
+                Text("点火").font(.caption)
+                ignitionHint
+            }
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .overlay(alignment: .topTrailing) {
+                channelBadge(.bluetooth)
+            }
         }
+        .buttonStyle(.glass)
     }
 
+    /// 点火按钮的第三行：优先显示剩余可启动时间（它有时效，是这里唯一会变的信息）
+    @ViewBuilder
+    private var ignitionHint: some View {
+        if let end = model.unlockWindowEndsAt, end > Date() {
+            HStack(spacing: 2) {
+                Text("剩")
+                Text(timerInterval: Date()...end, countsDown: true)
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.green)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        } else if !model.hasLocalKey {
+            Text("需配对")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        } else if !model.preAuth.isEnabled {
+            Text("已关闭")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        } else {
+            Text("预授权")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
+    }
 }
 
 // MARK: - 开发者菜单
@@ -1597,9 +1620,9 @@ struct PassiveStartDetailView: View {
                     }
                     .buttonStyle(.glassProminent)
                 }
-                .padding(18)
+                .padding(Glass.pageMargin)
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(GlassScreenBackground())
             .navigationTitle("点火位置验证")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1770,7 +1793,7 @@ struct VehicleDetailView: View {
                 }
                 .padding(20)
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(GlassScreenBackground())
             .navigationTitle("车辆详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1868,9 +1891,9 @@ struct ACTemperatureSheet: View {
 
                 HStack(spacing: 10) {
                     Button("取消") { dismiss() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                     Button("开启空调") { onConfirm() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                 }
                 .padding(.top, 4)
             }

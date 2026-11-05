@@ -55,7 +55,7 @@ struct KeyInspectorView: View {
                     builtInSection
                     dangerSection
                 }
-                .padding(18)
+                .padding(Glass.pageMargin)
             }
             .background(GlassScreenBackground())
             .navigationTitle("密钥")
@@ -305,27 +305,40 @@ struct KeyInspectorView: View {
                 let curX: CGFloat = barX(model.proximityUnlock.lastCombinedRSSI, low: low, width: w)
 
                 ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.gray.opacity(0.22))
-                        .frame(height: 6)
+                    // 色带整体裁成胶囊。
+                    //
+                    // 原来绿段 / 橙段是裸 `Rectangle` 直接压在底胶囊上：
+                    // 底是圆头，色带是直角，于是**两端的直角会伸到圆头外面**
+                    // （越靠近标定值越明显），看起来像有一小截色块溢出。
+                    // 裁剪只包色带，不包下面那颗圆点 —— 圆点走到边缘时会被切掉。
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.22))
+                            .frame(height: 6)
 
-                    if let lx = lockX, let ux = unlockX {
-                        // 车边段（绿）
-                        Rectangle()
-                            .fill(Color.green.opacity(0.30))
-                            .frame(width: max(0, w - lx), height: 6)
-                            .offset(x: lx)
-                        // 迟滞带（橙）
-                        Rectangle()
-                            .fill(Color.orange.opacity(0.55))
-                            .frame(width: max(0, ux - lx), height: 6)
-                            .offset(x: lx)
+                        if let lx = lockX, let ux = unlockX {
+                            // 车边段（绿）
+                            Rectangle()
+                                .fill(Color.green.opacity(0.32))
+                                .frame(width: max(0, w - lx), height: 6)
+                                .offset(x: lx)
+                            // 迟滞带（橙）—— 0.55 压在中灰上会混成脏橙，
+                            // 降到 0.42 后与绿段是同一视觉权重，读起来是"三个区段"而不是"一块污渍"
+                            Rectangle()
+                                .fill(Color.orange.opacity(0.42))
+                                .frame(width: max(0, ux - lx), height: 6)
+                                .offset(x: lx)
+                        }
                     }
+                    .clipShape(Capsule())
 
+                    // 当前值：加一圈底色环，从色带上"浮"出来，压在橙带上也读得清
                     Circle()
                         .fill(Color.primary)
                         .frame(width: 7, height: 7)
-                        .offset(x: max(0, curX - 3.5))
+                        .padding(1.5)
+                        .background(Circle().fill(Color(uiColor: .systemBackground)))
+                        .offset(x: max(0, curX - 5))
                 }
             }
             .frame(height: 16)
@@ -338,8 +351,11 @@ struct KeyInspectorView: View {
                 Spacer()
                 Text("\(Int(cal))")
             }
-            .font(.system(size: 8, design: .monospaced))
-            .foregroundStyle(.quaternary)
+            // 8pt + `.quaternary`（约 8% 不透明度）＝ 在玻璃上完全看不见，
+            // 这三段标注其实一直是"写了但没人读到"的状态。
+            // 提到 tertiary + 9pt：能读，同时仍明显低于正文，不抢 Stepper 的位置。
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundStyle(.tertiary)
         }
     }
 
@@ -380,7 +396,7 @@ struct KeyInspectorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("取消标定") { model.cancelCalibration() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.small)
             }
         } else if let cal = model.passiveStart.calibration {
@@ -397,7 +413,7 @@ struct KeyInspectorView: View {
                 }
                 Spacer()
                 Button("重新标定") { model.startCalibration() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.small)
             }
         } else {
@@ -408,7 +424,7 @@ struct KeyInspectorView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Button("开始标定") { model.startCalibration() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                         .controlSize(.small)
                     Text("需要在车辆连接状态下操作")
                         .font(.system(size: 9))

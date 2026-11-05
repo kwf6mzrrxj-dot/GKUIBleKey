@@ -30,7 +30,7 @@ struct DiagnosticsView: View {
                     logSection
                     linkParamsSection
                 }
-                .padding(18)
+                .padding(Glass.pageMargin)
             }
             .background(GlassScreenBackground())
             .navigationTitle("诊断")
@@ -384,7 +384,10 @@ struct DiagnosticsView: View {
                     set: { model.measured.sendAuth3 = $0 }))
                 .font(.caption)
 
-                Divider().overlay(Color.secondary)
+                // 系统 Divider 本身就是分级灰（深色下自动变亮）。
+                // 原来这里 `Divider().overlay(Color.secondary)` 把线整条盖成实色，
+                // 比其它页的所有分隔线都重一档 —— 同一屏里出现两种分隔线强度。
+                Divider()
 
                 // 只读：密钥材料摘要（便于确认是否已配对成功）
                 if let k = model.measured.keys {

@@ -17,6 +17,7 @@ import SwiftUI
 struct LiveLogFloatingView: View {
     @ObservedObject private var feed = LogFeed.shared
     @AppStorage("gkuiblekey.liveLog.collapsed") private var collapsed = false
+    @Environment(\.colorScheme) private var scheme
 
     static let width: CGFloat = 300
     static let expandedHeight: CGFloat = 260
@@ -26,6 +27,17 @@ struct LiveLogFloatingView: View {
 
     private var currentHeight: CGFloat {
         collapsed ? Self.collapsedHeight : Self.expandedHeight
+    }
+
+    /// 深色压层。刻意不是纯黑 —— 底下垫了一层 `ultraThinMaterial`，
+    /// 浅色模式下会透出模糊后的背景色，是一块"带环境色的深玻璃"而不是死黑贴纸；
+    /// 深色模式下少压一点，否则会和近黑的底糊成一片、看不出边界。
+    private var scrim: Color {
+        Color.black.opacity(scheme == .dark ? 0.55 : 0.66)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Glass.pillRadius)
     }
 
     var body: some View {
@@ -38,17 +50,22 @@ struct LiveLogFloatingView: View {
             }
         }
         .frame(width: Self.width, height: currentHeight, alignment: .top)
-        .background(
-            RoundedRectangle(cornerRadius: Glass.pillRadius)
-                .fill(Color.black.opacity(0.62))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Glass.pillRadius)
-                .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
-        // 圆角裁剪放最后：折叠时内容不会溢出圆角
-        .clipShape(RoundedRectangle(cornerRadius: Glass.pillRadius))
+        .background {
+            // 先模糊底下的内容，再压深色 —— 顺序反了就成了纯色块，材质感全失
+            shape
+                .fill(scrim)
+                .background(.ultraThinMaterial, in: shape)
+        }
+        // ★ 裁剪必须在投影之前。
+        //
+        // 原来是 …shadow → clipShape，clipShape 会把刚画的投影一起裁掉，
+        // 也就是说这块 62% 黑的面**一直没有阴影** —— 它和下方内容之间是
+        // 一条硬切的边，这正是"浮窗像贴纸"的直接原因。
+        .clipShape(shape)
+        // 向内描边要在裁剪之后，否则 0.5pt 会被切掉一半，看起来时有时无
+        .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
+        // 投影放最后，才不会被裁
+        .glassElevation(.floating)
         .onAppear { syncWindowHeight() }
         .onChange(of: collapsed) { _, _ in syncWindowHeight() }
     }

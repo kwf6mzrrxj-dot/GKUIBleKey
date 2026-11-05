@@ -99,19 +99,14 @@ struct PairingView: View {
 
     // MARK: - 背景（随浅色/深色自适应）
 
+    /// 统一渐变底。
+    ///
+    /// 这里原本有一份**手抄的** `LinearGradient`，数值与 `GlassScreenBackground`
+    /// 几乎一样但深色第二档不同（0.07/0.08/0.11 vs 0.06/0.07/0.10）——
+    /// 肉眼几乎看不出，但配对页和别的页并排切换时会觉得"底色微微跳了一下"。
+    /// 背景只该有一个定义。
     private var background: some View {
-        Group {
-            if colorScheme == .dark {
-                LinearGradient(colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
-                                        Color(red: 0.07, green: 0.08, blue: 0.11)],
-                               startPoint: .top, endPoint: .bottom)
-            } else {
-                LinearGradient(colors: [Color(red: 0.93, green: 0.95, blue: 0.98),
-                                        Color(red: 0.84, green: 0.87, blue: 0.92)],
-                               startPoint: .top, endPoint: .bottom)
-            }
-        }
-        .ignoresSafeArea()
+        GlassScreenBackground()
     }
 
     // MARK: - 顶部：请绑定车辆
