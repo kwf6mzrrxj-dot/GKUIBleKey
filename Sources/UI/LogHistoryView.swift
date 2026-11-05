@@ -27,8 +27,22 @@ struct LogHistoryView: View {
         }
     }
 
+    /// 同一层只能有一个 `.sheet(item:)` 真正生效 —— 分成两个修饰符时，
+    /// 后加的那个会盖掉前一个（表现为「点文件没反应」）。合并成一个枚举。
+    private enum ActiveSheet: Identifiable {
+        case detail(LogFile)
+        case export(URL)
+
+        var id: String {
+            switch self {
+            case .detail(let f): return "detail-\(f.url.lastPathComponent)"
+            case .export(let u): return "export-\(u.lastPathComponent)"
+            }
+        }
+    }
+
     @State private var files: [LogFile] = []
-    @State private var selected: LogFile?
+    @State private var activeSheet: ActiveSheet?
     @State private var confirmDelete = false
 
     var body: some View {
@@ -43,7 +57,7 @@ struct LogHistoryView: View {
                         Section {
                             ForEach(files) { f in
                                 Button {
-                                    selected = f
+                                    activeSheet = .detail(f)
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 3) {
@@ -64,8 +78,8 @@ struct LogHistoryView: View {
                                 }
                             }
                         } footer: {
-                            Text("共 \(files.count) 个文件。日志按大小自动轮转，"
-                                 + "最早的文件可能已在保留期内被清理。")
+                            Text("共 \(files.count) 个文件（当前 + 最多 5 个轮转，单个上限 2 MB）。"
+                                 + "日志按大小自动轮转，超过 7 天的会被清理。")
                         }
                     }
                 }
@@ -75,6 +89,18 @@ struct LogHistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    // 全部轮转文件合并导出 —— 排查时贴给人看只需要一个文件
+                    Button {
+                        if let url = FileLogger.shared.exportToTemporaryFile() {
+                            activeSheet = .export(url)
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(files.isEmpty)
+                    .accessibilityLabel("导出全部日志")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
@@ -88,6 +114,9 @@ struct LogHistoryView: View {
             .alert("删除全部历史日志？", isPresented: $confirmDelete) {
                 Button("删除", role: .destructive) {
                     FileLogger.shared.deleteAllFiles()
+                    // 内存那份也要清 —— 否则「历史删光了，浮窗还在滚」，
+                    // 用户会以为删除没生效。
+                    LogFeed.shared.clear()
                     load()
                 }
                 Button("取消", role: .cancel) {}
@@ -95,8 +124,11 @@ struct LogHistoryView: View {
                 Text("会删掉 Documents/Logs 下所有日志文件，不可恢复。"
                      + "如果还要留证据，先点进文件用「分享」导出。")
             }
-            .sheet(item: $selected) { f in
-                LogFileDetailView(file: f)
+            .sheet(item: $activeSheet) { s in
+                switch s {
+                case .detail(let f): LogFileDetailView(file: f)
+                case .export(let url): LogExportSheet(url: url)
+                }
             }
             .task { load() }
         }

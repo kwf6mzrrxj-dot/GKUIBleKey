@@ -146,11 +146,27 @@ public final class MeasuredSession: ObservableObject {
     @Published public private(set) var status: VehicleStatus?
     /// `status` 最后一次被广播刷新的时刻。
     ///
-    /// 车机广播**不是实时流**（实测间隔从 10 秒到十几分钟不等），所以界面上的
-    /// 「已锁 / 门关 / 未启动」本质是**最后一次收到的快照**，不是当前实况。
-    /// 没有这个时间戳，用户会误以为看到的是实时状态 —— 人离开车辆后
-    /// 界面照样稳稳显示「已锁」，这比 RSSI 假值更容易造成误判。
+    /// 车机广播**不是均匀的流**：扫描到车辆时是 0.5–1 秒一帧（见
+    /// `updateVehicleStatus` 的实测记录），但车停着不动时可能十几秒才来一帧。
+    /// 所以界面上的「已锁 / 门关 / 未启动」本质是**最后一次收到的快照**，
+    /// 不是当前实况。没有这个时间戳，用户会误以为看到的是实时状态 ——
+    /// 人离开车辆后界面照样稳稳显示「已锁」，比 RSSI 假值更容易造成误判。
+    ///
+    /// 这个不均匀直接影响「断联」怎么判：见 `broadcastGapEMA`。
     @Published public private(set) var statusUpdatedAt: Date?
+
+    /// 最近广播间隔的指数平滑值（秒）。
+    ///
+    /// ## 为什么需要它（2026-11-05）
+    ///
+    /// 「多久没广播就算断联」不能写死一个数：车端有时 0.5 秒一帧，
+    /// 有时十几秒一帧。写死 3 秒会把后者误判成断联（界面一直闪「离线」）；
+    /// 写死 60 秒又让前者断联要等一分钟（用户反馈的「延迟」）。
+    ///
+    /// 所以按实测间隔自适应：窗口 = max(3 秒, 平滑间隔 × 2.5)。
+    /// 0.5 秒的密集广播 → 3 秒；10 秒的稀疏广播 → 25 秒。
+    /// 用 0.7/0.3 的指数平滑，避免单次抖动把窗口带偏。
+    @Published public private(set) var broadcastGapEMA: TimeInterval?
     /// ★ `0x0E` 下发的密钥数据（原 App 在此调 `saveKeysData:`）
     @Published public private(set) var receivedKeyData: [UInt8] = []
     /// ★ `0x0F` 的设备名列表（原 App 在此调 `parseDeviceNames:`）
@@ -209,7 +225,22 @@ public final class MeasuredSession: ObservableObject {
         let s = VehicleStatus(decryptedPlain: plain)
         let previous = status
         status = s
-        statusUpdatedAt = Date()
+
+        // 广播间隔的平滑统计（给「断联」定自适应窗口，见 `broadcastGapEMA`）
+        let now = Date()
+        if let prev = statusUpdatedAt {
+            let gap = now.timeIntervalSince(prev)
+            // 过滤掉明显异常的样本：重扫后的第一帧可能隔很久，
+            // 那是"扫描停了"而不是"车端广播慢"，不该影响间隔估计
+            if gap > 0.1, gap < 300 {
+                if let old = broadcastGapEMA {
+                    broadcastGapEMA = old * 0.7 + gap * 0.3
+                } else {
+                    broadcastGapEMA = gap
+                }
+            }
+        }
+        statusUpdatedAt = now
         guard previous != s else { return }
         if let p = previous {
             append("车辆状态变化：\(p.summary) → \(s.summary)｜plain=\(s.hex)")
@@ -712,6 +743,7 @@ public final class MeasuredSession: ObservableObject {
         receivedKeyData = []
         pairedDeviceNames = []
         status = nil
+        broadcastGapEMA = nil
         statusUpdatedAt = nil
         vehicleState = IBVehicleState()
     }

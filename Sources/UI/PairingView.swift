@@ -147,7 +147,7 @@ struct PairingView: View {
                     .transition(.opacity)
             } else {
                 // 配对进行中 → 车灯闪烁
-                CarModelView(status: nil, stage: .pairing)
+                CarModelView(snapshot: nil, stage: .pairing)
                     .frame(maxHeight: 240)
             }
             Spacer(minLength: 0)
@@ -202,13 +202,13 @@ struct PairingView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .glassCard(radius: Glass.controlRadius)
             .padding(.horizontal, 16)
             .contentShape(Rectangle())
             .onTapGesture {
                 // 以前这里是静默 return，点了完全没反应。现在每种情况都给回应。
                 if hasVehicle {
-                    statusHint = "已绑定车辆。\n如需重新配对，请先在「开发者 → 密钥管理 → 解绑车辆」清除本地密钥。"
+                    statusHint = "已绑定车辆。\n如需重新配对，请先在「我的 → 设置 → 钥匙 → 密钥管理 → 危险操作」里解绑车辆。"
                     return
                 }
                 if model.pairingArmed {

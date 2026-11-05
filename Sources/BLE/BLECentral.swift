@@ -221,10 +221,24 @@ public final class BLECentral: NSObject, ObservableObject {
 
     /// 请求位置权限（iOS 会弹系统框）。
     ///
-    /// ★ 后台「靠近解锁」需要 **Always 定位**（配合 `UIBackgroundModes: location`）：
-    /// 后台 `scanForPeripherals` 扫描附近车辆依赖定位服务，仅 WhenInUse 无法在
-    /// App 退后台后继续扫描。iOS 规则：必须先请求 WhenInUse，用户授权后才能
-    /// 升级请求 Always。
+    /// ★ 后台「靠近解锁」需要 **Always 定位**。iOS 规则：必须先请求 WhenInUse，
+    /// 用户授权后才能升级请求 Always。
+    ///
+    /// ## 现状说明（2026-11-04 第二轮审查 L6）
+    ///
+    /// 这一整套定位相关代码**只申请权限、从不读取位置** —— 全仓没有
+    /// `startUpdatingLocation`，也没有任何地方用经纬度。它存在的理由是：
+    /// 早期排查"后台扫不到车"时，定位权限是当时的怀疑对象，加上之后现象消失，
+    /// 于是保留至今。
+    ///
+    /// 严格说，iOS 13 以后 `scanForPeripherals` 在后台靠的是
+    /// `UIBackgroundModes: bluetooth-central`，不需要定位。但这段路是**真机验证过**
+    /// 的，删掉意味着要重新验证一遍后台唤醒行为 —— 收益（少一个权限申请）
+    /// 与风险（可能退化成一个很难复现的后台问题）不成比例。
+    ///
+    /// 所以：保留代码与 Info.plist 里的 `NSLocation*` 描述（缺了会崩），
+    /// 也保留 `UIBackgroundModes: location`。
+    /// **如果以后要清理，请先确认后台扫描不依赖它，再一起删这三处。**
     public func requestLocationPermission() {
         refreshLocationAuth()
         if locationAuthText == "未决定" {
@@ -362,11 +376,14 @@ public final class BLECentral: NSObject, ObservableObject {
             p.discoverServices([GATT.serviceUUID])
             // ★ 同样要看门狗（2026-10-29 全域审查补）。
             //
-            // 当前**没有**启用 `CBCentralManagerOptionRestoreIdentifierKey`，
-            // 所以 `willRestoreState` 这条路径在现有配置下不会触发；
-            // 但代码在这儿、逻辑是活的 —— 一旦以后开启状态恢复，
-            // 没有看门狗就会永久 `.discovering`（和 adopt 那个坑一模一样）。
+            // `init` 里**已经**传了 `CBCentralManagerOptionRestoreIdentifierKey`
+            // （见 `central = CBCentralManager(... options: ...)`），所以这条路径是活的：
+            // App 被系统回收后，带着连接重启时会走到这里。
+            // 一条没有看门狗的 `.discovering` 会永久卡住（和 adopt 那个坑一模一样），
             // 保持三条 discovering 入口的写法一致，避免下次再漏。
+            //
+            // 注：原注释写的是「当前没有启用」，与 `init` 里的实际代码相反，
+            // 2026-11-04 审查时校正。
             armDiscoverTimeout()
         }
     }

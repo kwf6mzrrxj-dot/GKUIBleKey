@@ -1,6 +1,9 @@
 name: GKUIBleKey
 options:
-  bundleIdPrefix: com.example
+  # 三个 target 都显式写了 `PRODUCT_BUNDLE_IDENTIFIER`，所以这个前缀只用于
+  # xcodegen 的默认值生成，实际不会生效。改成真实前缀，免得以后看到它误以为
+  # bundle id 是 com.example.*（2026-11-04 第二轮审查 L5）。
+  bundleIdPrefix: com.mmxisme
   deploymentTarget:
     iOS: "27.0"
   createIntermediateGroups: true
@@ -11,7 +14,12 @@ settings:
     SWIFT_VERSION: "6.0"
     IPHONEOS_DEPLOYMENT_TARGET: "27.0"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    SWIFT_STRICT_CONCURRENCY: minimal
+    # ★ 2026-11-05：minimal → complete。
+    #
+    # minimal 只做最基本的检查，`@unchecked Sendable`、跨 actor 捕获、
+    # 全局可变状态这些问题编译器都不会报 —— 等于 Swift 6 的模式只开了个头。
+    # 升到 complete 后按编译器指出的点逐个收口，比"凭经验猜哪里会 race"可靠。
+    SWIFT_STRICT_CONCURRENCY: complete
 
 # ★★ 显式声明 scheme（2026-11-02）
 #
@@ -134,8 +142,8 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "9.6"
-        CFBundleVersion: "96"
+        CFBundleShortVersionString: "9.7"
+        CFBundleVersion: "100"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -173,30 +181,52 @@ targets:
   GKUIBleKeyWatch:
     type: application
     platform: watchOS
-    deploymentTarget: "26.0"
-    # 手表端需要完整协议栈：BLE 传输 + 会话状态机 + 0x0D 配对帧 + Keychain。
-    # 只排除 iOS-only 的几块（App/UI/Intents/LiveActivity/Widget/Security）。
+    # ★ 2026-11-04：从 26.0 降到 11.0。
+    #   实测这块表是 Series 10（Watch7,11），出厂 watchOS 11；
+    #   写 26.0 会让 xcodebuild 直接拒绝这个 destination
+    #   （"watchOS version doesn't match deployment target"），
+    #   连构建都跑不到签名那一步。
+    #   代码本身只用到 watchOS 9+ 的 API（NavigationStack / bordered 按钮 / WCSession），
+    #   降到 11.0 不需要改任何实现。
+    deploymentTarget: "11.0"
+    # ★ 2026-11-04 彻底重构：手表**只走云端**，不再包含任何蓝牙代码。
+    #
+    # 所以这里没有 Protocol / BLE / Crypto / Keychain 了 —— 那整套
+    # （扫描、01→04 会话、0x0D 配对、0x0C 保活、广播解密）全部移除。
+    #
+    # 现在手表需要的只有三层：
+    #   Watch  —— 界面与控制器
+    #   Net    —— 云端客户端（账号、签名、请求、车况解析）
+    #   Sync   —— 与 iPhone 的账号/车况同步载荷
     sources:
       - path: Sources/Watch
-      - path: Sources/Protocol
-      - path: Sources/Keychain
-      - path: Sources/BLE
-      # 密码学原语（AES / HMAC）：Foundation + CryptoKit + CommonCrypto，watchOS 全有
-      - path: Sources/Crypto
-      # BLE 层依赖的两个支撑文件（都只有 Foundation；UIApplication 部分已用 #if os(iOS) 隔离）
+      - path: Sources/Net
+        excludes:
+          # 依赖 AppModel（iOS 主 App 的业务层），手表不需要也不该有
+          - "AppModel+Cloud.swift"
+          # 依赖 IBCommandType（BLE 协议层的控制码），手表没有协议栈
+          - "ControlChannel+IBCommand.swift"
+          # 状态页用的字段目录（纯 UI）
+          - "StatusFieldCatalog.swift"
+      - path: Sources/Sync
+        excludes:
+          # 手机侧的 WCSession 代理，手表有自己的那一份
+          - "PhoneWatchSync.swift"
+      # 日志（云端请求留痕要用；纯 Foundation，watchOS 可用）
       - path: Sources/Support/FileLogger.swift
-      - path: Sources/Support/BackgroundMonitor.swift
     info:
       path: Sources/Watch/Info.plist
-      # ★ 同 Widget：properties 会被 xcodegen 整份重写。
-      #   **`NSBluetoothAlwaysUsageDescription` 必须写在这里** ——
-      #   缺了它，watchOS 上 `CBCentralManager` 直接进 `unauthorized`，
-      #   一个设备都扫不到，且不会报错（v7.4 就踩过：手改 plist 被抹掉）。
+      # ★ 同 Widget：properties 会被 xcodegen 整份重写
+      #   （手改 Sources/Watch/Info.plist 会在下次 generate 时被抹掉）。
+      #
+      # ★ 2026-11-04：`NSBluetoothAlwaysUsageDescription` 已删除 ——
+      #   手表端不再有任何 CoreBluetooth 代码，留着这条会被审核问
+      #   「你申请蓝牙权限做什么」。将来若恢复 BLE，必须同时加回这里
+      #   和 target 的 Protocol/BLE 源码，缺一个都会静默失败（v7.4 踩过）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "9.6"
-        CFBundleVersion: "96"
-        NSBluetoothAlwaysUsageDescription: 手表需要使用蓝牙连接车辆蓝牙钥匙模块，完成配对与车门控制。
+        CFBundleShortVersionString: "9.7"
+        CFBundleVersion: "100"
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey
     settings:

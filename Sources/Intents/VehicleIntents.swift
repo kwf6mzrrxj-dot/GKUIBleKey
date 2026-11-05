@@ -218,41 +218,92 @@ struct VehicleStatusIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let status = AppModel.shared.measured.status else {
+        // ★ 2026-11-04：改读 `activeStatus`（蓝牙优先 + 云端兜底）。
+        //
+        // 原来只读 `measured.status`（蓝牙广播）。而这个 Intent 是
+        // `supportedModes = .background` —— 后台进程里几乎不可能有 BLE 广播，
+        // 于是哪怕云端刚刚拉到完整车况，Siri 也只会回答「还没收到过车辆状态」。
+        let active = AppModel.shared.activeStatus
+        guard let snap = active.snapshot else {
             return .result(dialog: IntentDialog(
-                stringLiteral: "还没收到过车辆状态。请打开 App 并靠近车辆。"))
+                stringLiteral: "还没有车辆状态。打开 App 靠近车辆，或在设置里配置云端账号。"))
         }
 
-        var text = status.summary
-        if let at = AppModel.shared.measured.statusUpdatedAt {
-            let seconds = Int(Date().timeIntervalSince(at))
-            let age: String
-            if seconds < 60 {
-                age = "\(seconds) 秒前"
-            } else if seconds < 3600 {
-                age = "\(seconds / 60) 分钟前"
-            } else {
-                age = "\(seconds / 3600) 小时前"
-            }
-            text += "（\(age)收到）"
-            if seconds > 120 {
-                text += "，可能已不是当前状态"
-            }
+        var text = Self.summary(of: snap)
+        // 来源标注：让用户知道这是秒级还是分钟级的数据
+        switch active.source {
+        case .bluetooth(let at):
+            text += "（蓝牙实时，\(Self.ageText(at))）"
+        case .cloud(let at):
+            text += "（云端，\(Self.ageText(at))同步）"
+        case .none:
+            break
         }
         return .result(dialog: IntentDialog(stringLiteral: text))
+    }
+
+    /// 把通道无关的快照说成一句人话。
+    /// `nil` 的项直接跳过 —— 宁可少说一句，也不替车编一个状态。
+    private static func summary(of snap: VehicleSnapshot) -> String {
+        var parts: [String] = []
+        if let locked = snap.isLocked {
+            parts.append(locked ? "已锁车" : "未锁车")
+        }
+        if let doors = snap.isDoorsClosed {
+            parts.append(doors ? "车门全关" : "有车门开着")
+        }
+        if let trunk = snap.isTrunkClosed {
+            parts.append(trunk ? "后备箱关着" : "后备箱开着")
+        }
+        if let engine = snap.isEngineRunning {
+            parts.append(engine ? "引擎运行" : "引擎熄火")
+        }
+        guard !parts.isEmpty else { return "暂时没有可读的车辆状态" }
+        return "车辆：" + parts.joined(separator: "，")
+    }
+
+    private static func ageText(_ at: Date) -> String {
+        let s = Int(max(0, Date().timeIntervalSince(at)))
+        if s < 60 { return "\(s) 秒前" }
+        if s < 3600 { return "\(s / 60) 分钟前" }
+        return "\(s / 3600) 小时前"
     }
 }
 
 // MARK: - Siri 短语
 
-/// 注册「免配置」的 Siri 短语。
+/// 注册「免配置」的 Siri 短语 + 系统快捷指令。
 ///
 /// 不注册的话用户必须去「快捷指令」App 里手动建一个快捷指令，
 /// 体验差很多。注册后直接说「嘿 Siri，解锁车」就能用。
 ///
 /// ⚠️ 每个短语**必须**包含 `\(.applicationName)`，这是系统的硬性要求，
 /// 否则整组短语会被静默丢弃。
+///
+/// ## 它同时是「手表端」的替代路径（2026-11-04）
+///
+/// 手表 App 在**免费 Apple ID** 下装不进去：拿不到 watchOS 平台的描述文件
+/// （实测 `Platform = iOS xrOS visionOS`），手表校验失败报「无法验证其完整性」。
+/// 这是 Apple 侧限制，改代码绕不过。
+///
+/// 而下面这 5 个快捷指令会**自动同步到 Apple Watch 的「快捷指令」App**，
+/// 可以挂到表盘复杂功能上点一下就运行 —— 免费账号下最接近原生的方案：
+///
+/// | 需求 | 方案 | 是否免费可用 |
+/// |---|---|---|
+/// | 抬腕看车况 | Live Activity 镜像到手表「智能叠放」 | ✅ |
+/// | 抬腕按一下 | 本文件这 5 个快捷指令（可放表盘） | ✅ |
+/// | 语音控车 | 「嘿 Siri，解锁车门」 | ✅ |
+/// | 独立手表 App | 需要付费开发者账号 | ❌ |
+///
+/// ⚠️ 全项目**只能有一个** `AppShortcutsProvider`，多一个直接构建失败：
+/// "Only 1 'AppIntents.AppShortcutsProvider' conformance is allowed"。
 struct GKUIBleKeyShortcuts: AppShortcutsProvider {
+
+    /// 快捷指令 App 里这个 App 的图标底色。
+    /// 不设的话系统会给一个随机灰，五个动作混在一堆快捷指令里不好找。
+    static var shortcutTileColor: ShortcutTileColor { .blue }
+
     static var appShortcuts: [AppShortcut] {
         // 绑到**无参** Intent 上：Siri 命中后直接执行，
         // 不会先在「控制车辆」里追问「哪个动作」。

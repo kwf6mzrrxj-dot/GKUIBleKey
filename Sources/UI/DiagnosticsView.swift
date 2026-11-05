@@ -10,9 +10,13 @@ import SwiftUI
 struct DiagnosticsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    /// 实时日志流 —— 独立订阅，日志刷屏时只重绘这一块，不带着整个 App 抖
+    @ObservedObject private var feed = LogFeed.shared
     @State private var selfTestResults: [SelfTest.Result] = []
-    /// 日志范围：0 = 协议会话（measured.log），1 = 全部模块（FileLogger 流）
+    /// 日志范围：0 = 协议会话（measured.log），1 = 全部模块（LogFeed）
     @State private var logScope = 0
+    /// 落盘日志的级别过滤（与 `FileLogger.config.minimumLevel` 同步，写 UserDefaults 持久化）
+    @State private var logLevel: LogLevel = FileLogger.shared.config.minimumLevel
     @State private var showLogHistory = false
 
     var body: some View {
@@ -28,7 +32,7 @@ struct DiagnosticsView: View {
                 }
                 .padding(18)
             }
-            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+            .background(GlassScreenBackground())
             .navigationTitle("诊断")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -96,7 +100,17 @@ struct DiagnosticsView: View {
                 readonlyRow("RSSI 标定值", model.passiveStart.isCalibrated
                             ? "\(model.passiveStart.calibration ?? 0)"
                             : "未标定（区域判定永不成立）")
-                readonlyRow("区域阈值", "\(model.passiveStart.threshold)")
+                readonlyRow("点火区域阈值", "\(model.passiveStart.threshold)（= 标定值 − leaveOffset）")
+                // ★ 靠近解锁是**独立的两条阈值**，与上面那条无关。
+                //   排障时说"自动解锁不动作"，先看这两行有没有值、当前 RSSI 落在哪。
+                readonlyRow("靠近解锁阈值", {
+                    guard let u = model.proximityUnlock.unlockThreshold,
+                          let l = model.proximityUnlock.lockThreshold else { return "未标定（不会动作）" }
+                    return "解锁 \(u) / 闭锁 \(l)（迟滞 \(model.proximityUnlock.hysteresis) dB）"
+                }())
+                readonlyRow("靠近解锁阶段", model.proximityUnlock.isEnabled
+                            ? model.proximityUnlock.summary
+                            : "开关未开启")
                 // ★ 判定用的是双天线**合成** dB 值，不是下面这个单值广播 RSSI。
                         //   两者可差 3 dB 以上，拿它跟阈值比对会得出相反结论。
                         readonlyRow("合成 RSSI（判定用）", model.passiveStart.summary)
@@ -126,9 +140,11 @@ struct DiagnosticsView: View {
                 Text("保持连接测试（不发任何帧）")
                     .font(.caption.weight(.semibold))
                 readonlyRow("测试状态", model.idleHoldState ?? "未运行")
+                // 不写版本号：这条实测是在 v4.4 做的，而现在已经是 9.x，
+                // 「v4.4 已实测」留在界面上只会让人误以为是当前版本的行为。
                 Text("连上后一帧都不发，看车端多久主动断开。"
-                     + "⚠️ v4.4（2026-10-29）已实测：车端约 2 秒踢掉空闲连接；"
-                     + "本测试只用于复核当前系统/车辆是否仍如此。")
+                     + "⚠️ 历史实测（2026-10-29）：车端约 2 秒踢掉空闲连接；"
+                     + "本测试用于复核当前系统/车辆是否仍如此。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Button {
@@ -157,7 +173,15 @@ struct DiagnosticsView: View {
                 readonlyRow("链路状态", model.ble.linkState.rawValue)
                 // ★ 顶栏只说「在线/离线」，这里保留原始状态与最近联络时间 ——
                 //   排查时要看的正是这两者的差值（例如"在线但链路 failed"）。
-                readonlyRow("车辆在线", model.isVehicleOnline ? "是" : "否")
+                // ★ 两个判据分开列（2026-11-05）：
+                //   `车辆在线` 是路由用的 60 秒窗口，`蓝牙活跃` 是界面用的自适应窗口。
+                //   排查"界面闪离线"时看后两行 —— 间隔和窗口都在这儿。
+                readonlyRow("车辆在线（路由）", model.isVehicleOnline ? "是" : "否")
+                readonlyRow("蓝牙活跃（界面）", model.bluetoothLinkAlive ? "是" : "否")
+                readonlyRow("广播间隔（平滑）", model.measured.broadcastGapEMA
+                            .map { String(format: "%.1f 秒", $0) } ?? "—")
+                readonlyRow("断联窗口", String(format: "%.1f 秒",
+                                              model.broadcastSilenceWindowNow))
                 readonlyRow("最近联络", model.lastContactText)
                 readonlyRow("写特征", model.ble.isWriteReady ? "已就绪" : "未就绪")
                 // ★ candidates 从不清空（全项目无 `candidates = []`），
@@ -259,14 +283,40 @@ struct DiagnosticsView: View {
                 // ★ 两个视角（2026-11-02）：原来诊断页只有「协议会话」，
                 //   而浮窗显示的是 FileLogger 的全部模块流 —— 同一个问题
                 //   在两个地方看到的行数不一样，用户以为日志系统坏了。
-                //   现在两边同源可选，浮窗仍然只显示"全部"。
+                //
+                //   2026-11-05：两边现在**同源**（`LogFeed`），行数、上限、
+                //   清空行为完全一致；浮窗只显示「全部模块」这一支。
                 Picker("范围", selection: $logScope) {
                     Text("协议会话").tag(0)
                     Text("全部模块").tag(1)
                 }
                 .pickerStyle(.segmented)
 
-                let lines = (logScope == 0) ? model.measured.log : model.liveLogLines
+                // ★ 落盘级别（2026-11-05 从日志页移过来）。
+                //   它控制的是"写不写进磁盘"，属于诊断配置；放在查看页会让人
+                //   误以为改它能让当前列表的行数变多。
+                HStack(spacing: 8) {
+                    Text("落盘级别")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Picker("落盘级别", selection: $logLevel) {
+                        ForEach(LogLevel.allCases, id: \.self) { lv in
+                            Text(lv.label.trimmingCharacters(in: .whitespaces)).tag(lv)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: logLevel) { _, newValue in
+                        FileLogger.shared.config.minimumLevel = newValue
+                        UserDefaults.standard.set(newValue.name, forKey: "gkuiblekey.log.level")
+                    }
+                }
+                Text("调高到 info 以上可减少磁盘写入（debug 会记录每一帧收发）；"
+                     + "只影响之后写入的内容，已经写下的不会消失。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let lines = (logScope == 0) ? model.measured.log : feed.lines
                 if lines.isEmpty {
                     Text(logScope == 0
                          ? "暂无协议日志（还没发生过鉴权往返）"
@@ -286,7 +336,7 @@ struct DiagnosticsView: View {
                     }
                     .frame(maxHeight: 240)
                     Text("\(lines.count) 行"
-                         + (logScope == 0 ? "（协议层，最多 400）" : "（全模块，最多 \(200)）"))
+                         + (logScope == 0 ? "（协议层，最多 400）" : "（全模块，最多 \(LogFeed.capacity)）"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -373,7 +423,7 @@ struct DiagnosticsView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .glassCard()
         }
     }
 }

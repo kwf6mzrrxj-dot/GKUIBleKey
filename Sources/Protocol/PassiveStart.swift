@@ -85,6 +85,10 @@ public struct PassiveStartJudge: Sendable {
     /// 两次判定的最小间隔 —— `0x7898` 初始值 29.0
     public var timeBetweenPassiveStart: TimeInterval = 29.0
     /// 接近偏移 —— `0x78c8 mov w2,#0x1e` → 30
+    ///
+    /// ⚠️ **原厂保留了它，但判定式里从来没用过**（`checkRssiForPassiveStart`
+    /// 只读 `calibration` 与 `leaveOffset`）。这里保留是为了与原厂对象字段一致，
+    /// 不要把它接到任何 UI 上 —— 改了不会有任何效果。
     public var approachOffset: Int = 30
     /// 离开偏移 —— `0x7900 mov w2,#0x20` → 32
     public var leaveOffset: Int = 32

@@ -10,12 +10,12 @@ import AppIntents
 /// 再把动作交给 App 的 `onOpenURL`。真机反馈是**点了完全没有日志** ——
 /// 说明 URL 根本没送达，整条链在路上就断了。
 ///
-/// 现在改用 `QuickControlIntent`：`openAppWhenRun = true`，
-/// 系统先把 App 带到前台，再**在 App 进程里**执行 `perform()`，
-/// 动作直接落到 `AppModel`，不经过 URL 分发。
+/// 现在改用 `QuickControlIntent`，执行模式是 `.background`：
+/// 系统在后台把 App 进程拉起来执行 `perform()`，**不切前台、不打开 App**，
+/// 动作直接落到 `AppModel`，也不经过 URL 分发。
 ///
-/// 代价与以前一样：点控件会打开 App。好处是前台 BLE 权限完整，
-/// 而且能在界面上给出可见反馈（顶部横幅「已收到控件：闭锁」）。
+/// 结果反馈不靠弹窗（后台没有界面），而是写进 Live Activity：
+/// 锁屏卡片上会显示「蓝牙 · 19:28 / 云端 · 19:28」以及最新的锁态。
 struct LockControlWidget: ControlWidget {
 
     var body: some ControlWidgetConfiguration {

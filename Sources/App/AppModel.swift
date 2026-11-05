@@ -31,6 +31,34 @@ public final class AppModel: ObservableObject {
     public static let shared = AppModel()
 
     public let ble = BLECentral()
+
+    // MARK: - ★ 云端通道（2026-11-04）
+
+    /// 云端客户端（actor，内部串行处理 token 与请求）
+    let cloud = GKCloudClient.shared
+
+    /// 云端凭据是否齐全（手机号 + 密码 + VIN）
+    @Published var cloudConfigured = false
+
+    /// 云端最近一次车况快照 —— 车辆模型区会用它补充/替代蓝牙状态
+    @Published var cloudSnapshot: VehicleSnapshot?
+
+    /// 云端请求进行状态（UI 显示转圈/错误）
+    @Published var cloudState: CloudState = .idle
+
+    /// 云端车况的**全量字段**（状态页逐条列出）。
+    /// 语义化展示只用得上十来个，剩下的都在这里。
+    @Published var cloudFields: [StatusField] = []
+
+    /// 云端自动刷新的任务（前台跑，后台停）
+    var cloudAutoRefreshTask: Task<Void, Never>?
+    /// 自动刷新间隔。90 秒是折中 ——
+    /// 车控平台对高频调用敏感，60 秒以下容易被风控；
+    /// 再长（5 分钟）就失去"看一眼现在的状态"的意义了。
+    static let cloudRefreshInterval: TimeInterval = 90
+
+    /// 最近一次成功下发走的是哪条通道 —— 按钮角标依据它
+    @Published var lastChannelUsed: ControlChannel?
     /// InBlue 配对器（首次绑定用；日常认证走 `measured`）
     public let pairing = InBluePairing()
 
@@ -38,10 +66,23 @@ public final class AppModel: ObservableObject {
     /// `checkRssiForPassiveStart` / `isInPassiveStartArea` 反汇编实现。
     @Published public var passiveStart = PassiveStartJudge()
 
+    /// 靠近解锁 / 远离闭锁的状态机（判据来自 `PassiveStartJudge`，见其说明）
+    @Published public var proximityUnlock = ProximityUnlockController()
+
+    /// 两路 RSSI 的判定节流：一帧广播会分别回调 antenna 1 和 2，
+    /// 不去重的话每帧会判两次（样本翻倍、`combinedRSSI` 的间隔也算错）
+    ///
+    /// 以下四个是**存储属性**（不能写在扩展里），由 `AppModel+Proximity.swift` 读写，
+    /// 所以是 internal 而不是 private。
+    var lastAreaCheckAt: Date?
+
     /// ★ 双天线 RSSI 缓存（标定采样用）—— 对应 `RSSIAntennaOne` / `RSSIAntennaTwo`。
     /// 广播回调时按 antenna 高 4 位分路，标定进行中时合成喂给 `passiveStart`。
-    private var rssiAntennaOne: Double?
-    private var rssiAntennaTwo: Double?
+    var rssiAntennaOne: Double?
+    var rssiAntennaTwo: Double?
+
+    /// 「标定期间只有一路天线」提示的节流（10 秒一次，避免每帧刷屏）
+    var lastSingleAntennaWarnAt: Date?
 
     /// ★ **无感进入（Passive Entry / PE）总开关** —— 对应
     /// `-[IBVehicle enablePassiveEntry]` @`0xa3d8` → `openConnexionForCommand:0x11`
@@ -72,6 +113,24 @@ public final class AppModel: ObservableObject {
     public let preAuth = PreAuthenticationController()
 
     @Published public var statusLine = "待机"
+
+    // MARK: - 阈值常量（方法在 `AppModel+Proximity.swift`）
+    //
+    // `static let` 是存储型类型属性，**不能写在 extension 里**，
+    // 所以常量留在主类、方法在扩展 —— 拆文件时踩过一次。
+
+    /// **点火位置验证**的离开偏移（默认 32，来自 `IBVehicle leaveOffset`）
+    ///
+    /// 注意：原厂还有一个 `approachOffset`（默认 30），但反汇编证明
+    /// `checkRssiForPassiveStart` **只用了 `leaveOffset`**，`approachOffset`
+    /// 全程没被读过。所以这里不再暴露它的配置 —— 一个改了没有效果的开关，
+    /// 比没有这个开关更糟。
+    public static let leaveOffsetKey = "gkuiblekey.proximity.leaveOffset"
+
+    /// **靠近解锁**的解锁偏移（默认 18）
+    public static let enterOffsetKey = ProximityUnlockController.enterOffsetKey
+    /// **靠近解锁**的闭锁偏移（默认 28）
+    public static let exitOffsetKey = ProximityUnlockController.exitOffsetKey
     /// 是否已提示过「RSSI 未标定」（只提示一次）
     private var didWarnUncalibrated = false
 
@@ -98,13 +157,95 @@ public final class AppModel: ObservableObject {
     /// 最近一次「确认车在附近」的时刻：收到本车广播 / 收到车端任意帧 / 命令成功。
     @Published public private(set) var lastVehicleContactAt: Date?
 
+    /// ★ 最近一次**真正收到并解析出广播车辆数据**的时刻。
+    ///
+    /// 和上面的 `lastVehicleContactAt` 不是一回事：那个包含「命令成功」「收到任意帧」，
+    /// 用来判断"车在不在附近"；这个只认广播解密出的 `status`。
+    ///
+    /// 状态显示必须用这一个 —— 用户要求「蓝牙有效 = 实际收到广播车辆数据」。
+    /// 只发了一条命令成功、但没收到过广播时，屏幕上的门锁状态其实还是旧值。
+    @Published public private(set) var lastBluetoothStatusAt: Date?
+
+    /// 云端凭据是否已经从 Keychain 读出来（`reloadCloudConfig` 完成）。
+    /// 控制中心 / Siri 这类「App 可能没在运行」的入口靠它判断是否要等一等，
+    /// 见 `awaitCloudConfigReady(timeout:)`。
+    @Published public internal(set) var cloudConfigReady = false
+
     /// 只用于让「在线」随时间自然过期 —— SwiftUI 不会因为 `Date()` 推进而重绘。
     @Published private var onlineTick = Date()
     private var onlineTickTask: Task<Void, Never>?
     /// 上一次同步给锁屏卡片的在线状态（只在翻转时刷新，避免每帧都推一次活动）
     private var lastKnownOnline = false
 
-    /// 车在不在（顶栏用）
+    /// 上一次的链路存活判定 —— 只在**翻转那一刻**触发重绘，
+    /// 不是每秒都刷（车图有浮动动画，每秒重绘会打架）
+    private var lastLinkAlive = false
+    private var linkLivenessTask: Task<Void, Never>?
+
+    /// 断联判定的**下限**窗口：3 秒。
+    ///
+    /// 实际窗口是自适应的 —— 见 `broadcastSilenceWindowNow`。
+    public static let broadcastSilenceWindow: TimeInterval = 3
+
+    /// 当前的断联窗口（自适应）。
+    ///
+    /// ## 为什么不是固定值（2026-11-05）
+    ///
+    /// 车端广播的间隔并不均匀：扫描到车时 0.5–1 秒一帧，车停着不动时
+    /// 可能十几秒才来一帧（两处实测都记在 `MeasuredSession`）。
+    ///
+    /// 固定 3 秒 → 稀疏广播时界面一直闪「离线」；
+    /// 固定 60 秒 → 密集广播时车开走一分钟才变灰（用户反馈的「延迟」）。
+    ///
+    /// 所以按实测间隔定：`max(3 秒, 平滑间隔 × 2.5)`。
+    /// 0.5 秒 → 3 秒；10 秒 → 25 秒。既不会误判，也比 60 秒快得多。
+    ///
+    /// 还没收到过任何广播时（`broadcastGapEMA == nil`）用 3 秒 ——
+    /// 这个阶段 `bluetoothLinkAlive` 本来就依赖 `linkState`，窗口用不上。
+    public var broadcastSilenceWindowNow: TimeInterval {
+        guard let gap = measured.broadcastGapEMA, gap > 0 else {
+            return Self.broadcastSilenceWindow
+        }
+        return max(Self.broadcastSilenceWindow, gap * 2.5)
+    }
+
+    /// **蓝牙此刻是否还活着** —— 界面读这个，不要读 `isVehicleOnline`。
+    ///
+    /// ## 为什么要单独一个判据（2026-11-05 用户反馈「断联有延迟」）
+    ///
+    /// `isVehicleOnline` 是给**路由**用的（决定"要不要等蓝牙重连"），
+    /// 窗口 60 秒 + 5 秒 tick，最坏要 **65 秒**才变离线。这在路由上是合理的
+    /// （避免一次丢包就切网络），但拿来画界面就是错的：
+    /// 用户把车开走，顶栏还能挂着"已连接"一分钟。
+    ///
+    /// 这里换成「多久没收到车辆回报」：
+    ///
+    /// ```
+    /// 链路层正在就绪（ready / connecting / discovering）→ 活着
+    ///     连接期间本来就不扫描，收不到广播是正常的，不能判死
+    /// 否则看最后一次广播 → 3 秒内收到过就活着
+    /// ```
+    ///
+    /// 这个属性**不读 `onlineTick`**，免得在 tick 循环里自己依赖自己。
+    private var bluetoothLinkAliveRaw: Bool {
+        guard hasLocalKey || pairingArmed else { return false }
+        switch ble.linkState {
+        case .ready, .connecting, .discovering:
+            return true
+        case .idle, .scanning, .disconnected, .failed:
+            break
+        }
+        guard let at = lastBluetoothStatusAt else { return false }
+        return Date().timeIntervalSince(at) < broadcastSilenceWindowNow
+    }
+
+    /// 界面读它 —— 读一下 `onlineTick` 让 SwiftUI 跟着 tick 重算。
+    public var bluetoothLinkAlive: Bool {
+        _ = onlineTick
+        return bluetoothLinkAliveRaw
+    }
+
+    /// 车在不在（**路由用**，界面不要用 —— 见 `bluetoothLinkAlive`）
     public var isVehicleOnline: Bool {
         _ = onlineTick          // 读取它，让视图随 tick 重算
         // 没绑定也没在配对 → 没有"你的车"可在线。
@@ -142,8 +283,13 @@ public final class AppModel: ObservableObject {
 
     // MARK: - ★ 实时日志浮窗
 
-    /// 实时日志行（最近 200 行），供浮窗显示。由 `FileLogger` 回调驱动更新。
-    @Published public private(set) var liveLogLines: [String] = []
+    /// 实时日志流（浮窗 / 诊断页共同订阅）。
+    ///
+    /// **不是 `@Published`** —— 日志行高频变化，挂在这里会让所有界面跟着重绘。
+    /// 需要刷新的视图各自 `@ObservedObject` 订阅 `LogFeed.shared`。
+    /// （原来那个 `liveLogLines` 兼容属性已删：没有订阅者时它只会误导后来人。）
+    public let logFeed = LogFeed.shared
+
     /// 实时日志浮窗是否开启（UserDefaults 持久化，开发者菜单可开关）。
     @Published public var liveLogFloatingEnabled = false {
         didSet {
@@ -151,17 +297,15 @@ public final class AppModel: ObservableObject {
             // ★ 驱动全局浮窗（独立 UIWindow，悬浮在所有界面之上）
             //   窗口操作必须在主线程，用 Task 切到 MainActor。
             let enabled = liveLogFloatingEnabled
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            Task { @MainActor in
                 if enabled {
-                    FloatingWindowController.shared.show(model: self)
+                    FloatingWindowController.shared.show()
                 } else {
                     FloatingWindowController.shared.hide()
                 }
             }
         }
     }
-    private let liveLogCapacity = 200
 
     /// **清空界面日志**（2026-11-02）：会话日志 + 实时日志 + 内存缓冲。
     ///
@@ -170,7 +314,7 @@ public final class AppModel: ObservableObject {
     /// 只清一个会出现「诊断页空了、浮窗还有」的错位（用户就是这样发现问题的）。
     public func clearDisplayedLogs() {
         measured.clearLog()
-        liveLogLines.removeAll(keepingCapacity: true)
+        logFeed.clear()
         FileLogger.shared.clearMemory()
         statusLine = "日志已清空（磁盘历史保留，可点「历史」查看）"
     }
@@ -255,6 +399,23 @@ public final class AppModel: ObservableObject {
         //   「用户打开 App」和「系统为 Siri/快捷指令启动了进程」。
         BackgroundMonitor.shared.start()
 
+        // 手表同步通道（2026-11-04）：手表端已改为纯云端，账号与快照都从这里推过去
+        PhoneWatchSync.shared.start()
+
+        // 云端通道：读本地凭据判断是否已配置（纯本地，不联网）
+        reloadCloudConfig()
+
+        // 每次解析出新的广播状态就记时 —— 这是「蓝牙是否有效」的唯一依据
+        measured.$status
+            .sink { [weak self] status in
+                guard let self, status != nil else { return }
+                self.lastBluetoothStatusAt = Date()
+                // ★ 广播就是最新的车况 —— 锁屏卡片要跟着它走，而不是等云端 90 秒一轮。
+                //   内部有 2 秒节流，广播 0.5 秒一帧不会把更新打爆。
+                self.refreshLiveActivity()
+            }
+            .store(in: &cancellables)
+
         // ★ 前后台切换 → 写进「保活」日志，形成时间线。
         //
         // 用 `Task { @MainActor }` 而不是 `MainActor.assumeIsolated`：
@@ -275,12 +436,15 @@ public final class AppModel: ObservableObject {
                     //
                     // `tickIfNeeded` 自带 29 秒守卫，不会因为频繁切换而多发。
                     self.preAuth.tickIfNeeded()
+                    // 后台不再轮询云端 —— 省流量也省电，回来时一次性补
+                    self.stopCloudAutoRefresh()
                 }
             }
             .store(in: &cancellables)
         NotificationCenter.default
             .publisher(for: UIApplication.willEnterForegroundNotification)
-            .sink { _ in
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.startCloudAutoRefresh() }
                 Task { @MainActor in BackgroundMonitor.shared.willEnterForeground() }
             }
             .store(in: &cancellables)
@@ -357,6 +521,13 @@ public final class AppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        // ★ 自动解锁状态机（phase / dwellProgress 要驱动界面）
+        proximityUnlock.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
 
         ble.onFrame = { [weak self] bytes in
             self?.handleIncomingFrame(bytes)
@@ -370,24 +541,34 @@ public final class AppModel: ObservableObject {
             self?.handleDualRSSI(antenna: antennaNo, rssi: rssi)
         }
 
-        // ★★★ 实时日志浮窗：订阅 FileLogger 的新增行回调，刷新 liveLogLines。
-        //     首次加载时读内存缓冲区的最近行，保证打开浮窗就有内容。
+        // ★★★ 实时日志浮窗：把 FileLogger 的新增行转给 `LogFeed`。
+        //
+        // 这里**不捕获 self**：日志与 AppModel 解耦（见 LogFeed 注释），
+        // 否则每写一行都会 publish AppModel，导致所有界面全量重绘。
         liveLogFloatingEnabled = UserDefaults.standard.bool(forKey: "gkuiblekey.liveLogFloating")
-        liveLogLines = FileLogger.shared.recentMemoryLines()
-        FileLogger.shared.onNewLine = { [weak self] line in
-            guard let self else { return }
-            self.liveLogLines.append(line)
-            if self.liveLogLines.count > self.liveLogCapacity {
-                self.liveLogLines.removeFirst(self.liveLogLines.count - self.liveLogCapacity)
-            }
+        FileLogger.shared.onNewLine = { line in
+            LogFeed.shared.ingest(line)
         }
         // 启动时若开关已开，主动拉起浮窗（init 赋值不触发 didSet）
         if liveLogFloatingEnabled {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                FloatingWindowController.shared.show(model: self)
+            DispatchQueue.main.async {
+                FloatingWindowController.shared.show()
             }
         }
+
+        // 浮窗右上角 × → 把开关同步回 false（否则开发者菜单的 Toggle 会显示"开"）
+        NotificationCenter.default.publisher(for: .hideLiveLogFloating)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.liveLogFloatingEnabled { self.liveLogFloatingEnabled = false }
+            }
+            .store(in: &cancellables)
+
+        // 启动时请求一次通知授权。系统只弹一次；用户拒绝后不再骚扰，
+        // 设置页里可以看到当前状态。
+        Task { await VehicleNotifier.shared.requestAuthorizationIfNeeded() }
+
 
         // RSSI → 中继防护（周期性采样，检测突变）
         ble.$rssi
@@ -424,7 +605,8 @@ public final class AppModel: ObservableObject {
                 if !self.passiveStart.isCalibrated, !self.didWarnUncalibrated {
                     self.didWarnUncalibrated = true
                     self.measured.recordNote(
-                        "⚠️ RSSI 未标定（calibration/leaveOffset 缺失）：被动进入不会自动启动")
+                        "⚠️ RSSI 未标定（calibration 缺失）：被动进入不会自动启动，"
+                        + "靠近解锁也不会动作（没有基准就没有阈值）")
                 }
                 // ★ 把判定结果交给预认证控制器（对应 checkRssiForPassiveStart:
                 //   的 launchPrehautentification / stopPreAuthentication 两条分支）
@@ -634,6 +816,16 @@ public final class AppModel: ObservableObject {
         //   等于「配对成功但从不保活」—— 那 29 秒节奏根本不会启动。
         autoEnablePreAuthIfNeeded(reason: "启动时已有钥匙")
 
+        // ★ 冷启动恢复两个持久化状态（2026-11-05）。
+        //
+        // 这两个方法早就写好了，但**只有配对成功那段调过 `loadCalibration()`** ——
+        // 也就是重启 App 之后 `passiveStart.calibration` 一直是 nil。
+        // 后果：`PassiveStartJudge` 的阈值变成 `0 - leaveOffset`，
+        // 几乎永远判定「在区域内」；而自动解锁开关的状态也读不回来。
+        loadCalibration()
+        loadPassiveEntryState()
+        applyProximityThresholds()
+
         // ★ 「车辆在线」的定时重算（5 秒一次）
         //   只在需要让状态**自然过期**时才有意义：`lastVehicleContactAt` 变化会
         //   自己触发重绘，但"60 秒没联络"这件事没有事件可挂，必须靠 tick。
@@ -657,6 +849,35 @@ public final class AppModel: ObservableObject {
                 }
             }
         }
+
+        // ★ 链路存活的秒级判定（2026-11-05 用户反馈「断联有延迟」）。
+        //
+        // 上面那个 5 秒 tick 管的是 `isVehicleOnline`（60 秒窗口，路由用）。
+        // 界面要的是「车还在不在说话」，用的是 `bluetoothLinkAlive`（3 秒窗口），
+        // 必须有独立的、更快的检查，否则最长 65 秒才变灰。
+        //
+        // 每 0.5 秒检查一次，但**只在判定翻转的那一刻**写 `onlineTick` ——
+        // 车图有浮动动画，每秒无条件重绘会互相打架。
+        // 0.5 秒粒度 + 3 秒静默窗口 = 最坏 3.5 秒显示断联。
+        linkLivenessTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let alive = self.bluetoothLinkAliveRaw
+                guard alive != self.lastLinkAlive else { continue }
+                self.lastLinkAlive = alive
+                self.onlineTick = Date()      // 唯一的重绘触发点
+                if !alive {
+                    // 断联瞬间刷一次锁屏卡片，别让卡片继续显示「在线」
+                    self.lastKnownOnline = false
+                    self.refreshLiveActivity()
+                    // ★ 本地提醒：这一刻正是"人刚离开车"的时刻。
+                    //   只在最后状态是「未锁 / 门未关 / 后备箱未关」时才发，
+                    //   正常锁好离开不会打扰（配额与判据见 VehicleNotifier）。
+                    VehicleNotifier.shared.handleLinkLost(snapshot: self.activeStatus.snapshot)
+                }
+            }
+        }
     }
 
     /// 按原 App 行为打开预认证保活 —— 但**不覆盖用户显式关掉的选择**。
@@ -670,31 +891,6 @@ public final class AppModel: ObservableObject {
         measured.recordNote("预认证保活：已自动开启（\(reason)；原 App 配对后即持续心跳）")
     }
 
-    /// 读取车端标定值 —— 照 `-[IBVehicle getCalibrationSavedValues]` @`0xb83c`。
-    ///
-    /// ```asm
-    /// 0xb864: [NSUserDefaults standardUserDefaults]
-    /// 0xb8c0: adr x2, #0x20a48 ; CFSTR "%@_CALIBRATION"
-    /// 0xb8ec: objectForKey:
-    /// 0xb90c: setCalibration:
-    /// ```
-    /// 写入点在 `-[IBVehicle didCalibrationCompleted:error:]` @`0xa41c`。
-    ///
-    /// 未标定时 `calibration = nil`，判定时按 `0` 处理
-    /// （与原 App 的 `[nil intValue]` 等价）。
-    public func loadCalibration() {
-        guard let cidpu = KeyStore.shared.cidpuFullHex, !cidpu.isEmpty else {
-            passiveStart.calibration = nil
-            return
-        }
-        let key = "\(cidpu)_CALIBRATION"
-        if let n = UserDefaults.standard.object(forKey: key) as? NSNumber {
-            passiveStart.calibration = n.intValue
-            measured.recordNote("已读取标定值 calibration=\(n.intValue)（key=\(key)）")
-        } else {
-            passiveStart.calibration = nil
-        }
-    }
 
     /// 读取无感进入开关状态（按 cidpu 区分）。
     ///
@@ -1203,6 +1399,8 @@ public final class AppModel: ObservableObject {
     }
 
     public func disconnect() {
+        // 主动断开不该触发「车辆未锁」提醒 —— 那是用户自己做的动作。
+        VehicleNotifier.shared.suppressNextLinkLost()
         ble.disconnect()
         measured.reset()
         statusLine = "已断开"
@@ -1245,13 +1443,15 @@ public final class AppModel: ObservableObject {
         measured.reset()
         passiveStart.cancelCalibration()
         passiveStart.calibration = nil
+        // 自动解锁状态机也要复位 —— 否则解绑后 phase 还停在「车内」，
+        // 重新配对时会漏掉第一次靠近（它以为已经解锁过了）
+        proximityUnlock.reset()
         // ★ 心跳也要停：解绑后没有密钥，29 秒一轮的 0x0C 只会一直失败；
         //   同时清掉「用户显式设置过」的痕迹，重新配对后才能自动开启。
         preAuth.resetForUnbind()
         // 点火窗口一并收掉（否则解绑后计时器还在跑、界面还显示倒计时）
         endIgnitionWindow(reason: "已解绑")
         passiveEntryEnabled = false
-        pendingAction = nil
         pendingActionAfterConnect = nil
         cancelPendingActionWatchdog()
         pendingPreAuth = false
@@ -1317,57 +1517,103 @@ public final class AppModel: ObservableObject {
     private var lastLiveActivityRefresh = Date.distantPast
     private var liveActivityFailedAt: Date?
 
-    private func refreshLiveActivity(force: Bool = false) {
-        guard preAuth.isEnabled else {
+    /// 刷新锁屏 / 灵动岛卡片。
+    ///
+    /// ## 与主页同一套规则（2026-11-04 第二次调整）
+    ///
+    /// 上一版把这里的数据源**整份**换成了 `cloudSnapshot`，结果是：
+    /// 车就停在旁边、主页写着「蓝牙 · 已连接 / 已锁」，锁屏卡片却显示「暂无数据」。
+    /// 两边对着同一辆车给出相反结论 —— 这比没有卡片更糟。
+    ///
+    /// 现在改用和主页**完全相同**的入口 `activeStatus`：
+    ///
+    /// ```
+    /// 蓝牙收到广播（60 秒内）        → 车锁/四门/后备箱/引擎 用蓝牙
+    ///                                 + 车窗/天窗 用云端补（蓝牙广播里没有这两项）
+    /// 蓝牙没收到、云端有             → 整份用云端
+    /// 两边都没有                     → 「暂无数据」
+    /// ```
+    ///
+    /// 上电 / ACC 只有蓝牙广播里有，云端接口不提供 —— 蓝牙不在时保持 nil，
+    /// 卡片上显示「—」，而不是拿云端旧值凑一个。
+    func refreshLiveActivity(force: Bool = false) {
+        // ★ 不再要求「云端已配置」。
+        //   没配云端的用户只有蓝牙一条路，而这张卡片同时是后台 BLE 权限的凭据
+        //   （见 `VehicleActivityAttributes` 的说明），不该因为没配云端就没有。
+        guard hasLocalKey || cloudConfigured else {
             liveActivity.end()
             return
         }
         if force { liveActivityFailedAt = nil }
         if let t = liveActivityFailedAt, Date().timeIntervalSince(t) < 30 { return }
-        if liveActivity.isRunning,
-           Date().timeIntervalSince(lastLiveActivityRefresh) < 2 {
+        // 广播 0.5 秒一帧 → 卡片不必跟着抖；未启动时也别每帧都去 request 一次
+        let minInterval: TimeInterval = liveActivity.isRunning ? 2 : 5
+        if Date().timeIntervalSince(lastLiveActivityRefresh) < minInterval { return }
+        lastLiveActivityRefresh = Date()
+
+        let active = activeStatus
+        let snap = active.snapshot
+
+        // 没有任何状态、也不需要后台 BLE 权限时，不要在锁屏上留一张空卡 ——
+        // 「暂无数据」挂一整天只会让人以为 App 坏了。
+        // 开了预认证保活的用户要留着它（那是后台扫描权限的凭据）。
+        if active.source == StatusSource.none, !preAuth.isEnabled {
+            liveActivity.end()
             return
         }
-        lastLiveActivityRefresh = Date()
-        // ★ 与主界面同一套语义（2026-10-30）：锁屏卡片也只说「车在不在」。
-        //
-        // 原来这里写 `链路就绪 / 搜索车辆中`，而车端每条命令后都断开 ——
-        // 锁屏卡片会跟着 29 秒一次地抖，和顶栏是同一个毛病。
-        let text: String
-        if isVehicleOnline {
-            text = preAuth.lastSentAt != nil ? "在线 · 已向车端报到" : "车辆在线"
-        } else if lastVehicleContactAt != nil {
-            text = "离线（\(lastContactText)）"
-        } else {
-            text = "车辆离线"
+
+        // 「在线」= 有实时数据可看，不是「云端拉过」也不是「链路连着」
+        let online: Bool
+        switch active.source {
+        case .bluetooth:
+            online = true
+        case .cloud(let at):
+            online = Date().timeIntervalSince(at) <= VehicleSnapshot.staleSeconds
+        case .none:
+            online = false
         }
+
+        // 标签写清数据从哪来 —— 用户必须能看出这是秒级还是分钟级
+        let text: String
+        switch active.source {
+        case .bluetooth(let at): text = "蓝牙 · " + Self.hhmm(at)
+        case .cloud(let at):     text = "云端 · " + Self.hhmm(at)
+        case .none:              text = "暂无数据"
+        }
+
+        // 上电 / ACC 只有蓝牙广播有；蓝牙不新鲜就当没有
+        let bt: VehicleStatus? = bluetoothStatusIsLive ? measured.status : nil
+
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
-        // ★ 车辆全部状态 + 最后上报时刻（2026-11-02）。
-        //
-        // 锁屏卡片现在是一份**完整快照**：即使车开走、离线，这些值也不会被清空，
-        // 只是 `lastReportedAt` 会越走越远 —— 用户扫一眼就知道
-        // 「这是 5 分钟前的状态」而不是「现在就是这样」。
-        let st = measured.status
+
         let ok = liveActivity.startOrUpdate(
             vehicleName: name,
             state: VehicleActivityAttributes.ContentState(
-                isLocked: st?.isLocked,
-                isConnected: isVehicleOnline,
+                isLocked: snap?.isLocked,
+                isConnected: online,
                 lastPreAuthAt: preAuth.lastSentAt,
                 statusText: text,
-                isDoorClosed: st?.isDoorClosed,
-                isTrunkClosed: st?.isTrunkClosed,
-                isEngineRunning: st?.isEngineRunning,
-                isAccOn: st?.isAccOn,
-                isIgnitionOn: st?.isIgnitionOn,
-                lastReportedAt: lastVehicleContactAt))
+                isDoorClosed: snap?.isDoorsClosed,
+                isTrunkClosed: snap?.isTrunkClosed,
+                isEngineRunning: snap?.isEngineRunning,
+                isAccOn: bt?.isAccOn,
+                isIgnitionOn: bt?.isIgnitionOn,
+                lastReportedAt: snap?.updatedAt))
         if !ok {
             // 前台没启动成功通常只有两种原因：系统关了实时活动权限，
             // 或者当前不是前台（`Target is not foreground`）。
             // 记下时间做 30 秒退避，回前台时用 force 重试。
             liveActivityFailedAt = Date()
         }
+    }
+
+    /// `HH:mm`，锁屏卡片上不需要秒
+    nonisolated static func hhmm(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
     }
 
     /// 处理外部 URL —— 控制中心 / 锁屏控件（`gkuiblekey://lock` 等）与快捷指令共用。
@@ -1412,16 +1658,31 @@ public final class AppModel: ObservableObject {
             statusLine = "无法识别的控件指令：\(url.absoluteString)"
             return
         }
+        // ★ 需要确认的动作：不直接执行，先挂起等用户确认。
+        //   `lock` 不在列表里 —— 上锁只会让车更安全，多一步纯属拖慢。
+        if requiresConfirmation(action) {
+            pendingExternalAction = action
+            measured.recordNote("外部链接请求 \(action.label) → 等待用户确认")
+            return
+        }
+
         measured.recordNote("控制中心控件 → \(action.label)")
         perform(action)
+    }
+
+    /// 哪些动作必须经用户确认才执行（见 `pendingExternalAction` 的说明）
+    private func requiresConfirmation(_ action: IBCommandType) -> Bool {
+        switch action {
+        case .unlock, .openCloseTrunk, .panic:
+            return true
+        default:
+            return false
+        }
     }
 
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - 车控动作（统一入口）
-
-    /// 当前正在执行的动作（供日志/界面显示）
-    @Published public private(set) var pendingAction: IBCommandType?
 
     /// 用户点了按钮但当时链路未就绪 → 挂在这里，等 `.ready` 后自动执行。
     @Published public private(set) var pendingActionAfterConnect: IBCommandType?
@@ -1449,6 +1710,48 @@ public final class AppModel: ObservableObject {
 
     /// 上一次处理过的控件 URL（用于冷启动双入口去重，见 `handleExternalURL`）。
     private var lastExternalURL: URL?
+
+    /// 来自自定义 URL 的**待确认动作**。
+    ///
+    /// ## 为什么必须确认（2026-11-04 审查发现）
+    ///
+    /// `gkuiblekey://trunk` 这类链接，任何 App、网页、聊天消息、二维码都能触发 ——
+    /// 系统只校验 scheme 归属，不校验来源。也就是说一个恶意链接就能把后备箱打开，
+    /// 而且 App 会被拉到前台，看起来像正常操作。
+    ///
+    /// 对「开后备箱 / 鸣笛寻车 / 解锁」这种对外部世界有影响、且不可撤销的动作，
+    /// 一律先弹确认。**上锁方向不确认** —— 它只会让车更安全，多一步只是拖慢用户。
+    @Published public private(set) var pendingExternalAction: IBCommandType?
+
+    /// 确认弹窗的正文
+    public var externalActionPrompt: String {
+        switch pendingExternalAction {
+        case .unlock:
+            return "要解锁车门吗？\n\n这个请求来自 App 外部的链接（例如网页、聊天或二维码），不是你在 App 里点的。"
+        case .openCloseTrunk:
+            return "要打开后备箱吗？\n\n这个请求来自 App 外部的链接，不是你在 App 里点的。"
+        case .panic:
+            return "要鸣笛闪灯寻车吗？\n\n这个请求来自 App 外部的链接，不是你在 App 里点的。"
+        default:
+            return "这个请求来自 App 外部的链接，确认要执行吗？"
+        }
+    }
+
+    /// 用户点了「确认执行」
+    public func confirmExternalAction() {
+        guard let action = pendingExternalAction else { return }
+        pendingExternalAction = nil
+        measured.recordNote("外部链接动作已确认 → \(action.label)")
+        perform(action)
+    }
+
+    /// 用户点了「取消」
+    public func cancelExternalAction() {
+        guard let action = pendingExternalAction else { return }
+        pendingExternalAction = nil
+        statusLine = "已取消外部链接请求（\(action.label)）"
+        measured.recordNote("外部链接动作被用户取消 → \(action.label)")
+    }
 
     /// 「冷启动补发窗口」的截止时刻。
     ///
@@ -1505,6 +1808,17 @@ public final class AppModel: ObservableObject {
             resolveIntent(false)
             return
         }
+        // ★ 云端通道接管（2026-11-04）
+        //
+        // 判定顺序（见 `routeToCloudIfNeeded`）：
+        //   链路就绪        → 蓝牙（延迟最低）
+        //   车在附近        → 蓝牙（等它连上比走云快）
+        //   云端已配置      → 网络
+        //   云端未配置      → 保持原行为（挂起重连）
+        //
+        // 必须放在 lockout 闸门之后 —— 防爆破锁定对两条通道一视同仁。
+        if routeToCloudIfNeeded(action) { return }
+
         // ★★ 上一轮「用户命令」还在途 → 不要打断（2026-10-30 修复）。
         //
         // 链路就绪时连点两次按钮，原来会直接再走一遍 `beginMeasuredAuth`：
@@ -1557,7 +1871,8 @@ public final class AppModel: ObservableObject {
             measured.recordNote("链路 \(ble.linkState.rawValue) → 挂起「\(action.label)」，就绪后自动执行")
             return
         }
-        pendingAction = action
+        // 注：曾经这里还有一个 `pendingAction = action`，但全仓没有任何地方读它，
+        // 只在解绑时清零 —— 是个永远停在「上一次动作」的僵尸状态，2026-11-04 删除。
         beginMeasuredAuth(action: action)
     }
 
@@ -1655,7 +1970,7 @@ public final class AppModel: ObservableObject {
             return
         }
         guard preAuth.isEnabled else {
-            statusLine = "预认证保活未开启：先到「开发者 → 预认证保活」打开"
+            statusLine = "预认证保活未开启：先到「我的 → 设置 → 高级（依赖标定）→ 预认证保活」打开"
             return
         }
         guard !listenOnly else {
@@ -1724,10 +2039,41 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var controlBanner: String?
     private var controlBannerTask: Task<Void, Never>?
 
-    func performControlAction(_ action: QuickControlAction) {
+    @discardableResult
+    func performControlAction(_ action: QuickControlAction) async -> Bool {
         measured.recordNote("控制中心控件 → \(action.title)（AppIntent 直达，不经 URL）")
         showControlBanner("已收到控件：\(action.title)")
-        perform(command(for: action))
+
+        // ★ 等云端凭据读出来（2026-11-05 修复「控制中心控车不可用」）。
+        //
+        // 控件是从「App 可能根本没在运行」的状态点的。进程刚被系统拉起来时，
+        // `reloadCloudConfig()` 还在异步读 Keychain，`cloudConfigured` 仍是 false。
+        // 这里如果立刻判它，就会误判成"没配云端"→ 走蓝牙 →
+        // 而后台要重连 + 完整鉴权（1–4 秒），Intent 早就返回了，什么也不会发生。
+        await awaitCloudConfigReady()
+
+        let cmd = command(for: action)
+        if cloudConfigured,
+           let vehicleCommand = cmd.asVehicleCommand,
+           vehicleCommand.isSupportedOnNetwork {
+            // ★ 用 `runNetworkCommand`（async，会等请求真的回来）。
+            //
+            // 原来是 `performOnCloud` —— 它内部 `Task { }` 一发就返回，
+            // Intent 一结束系统立刻挂起进程，请求还没发出去就被掐断。
+            let ok = await runNetworkCommand(vehicleCommand)
+            FileLogger.shared.info(
+                "控制中心 \(action.title) → \(ok ? "成功" : "失败")（云端）", module: "控件")
+            return ok
+        }
+
+        // 没配云端就只能走蓝牙。后台预算通常不够一次「连接 → 鉴权 → 执行」，
+        // 但也不能什么都不做 —— 发出去，并明确留一条日志，
+        // 免得下次还是「点了没反应，也不知道为什么」。
+        FileLogger.shared.warning(
+            "控制中心 \(action.title)：云端未配置，改走蓝牙（App 在后台时很可能来不及完成）",
+            module: "控件")
+        perform(cmd)
+        return true
     }
 
     private func command(for action: QuickControlAction) -> IBCommandType {
@@ -1739,7 +2085,8 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    private func showControlBanner(_ text: String) {
+    /// 顶部横幅。跨文件可调用（`AppModel+Cloud` 里云端命令的成败要显示在车控页）。
+    func showControlBanner(_ text: String) {
         controlBannerTask?.cancel()
         controlBanner = text
         controlBannerTask = Task { @MainActor [weak self] in
@@ -1972,69 +2319,6 @@ public final class AppModel: ObservableObject {
         statusLine = "点火位置验证（本地 RSSI）：\(passiveStart.summary)"
     }
 
-    // MARK: - ★ 标定流程（照 VCBDevice startCalibration / calibrationWithRSSIOne:RSSITwo:）
-
-    /// 分路 RSSI 处理 —— 对应 `addRSSI:` @`0x801c`。
-    ///
-    /// 广播回调时，按 antenna 高 4 位（0x80=天线1/0x40=天线2）把本次 RSSI
-    /// 分路存进 `rssiAntennaOne` / `rssiAntennaTwo`；标定进行中时，两路都齐
-    /// 就合成一次采样喂给 `passiveStart.addCalibrationSample`。
-    private func handleDualRSSI(antenna: Int, rssi: Int) {
-        let v = Double(rssi)
-        switch antenna {
-        case 1: rssiAntennaOne = v
-        case 2: rssiAntennaTwo = v
-        default: return
-        }
-
-        // 标定进行中 → 两路都齐则采样一次
-        guard passiveStart.isCalibrating,
-              let one = rssiAntennaOne, let two = rssiAntennaTwo else { return }
-
-        if let avg = passiveStart.addCalibrationSample(rssiOne: one, rssiTwo: two) {
-            finishCalibration(value: avg)
-        }
-    }
-
-    /// 开始标定 —— 对应 `IBVehicle.startCalibration` @`0xa28c` →
-    /// `openConnexionForCommand:0x0D`（触发车端进入标定/持续广播）。
-    ///
-    /// 之后 App 进入标定模式，靠广播回调按 antenna 分路采集 90 次 RSSI，
-    /// 算均值写入 `calibration`（见 `handleDualRSSI`）。
-    public func startCalibration() {
-        guard ble.isWriteReady else {
-            statusLine = "写特征未就绪，无法开始标定（需先连接车辆）"
-            return
-        }
-        guard !passiveStart.isCalibrating else {
-            statusLine = "标定已在进行中"
-            return
-        }
-        rssiAntennaOne = nil
-        rssiAntennaTwo = nil
-        passiveStart.startCalibration()
-        statusLine = "标定开始：触发 0x0D 后采集 90 次双天线 RSSI…"
-        measured.recordNote("标定开始（照 startCalibration → openConnexionForCommand:0x0D）")
-        // 触发车端进入标定模式（0x0D 与「查设备名」同码）
-        perform(.requestPairedDevices)
-    }
-
-    /// 取消标定。
-    public func cancelCalibration() {
-        passiveStart.cancelCalibration()
-        statusLine = "已取消标定"
-    }
-
-    /// 标定完成 → 写 `NSUserDefaults["<cidpu>_CALIBRATION"]`（照 didCalibrationCompleted:）。
-    private func finishCalibration(value: Int) {
-        if let cidpu = KeyStore.shared.cidpuFullHex, !cidpu.isEmpty {
-            UserDefaults.standard.set(value, forKey: "\(cidpu)_CALIBRATION")
-        } else {
-            UserDefaults.standard.set(value, forKey: "gkuiblekey.calibration.default")
-        }
-        measured.recordNote("✅ 标定完成：calibration=\(value)，已写入 <cidpu>_CALIBRATION")
-        statusLine = "标定完成：calibration=\(value)，点火位置验证已可用"
-    }
 
     /// 查询车端「已配对手机名册」。
     ///
@@ -2132,6 +2416,11 @@ public final class AppModel: ObservableObject {
                         if !isPreAuth, acted == .lock {
                             unlockWindowEndsAt = nil
                         }
+                        // 操作历史（只记用户动作，心跳轮次不进历史）
+                        if !isPreAuth {
+                            ActionHistory.shared.record(acted?.label ?? "动作",
+                                                        channel: "蓝牙", success: true)
+                        }
                         // 不再写「约 30 秒后自动续发」：点火窗口内是 6.5 秒一轮，
                         // 写死的数字必然是错的（具体间隔下面 `didComplete` 会写进日志）。
                         if isPreAuth {
@@ -2159,11 +2448,20 @@ public final class AppModel: ObservableObject {
                                 + "→ 不计入防爆破计数，6.5 秒后重试")
                         } else {
                             recordAuthFailure("原 App 错误码 0x\(String(format: "%03X", code))")
+                            ActionHistory.shared.record(
+                                measured.pendingAction?.label ?? "动作",
+                                channel: "蓝牙", success: false,
+                                note: "错误码 0x\(String(format: "%03X", code))")
                         }
                     case .paired:
                         statusLine = "✅ 配对成功"
                     case .timedOut:
                         statusLine = "❌ 命令超时（4s，code 690）"
+                        if !isPreAuth {
+                            ActionHistory.shared.record(
+                                measured.pendingAction?.label ?? "动作",
+                                channel: "蓝牙", success: false, note: "命令超时（690）")
+                        }
                     }
                     // ★ Siri / 快捷指令在等结果 → 交出（`resolveIntent` 幂等，
                     //   没有 Intent 在等时是空操作）
@@ -2354,7 +2652,8 @@ public final class AppModel: ObservableObject {
             if asPreAuthentication { endPreAuthBackgroundTask() }
             return
         }
-        let target = action ?? pendingAction
+        // 不再回落到「上一次动作」：所有调用点都显式传 action，预认证传 nil
+        let target = action
         // ★ 原 App `formatCommand:toDevice:` @`0xfb48` 只做 `setIsValidVehicle:0`
         //   （会话重置），**不清**已落库的密钥/车辆状态 —— 故用轻量复位（M2），
         //   并清零消息序号，让本轮 01→02→04 的单调校验从 0 开始（H2）。
@@ -2468,6 +2767,19 @@ public final class AppModel: ObservableObject {
     /// 不能让 Siri 无限挂住。
     public func runIntentCommand(_ action: IBCommandType,
                                  timeout: TimeInterval = 12) async -> Bool {
+        // ★ 需求：Siri / 快捷指令 / 控制中心统一走网络通道（2026-11-04）。
+        //
+        // 理由：这些入口在系统后台执行，蓝牙链路不保证在场；而且用户念
+        // 「解锁车」时通常人不在车边 —— 那正是蓝牙根本连不上的场景。
+        //
+        // 云端没配置时**回退蓝牙**：否则 Siri 会彻底不可用，
+        // 而本地蓝牙钥匙本来就能用，没必要因为没配云端就废掉。
+        if cloudConfigured,
+           let cmd = action.asVehicleCommand,
+           cmd.isSupportedOnNetwork {
+            return await runNetworkCommand(cmd)
+        }
+
         guard intentContinuation == nil else { return false }
         // ★ 代号（generation）：兜底定时器只允许结束**自己那一轮**的 Intent。
         //
@@ -2497,7 +2809,7 @@ public final class AppModel: ObservableObject {
     }
 
     /// 结束 Intent 等待。幂等：已经 resume 过就直接返回。
-    private func resolveIntent(_ ok: Bool) {
+    func resolveIntent(_ ok: Bool) {
         guard let cont = intentContinuation else { return }
         intentContinuation = nil
         // ★★ 推进代号，让这一轮留下的 12 秒兜底定时器**立刻失效**

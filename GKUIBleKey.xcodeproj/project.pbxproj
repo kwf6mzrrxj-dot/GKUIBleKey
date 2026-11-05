@@ -8,45 +8,47 @@
 
 /* Begin PBXBuildFile section */
 		00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
-		0999E1D16C95F63E12B20564 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
-		09D316217D79942708241C89 /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
-		15ECAB823D720297F0346CD1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
-		17A633D57856533C52E6A77E /* WatchVehicleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */; };
+		138D3DB63CC21C4215C92A48 /* VehicleTopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83523A66F55DA97A6BDBD0AE /* VehicleTopView.swift */; };
+		18770C73EC4A92693E5DDF29 /* LogFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */; };
 		21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF19D2E689EE7C245F20164 /* RootView.swift */; };
 		221CF8215A2337F5C1017466 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
-		231B51FAAC8D059D88B97064 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
+		22B28FC5B80BD3709CF24B16 /* AppModel+Proximity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B32FE582A24D9C62C0D15A2 /* AppModel+Proximity.swift */; };
 		269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */; };
 		27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
 		289A7C95DC5F829282241571 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
-		2A98A4125CC135647FA8F86F /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
-		3085FA5176F2C0B6D0EA05E8 /* WatchPairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842C5793F60592BB210A0A9D /* WatchPairingView.swift */; };
-		322F70AC2D60ECC51C9D76D5 /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
 		341A6E588E143A781919EEF1 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
 		34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
 		35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7581756575E39739261B2253 /* AppDelegate.swift */; };
-		3B6BC2E088DF70B0579E2040 /* ErrorCodeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */; };
+		39C3190AB6FB00F4D76A88C3 /* AppModel+Cloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = D30CAFC65BD02A291DEEB052 /* AppModel+Cloud.swift */; };
+		3AA494A7C55397E2A8C11B7C /* CloudPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */; };
+		3B0F8FED4D72AC7FCE0DCEBB /* GKCloudKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */; };
 		3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */; };
 		3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */; };
 		46A4165C9AE96B14B3DEED9A /* LogHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D5975B130988A252047D36 /* LogHistoryView.swift */; };
 		49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
+		4B2C2EB47F1F42C78DCD325C /* car_top.png in Resources */ = {isa = PBXBuildFile; fileRef = 2ABBBAE03CC55F037BB9DED1 /* car_top.png */; };
 		4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D87676E2E2A3F87BF5416C /* RelayGuard.swift */; };
 		4DEE5D8FFEDFC8411E75569E /* builtin-keys.txt in Resources */ = {isa = PBXBuildFile; fileRef = 03B476E9C21E7763239DBD3E /* builtin-keys.txt */; };
-		531AFB586198A1A2A355F11E /* BackgroundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */; };
+		5493112A3E670E03EEAD0234 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0941732E77DBFBB1654D68EC /* DesignSystem.swift */; };
 		5A5F177B77B566D517418361 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */; };
-		5FC7F4E886C3406B9E1317FE /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
+		5F0A5F1AC58AEB2B4838835C /* ControlChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */; };
+		61F64D6AF1A72673AEBDC9C6 /* ActionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 854E9E44B3CAFB0997AB6A04 /* ActionHistoryView.swift */; };
 		6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
-		6607E6A6E60B3BF59B8E413C /* BuiltInKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */; };
+		664280E8D798110C66F79342 /* ProximityUnlockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED9D6AA73F4B6A1EDF06051 /* ProximityUnlockController.swift */; };
 		6798BD14C932E43943639F5A /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */; };
 		6ADF1204CADB569E36A7B1EC /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72C39E1002B486405A22086 /* VehicleProfile.swift */; };
 		6CF361E72347E0B63E4E60F9 /* car_on.png in Resources */ = {isa = PBXBuildFile; fileRef = 787E575EA2239FE9C258C166 /* car_on.png */; };
-		77CE356F1F1F1F80F903C8F4 /* InBlueAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */; };
+		6EFB46644F0F5FEC84B3189E /* VehicleStatusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740FEAE6E294C19D0B18BEDF /* VehicleStatusWidget.swift */; };
+		70B7E351889CBC96F95A6623 /* ControlChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */; };
+		72FCBBA993DD4885C1D99131 /* GKCloudSignature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972FB41B97EB7DBD661ED9D1 /* GKCloudSignature.swift */; };
 		7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */; };
 		7C74A36AD3E91728A82FA2AC /* car_light.png in Resources */ = {isa = PBXBuildFile; fileRef = C1CF7ACBF0EAF3D137B56617 /* car_light.png */; };
-		7DF0A6D322F24C33B2CFC2A7 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
+		7DA51E4B1C1301F683066424 /* WatchCloudController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198611EA7B984E1F38C437D7 /* WatchCloudController.swift */; };
+		7E9F445B5684908DAB54EFC7 /* StatusFieldCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DD08A6857C91B3C509C8A6E /* StatusFieldCatalog.swift */; };
 		8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
+		84B005F552EDAE56BA9578D0 /* CloudSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD69DEE0BD46BF444AEA05C6 /* CloudSettingsView.swift */; };
 		85BCF61CB4A0929EAE6DEFD3 /* car_detail.png in Resources */ = {isa = PBXBuildFile; fileRef = E7C32A037F805BE11A1268CE /* car_detail.png */; };
-		8631125992B10088E9089278 /* BLECentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */; };
-		8718614DD8241A01D2F2D71B /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
+		87AA65B7CC07438CF309274D /* ActionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73B2F36003652CD80E72CBF5 /* ActionHistory.swift */; };
 		89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */; };
 		8A6E83B6AC6716315DD103C9 /* QuickControlIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DAEB3FB5FA56CA15B09AC3 /* QuickControlIntent.swift */; };
 		8B42A80A93F7C01EFE18FDFC /* car_small.png in Resources */ = {isa = PBXBuildFile; fileRef = E6B273DC3208E17B03DEE527 /* car_small.png */; };
@@ -59,26 +61,34 @@
 		A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
 		A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
 		A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
+		A76418A343D317A9C80613D7 /* SyncPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */; };
 		AD347E9B8990F0A3D8B8714B /* car_off.png in Resources */ = {isa = PBXBuildFile; fileRef = 48C56C0A7C2175F4E75072A7 /* car_off.png */; };
+		B0E27DC5D8C390FD74B6E11C /* CloudPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */; };
 		B0EB85D6856D2317D4F082CF /* KeyInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */; };
 		B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */; };
 		B5582E41603CC6CF76A18ABA /* BuiltInKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */; };
 		C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062758546AC7B33C61337BD0 /* LogView.swift */; };
 		C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE4B7AED8424488DFF8B585 /* AppInfo.swift */; };
+		C6531B6C2BF84C2033EB4A4E /* PhoneWatchSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3423F9E406EBB2595FB634 /* PhoneWatchSync.swift */; };
 		CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */; };
+		D3E12A34050B940EBD770BDA /* GKCloudKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */; };
+		D4C4584A93CB3DC1A42B9DA2 /* ControlChannel+IBCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86A65EBFA801AEDFCBC9C34 /* ControlChannel+IBCommand.swift */; };
+		D56F27EB14574F366B0D305F /* GKCloudSignature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972FB41B97EB7DBD661ED9D1 /* GKCloudSignature.swift */; };
 		D5F3003C8EA2B114482640F0 /* GKUIBleKeyWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */; };
+		D92B724CED00910BDB98EEFF /* SyncPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */; };
 		DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */; };
 		DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8C6EBB0E8535DD0570907C /* FileLogger.swift */; };
 		E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9876C8854751AA1E82168BC5 /* BroadcastParser.swift */; };
 		EE460A9579C5A8048801A02B /* GKUIBleKeyWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */; };
-		EEA8AA516C49AD7F102CA91A /* InBluePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D244EF973360FC3BA785C68 /* InBluePairing.swift */; };
-		F057CB0E4B64EE74E127426C /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
+		EE571A3EBEAF79CA539FD8FF /* HoldToConfirmButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F63F74C0B4D687A4E3DAE6 /* HoldToConfirmButton.swift */; };
 		F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF365E39A85492849FCFC1DD /* VehicleIntents.swift */; };
+		F266C9ECDD1AE74205D097EE /* VehicleNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */; };
 		F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */; };
 		F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
-		F98802DD7A363381AE029E6E /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A461D59F827B51924794466 /* KeyStore.swift */; };
+		FCBF2D549F75EF00D0BD1005 /* GKCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */; };
 		FDD541EF654A7046060ECD47 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367D57CD773A3B52A02FAB9C /* WatchRootView.swift */; };
+		FE0D1A0375AB0E67EA07DEBC /* GKCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */; };
 		FF21906B2EED6B801E55B378 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD10ED24FE80E92462D8D861 /* LiveActivityController.swift */; };
 /* End PBXBuildFile section */
 
@@ -128,12 +138,17 @@
 		03B476E9C21E7763239DBD3E /* builtin-keys.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "builtin-keys.txt"; sourceTree = "<group>"; };
 		062758546AC7B33C61337BD0 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
+		0941732E77DBFBB1654D68EC /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWidgetBundle.swift; sourceTree = "<group>"; };
+		14F63F74C0B4D687A4E3DAE6 /* HoldToConfirmButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldToConfirmButton.swift; sourceTree = "<group>"; };
+		198611EA7B984E1F38C437D7 /* WatchCloudController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCloudController.swift; sourceTree = "<group>"; };
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
 		1DE4B7AED8424488DFF8B585 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		21D5975B130988A252047D36 /* LogHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogHistoryView.swift; sourceTree = "<group>"; };
 		2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleControlWidget.swift; sourceTree = "<group>"; };
+		2ABBBAE03CC55F037BB9DED1 /* car_top.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_top.png; sourceTree = "<group>"; };
+		2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlChannel.swift; sourceTree = "<group>"; };
 		2EF19D2E689EE7C245F20164 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
 		32D87676E2E2A3F87BF5416C /* RelayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayGuard.swift; sourceTree = "<group>"; };
@@ -142,8 +157,17 @@
 		3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatus.swift; sourceTree = "<group>"; };
 		48C56C0A7C2175F4E75072A7 /* car_off.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_off.png; sourceTree = "<group>"; };
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
+		5C3423F9E406EBB2595FB634 /* PhoneWatchSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWatchSync.swift; sourceTree = "<group>"; };
+		5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPrefs.swift; sourceTree = "<group>"; };
+		5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogFeed.swift; sourceTree = "<group>"; };
+		65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKCloudKeychain.swift; sourceTree = "<group>"; };
+		6B32FE582A24D9C62C0D15A2 /* AppModel+Proximity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Proximity.swift"; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
 		6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLogFloatingView.swift; sourceTree = "<group>"; };
+		6DD08A6857C91B3C509C8A6E /* StatusFieldCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusFieldCatalog.swift; sourceTree = "<group>"; };
+		6ED9D6AA73F4B6A1EDF06051 /* ProximityUnlockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProximityUnlockController.swift; sourceTree = "<group>"; };
+		73B2F36003652CD80E72CBF5 /* ActionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHistory.swift; sourceTree = "<group>"; };
+		740FEAE6E294C19D0B18BEDF /* VehicleStatusWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatusWidget.swift; sourceTree = "<group>"; };
 		7581756575E39739261B2253 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		77FEC857107D5DBD3B471511 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		787E575EA2239FE9C258C166 /* car_on.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_on.png; sourceTree = "<group>"; };
@@ -152,33 +176,40 @@
 		7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyApp.swift; sourceTree = "<group>"; };
 		7D244EF973360FC3BA785C68 /* InBluePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBluePairing.swift; sourceTree = "<group>"; };
 		8346132E51B853D5356F4736 /* CarModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModelView.swift; sourceTree = "<group>"; };
-		842C5793F60592BB210A0A9D /* WatchPairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchPairingView.swift; sourceTree = "<group>"; };
+		83523A66F55DA97A6BDBD0AE /* VehicleTopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleTopView.swift; sourceTree = "<group>"; };
+		854E9E44B3CAFB0997AB6A04 /* ActionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHistoryView.swift; sourceTree = "<group>"; };
 		85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
+		8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPayload.swift; sourceTree = "<group>"; };
 		8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLECentral.swift; sourceTree = "<group>"; };
 		912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleLiveActivityWidget.swift; sourceTree = "<group>"; };
+		972FB41B97EB7DBD661ED9D1 /* GKCloudSignature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKCloudSignature.swift; sourceTree = "<group>"; };
 		9876C8854751AA1E82168BC5 /* BroadcastParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastParser.swift; sourceTree = "<group>"; };
 		A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingWindowController.swift; sourceTree = "<group>"; };
 		A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInspectorView.swift; sourceTree = "<group>"; };
 		A2DAEB3FB5FA56CA15B09AC3 /* QuickControlIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickControlIntent.swift; sourceTree = "<group>"; };
 		A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMonitor.swift; sourceTree = "<group>"; };
-		B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchVehicleController.swift; sourceTree = "<group>"; };
+		B86A65EBFA801AEDFCBC9C34 /* ControlChannel+IBCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlChannel+IBCommand.swift"; sourceTree = "<group>"; };
 		B905E0490E285CD5C85B3F60 /* BuiltInKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInKeys.swift; sourceTree = "<group>"; };
 		BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleActivityAttributes.swift; sourceTree = "<group>"; };
 		BD10ED24FE80E92462D8D861 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
+		BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKCloudClient.swift; sourceTree = "<group>"; };
 		BF231ED6D1509B87C5D7CB0C /* GKUIBleKey.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GKUIBleKey.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BF365E39A85492849FCFC1DD /* VehicleIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleIntents.swift; sourceTree = "<group>"; };
 		C1CF7ACBF0EAF3D137B56617 /* car_light.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_light.png; sourceTree = "<group>"; };
 		C72C39E1002B486405A22086 /* VehicleProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleProfile.swift; sourceTree = "<group>"; };
 		C9AB7BD30F349C7FA0524D11 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D30CAFC65BD02A291DEEB052 /* AppModel+Cloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Cloud.swift"; sourceTree = "<group>"; };
 		D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasuredSession.swift; sourceTree = "<group>"; };
 		D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		DB43BAA2EB78A12AA5DDAEDF /* ErrorCodeTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeTable.swift; sourceTree = "<group>"; };
 		DC8C6EBB0E8535DD0570907C /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
+		DD69DEE0BD46BF444AEA05C6 /* CloudSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSettingsView.swift; sourceTree = "<group>"; };
 		E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "builtin-keys.example.txt"; sourceTree = "<group>"; };
 		E484F5C4824BDB2B2B2937BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E6B273DC3208E17B03DEE527 /* car_small.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_small.png; sourceTree = "<group>"; };
 		E7C32A037F805BE11A1268CE /* car_detail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_detail.png; sourceTree = "<group>"; };
+		E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleNotifier.swift; sourceTree = "<group>"; };
 		F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = GKUIBleKeyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GKUIBleKeyWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWatchApp.swift; sourceTree = "<group>"; };
@@ -197,9 +228,12 @@
 		0763A5866757F157EF11AEF7 /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				73B2F36003652CD80E72CBF5 /* ActionHistory.swift */,
 				1DE4B7AED8424488DFF8B585 /* AppInfo.swift */,
 				A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */,
 				DC8C6EBB0E8535DD0570907C /* FileLogger.swift */,
+				5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */,
+				E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */,
 				C72C39E1002B486405A22086 /* VehicleProfile.swift */,
 			);
 			path = Support;
@@ -219,9 +253,8 @@
 			children = (
 				FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */,
 				C9AB7BD30F349C7FA0524D11 /* Info.plist */,
-				842C5793F60592BB210A0A9D /* WatchPairingView.swift */,
+				198611EA7B984E1F38C437D7 /* WatchCloudController.swift */,
 				367D57CD773A3B52A02FAB9C /* WatchRootView.swift */,
-				B344A9A258A7E151D5EF3C55 /* WatchVehicleController.swift */,
 			);
 			path = Watch;
 			sourceTree = "<group>";
@@ -257,6 +290,7 @@
 				0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */,
 				1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */,
 				1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */,
+				6ED9D6AA73F4B6A1EDF06051 /* ProximityUnlockController.swift */,
 				3090AC0E4DD0B585FADF3FA4 /* SelfTest.swift */,
 				79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */,
 				3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */,
@@ -267,15 +301,20 @@
 		55956701F9A9FE3F9DAB9E64 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				854E9E44B3CAFB0997AB6A04 /* ActionHistoryView.swift */,
 				8346132E51B853D5356F4736 /* CarModelView.swift */,
+				DD69DEE0BD46BF444AEA05C6 /* CloudSettingsView.swift */,
+				0941732E77DBFBB1654D68EC /* DesignSystem.swift */,
 				D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */,
 				A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */,
+				14F63F74C0B4D687A4E3DAE6 /* HoldToConfirmButton.swift */,
 				A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */,
 				6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */,
 				21D5975B130988A252047D36 /* LogHistoryView.swift */,
 				062758546AC7B33C61337BD0 /* LogView.swift */,
 				3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */,
 				2EF19D2E689EE7C245F20164 /* RootView.swift */,
+				83523A66F55DA97A6BDBD0AE /* VehicleTopView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -289,9 +328,11 @@
 				33BADA3B62E97AEF9A66F125 /* Intents */,
 				FE4F737D431983D5561662E9 /* Keychain */,
 				0A6B30E24F1E1EDA6510E667 /* LiveActivity */,
+				6DA890D55302C26F75969529 /* Net */,
 				4AF4D1CD0A6BF2EF496BA61F /* Protocol */,
 				900665DD8E86C6537DC8ADE6 /* Security */,
 				0763A5866757F157EF11AEF7 /* Support */,
+				B607B416F8C51839A8EACC34 /* Sync */,
 				55956701F9A9FE3F9DAB9E64 /* UI */,
 				1D9F59B31D0E96419E00488D /* Watch */,
 				8510F056DAE523FFF386B31A /* Widget */,
@@ -315,9 +356,25 @@
 			children = (
 				7581756575E39739261B2253 /* AppDelegate.swift */,
 				BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */,
+				6B32FE582A24D9C62C0D15A2 /* AppModel+Proximity.swift */,
 				7A655B3A975D8441E4B3624E /* GKUIBleKeyApp.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		6DA890D55302C26F75969529 /* Net */ = {
+			isa = PBXGroup;
+			children = (
+				D30CAFC65BD02A291DEEB052 /* AppModel+Cloud.swift */,
+				5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */,
+				2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */,
+				B86A65EBFA801AEDFCBC9C34 /* ControlChannel+IBCommand.swift */,
+				BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */,
+				65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */,
+				972FB41B97EB7DBD661ED9D1 /* GKCloudSignature.swift */,
+				6DD08A6857C91B3C509C8A6E /* StatusFieldCatalog.swift */,
+			);
+			path = Net;
 			sourceTree = "<group>";
 		};
 		7B140721E512086CA5205FDF /* Crypto */ = {
@@ -343,6 +400,7 @@
 				77FEC857107D5DBD3B471511 /* Info.plist */,
 				2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */,
 				912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */,
+				740FEAE6E294C19D0B18BEDF /* VehicleStatusWidget.swift */,
 			);
 			path = Widget;
 			sourceTree = "<group>";
@@ -355,6 +413,15 @@
 			path = Security;
 			sourceTree = "<group>";
 		};
+		B607B416F8C51839A8EACC34 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				5C3423F9E406EBB2595FB634 /* PhoneWatchSync.swift */,
+				8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
 		DC7D866986CAD52C6B9036DF /* CarModel */ = {
 			isa = PBXGroup;
 			children = (
@@ -363,6 +430,7 @@
 				48C56C0A7C2175F4E75072A7 /* car_off.png */,
 				787E575EA2239FE9C258C166 /* car_on.png */,
 				E6B273DC3208E17B03DEE527 /* car_small.png */,
+				2ABBBAE03CC55F037BB9DED1 /* car_top.png */,
 			);
 			path = CarModel;
 			sourceTree = "<group>";
@@ -491,6 +559,7 @@
 				AD347E9B8990F0A3D8B8714B /* car_off.png in Resources */,
 				6CF361E72347E0B63E4E60F9 /* car_on.png in Resources */,
 				8B42A80A93F7C01EFE18FDFC /* car_small.png in Resources */,
+				4B2C2EB47F1F42C78DCD325C /* car_top.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -506,6 +575,7 @@
 				F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */,
 				3FD62B1CEA7B22631ECE86D1 /* VehicleControlWidget.swift in Sources */,
 				CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */,
+				6EFB46644F0F5FEC84B3189E /* VehicleStatusWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -513,28 +583,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8631125992B10088E9089278 /* BLECentral.swift in Sources */,
-				531AFB586198A1A2A355F11E /* BackgroundMonitor.swift in Sources */,
-				0999E1D16C95F63E12B20564 /* BroadcastParser.swift in Sources */,
-				6607E6A6E60B3BF59B8E413C /* BuiltInKeys.swift in Sources */,
-				5FC7F4E886C3406B9E1317FE /* CryptoBox.swift in Sources */,
-				3B6BC2E088DF70B0579E2040 /* ErrorCodeTable.swift in Sources */,
+				3AA494A7C55397E2A8C11B7C /* CloudPrefs.swift in Sources */,
+				5F0A5F1AC58AEB2B4838835C /* ControlChannel.swift in Sources */,
 				341A6E588E143A781919EEF1 /* FileLogger.swift in Sources */,
-				7DF0A6D322F24C33B2CFC2A7 /* FrameCodec.swift in Sources */,
+				FE0D1A0375AB0E67EA07DEBC /* GKCloudClient.swift in Sources */,
+				3B0F8FED4D72AC7FCE0DCEBB /* GKCloudKeychain.swift in Sources */,
+				72FCBBA993DD4885C1D99131 /* GKCloudSignature.swift in Sources */,
 				EE460A9579C5A8048801A02B /* GKUIBleKeyWatchApp.swift in Sources */,
-				77CE356F1F1F1F80F903C8F4 /* InBlueAuth.swift in Sources */,
-				EEA8AA516C49AD7F102CA91A /* InBluePairing.swift in Sources */,
-				F98802DD7A363381AE029E6E /* KeyStore.swift in Sources */,
-				322F70AC2D60ECC51C9D76D5 /* MeasuredSession.swift in Sources */,
-				231B51FAAC8D059D88B97064 /* PassiveStart.swift in Sources */,
-				F057CB0E4B64EE74E127426C /* PreAuthenticationController.swift in Sources */,
-				09D316217D79942708241C89 /* ProtocolConstants.swift in Sources */,
-				15ECAB823D720297F0346CD1 /* SelfTest.swift in Sources */,
-				8718614DD8241A01D2F2D71B /* ValeoAdvMatch.swift in Sources */,
-				2A98A4125CC135647FA8F86F /* VehicleStatus.swift in Sources */,
-				3085FA5176F2C0B6D0EA05E8 /* WatchPairingView.swift in Sources */,
+				A76418A343D317A9C80613D7 /* SyncPayload.swift in Sources */,
+				7DA51E4B1C1301F683066424 /* WatchCloudController.swift in Sources */,
 				FDD541EF654A7046060ECD47 /* WatchRootView.swift in Sources */,
-				17A633D57856533C52E6A77E /* WatchVehicleController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -542,43 +600,63 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				87AA65B7CC07438CF309274D /* ActionHistory.swift in Sources */,
+				61F64D6AF1A72673AEBDC9C6 /* ActionHistoryView.swift in Sources */,
 				35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */,
 				C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */,
+				39C3190AB6FB00F4D76A88C3 /* AppModel+Cloud.swift in Sources */,
+				22B28FC5B80BD3709CF24B16 /* AppModel+Proximity.swift in Sources */,
 				5A5F177B77B566D517418361 /* AppModel.swift in Sources */,
 				289A7C95DC5F829282241571 /* BLECentral.swift in Sources */,
 				9D7203CF6D17C46BF723AD86 /* BackgroundMonitor.swift in Sources */,
 				E87B95E0F36C16BCF237B9E7 /* BroadcastParser.swift in Sources */,
 				B5582E41603CC6CF76A18ABA /* BuiltInKeys.swift in Sources */,
 				99A0F2D1CBB2A4C581A9E2B8 /* CarModelView.swift in Sources */,
+				B0E27DC5D8C390FD74B6E11C /* CloudPrefs.swift in Sources */,
+				84B005F552EDAE56BA9578D0 /* CloudSettingsView.swift in Sources */,
+				D4C4584A93CB3DC1A42B9DA2 /* ControlChannel+IBCommand.swift in Sources */,
+				70B7E351889CBC96F95A6623 /* ControlChannel.swift in Sources */,
 				7B3E68D5A110A3A52CEA1053 /* CryptoBox.swift in Sources */,
+				5493112A3E670E03EEAD0234 /* DesignSystem.swift in Sources */,
 				95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */,
 				27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */,
 				DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */,
 				DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */,
 				89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */,
+				FCBF2D549F75EF00D0BD1005 /* GKCloudClient.swift in Sources */,
+				D3E12A34050B940EBD770BDA /* GKCloudKeychain.swift in Sources */,
+				D56F27EB14574F366B0D305F /* GKCloudSignature.swift in Sources */,
 				B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */,
+				EE571A3EBEAF79CA539FD8FF /* HoldToConfirmButton.swift in Sources */,
 				34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */,
 				8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */,
 				B0EB85D6856D2317D4F082CF /* KeyInspectorView.swift in Sources */,
 				49FCF71D7FA9D68B4FABF608 /* KeyStore.swift in Sources */,
 				FF21906B2EED6B801E55B378 /* LiveActivityController.swift in Sources */,
 				D6D1BA3754F8C7350B197919 /* LiveLogFloatingView.swift in Sources */,
+				18770C73EC4A92693E5DDF29 /* LogFeed.swift in Sources */,
 				46A4165C9AE96B14B3DEED9A /* LogHistoryView.swift in Sources */,
 				C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */,
 				A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */,
 				269B4265D683BE6D60F18CE4 /* PairingView.swift in Sources */,
 				A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */,
+				C6531B6C2BF84C2033EB4A4E /* PhoneWatchSync.swift in Sources */,
 				00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */,
 				A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */,
+				664280E8D798110C66F79342 /* ProximityUnlockController.swift in Sources */,
 				9BA7F7AD848BA2613D261ED2 /* QuickControlIntent.swift in Sources */,
 				4CD1623819943ED63A178AA3 /* RelayGuard.swift in Sources */,
 				21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */,
 				6798BD14C932E43943639F5A /* SelfTest.swift in Sources */,
+				7E9F445B5684908DAB54EFC7 /* StatusFieldCatalog.swift in Sources */,
+				D92B724CED00910BDB98EEFF /* SyncPayload.swift in Sources */,
 				A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */,
 				221CF8215A2337F5C1017466 /* VehicleActivityAttributes.swift in Sources */,
 				F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */,
+				F266C9ECDD1AE74205D097EE /* VehicleNotifier.swift in Sources */,
 				6ADF1204CADB569E36A7B1EC /* VehicleProfile.swift in Sources */,
 				6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */,
+				138D3DB63CC21C4215C92A48 /* VehicleTopView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -731,7 +809,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -753,7 +831,7 @@
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
 		};
@@ -798,7 +876,7 @@
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Debug;
 		};
@@ -854,7 +932,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;

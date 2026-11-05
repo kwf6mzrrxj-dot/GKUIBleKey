@@ -14,6 +14,12 @@ public enum SelfTest {
         public let detail: String
     }
 
+    /// 全部自检。
+    ///
+    /// `@MainActor`：`ProximityUnlockController` 是主 actor 隔离的（它要驱动 UI），
+    /// 而自检是从 SwiftUI 按钮触发的、本来就在主线程 —— 标上比在内部
+    /// `MainActor.assumeIsolated` 更诚实。
+    @MainActor
     public static func runAll() -> [Result] {
         [
             testSHA256(),
@@ -31,6 +37,7 @@ public enum SelfTest {
             testPassiveStartJudge(),
             testPassiveStartLeaveDebounce(),
             testErrorCodeTable(),
+            testProximityUnlockHysteresis(),
         ]
     }
 
@@ -472,6 +479,84 @@ public enum SelfTest {
                 ? "进区域即时；单帧 -98 后仍保持在区域内；连续 3 帧才判离开"
                 : "debounce=\(j.leaveDebounceSamples) 阈值=\(j.threshold) "
                   + "entered=\(entered) afterOne=\(afterOne) afterThree=\(afterThree)")
+    }
+
+    // MARK: - ★ 靠近解锁（双阈值 + 迟滞）
+
+    /// 验证 `ProximityUnlockController` 的四条核心规则。
+    ///
+    /// 这是全项目**唯一能脱离真机验证**的判定逻辑：它不碰 BLE、不碰网络，
+    /// 输入只有 `(combinedRSSI, calibration, now)`。所以时间由测试注入，
+    /// 可以精确控制停留时长和冷却窗口。
+    ///
+    /// 数值取默认偏移 enter=18 / exit=28、标定值 -55 dBm
+    /// → 解锁阈值 **-73**、闭锁阈值 **-83**、迟滞带 [-83, -73]。
+    @MainActor
+    static func testProximityUnlockHysteresis() -> Result {
+        // 开关默认关闭，测试期间临时打开（结束后原样恢复，不污染用户设置）
+        let key = ProximityUnlockController.enabledKey
+        let old = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer {
+            if let old { UserDefaults.standard.set(old, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        let cal = -55
+        let c = ProximityUnlockController()
+        let t0 = Date()
+
+        // ⓪ 一开始就落在迟滞带（-78 介于 -83 与 -73）→ 阶段是 boundary，不动作
+        let bandOnly = c.update(combinedRSSI: -78, calibration: cal,
+                                now: t0.addingTimeInterval(-2.0))
+        let phaseInBand = c.phase
+
+        // ① 进入解锁阈值内侧 1 秒 → 停留不够，不能解锁
+        _ = c.update(combinedRSSI: -70, calibration: cal, now: t0)
+        let early = c.update(combinedRSSI: -70, calibration: cal,
+                             now: t0.addingTimeInterval(1.0))
+
+        // ② 满 2 秒 → 解锁
+        let unlocked = c.update(combinedRSSI: -70, calibration: cal,
+                                now: t0.addingTimeInterval(2.1))
+
+        // ③ 解锁后回到迟滞带 → 什么也不做（门已经开了，不能因为抖一下又锁）
+        let inBand = c.update(combinedRSSI: -78, calibration: cal,
+                              now: t0.addingTimeInterval(3.0))
+
+        // ④ 跌破闭锁阈值 → 立即闭锁
+        let locked = c.update(combinedRSSI: -90, calibration: cal,
+                              now: t0.addingTimeInterval(4.0))
+
+        // ⑤ 冷却期内再靠近满 2 秒 → 不再解锁（上次解锁在 t=2.1，冷却 15 秒）
+        _ = c.update(combinedRSSI: -90, calibration: cal, now: t0.addingTimeInterval(5.0))
+        _ = c.update(combinedRSSI: -70, calibration: cal, now: t0.addingTimeInterval(6.0))
+        let cooled = c.update(combinedRSSI: -70, calibration: cal,
+                              now: t0.addingTimeInterval(8.5))
+
+        let ok = bandOnly == nil
+            && phaseInBand == .boundary
+            && early == nil
+            && unlocked == .unlock
+            && inBand == nil
+            && locked == .lock
+            && cooled == nil
+            && c.unlockThreshold == -73
+            && c.lockThreshold == -83
+
+        return Result(
+            name: "靠近解锁 · 双阈值与迟滞",
+            passed: ok,
+            detail: ok
+                ? "阈值 \(c.unlockThreshold ?? 0)/\(c.lockThreshold ?? 0) dBm；"
+                  + "停留 2s 才解锁、迟滞带不动作、跌破闭锁阈值立即锁、解锁冷却生效"
+                : "band=\(String(describing: bandOnly))/\(phaseInBand.rawValue) "
+                  + "early=\(String(describing: early)) unlock=\(String(describing: unlocked)) "
+                  + "inBand=\(String(describing: inBand)) lock=\(String(describing: locked)) "
+                  + "cooled=\(String(describing: cooled)) "
+                  + "阈值=\(c.unlockThreshold.map(String.init) ?? "nil")/"
+                  + "\(c.lockThreshold.map(String.init) ?? "nil")"
+        )
     }
 
     // MARK: - ★ 错误码表

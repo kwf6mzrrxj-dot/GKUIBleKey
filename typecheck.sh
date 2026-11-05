@@ -26,14 +26,18 @@ OUT=$(swiftc -typecheck \
   -target "$TARGET" \
   -swift-version 6 \
   -plugin-path "$PLUGINS" \
-  Sources/App/AppModel.swift \
+  Sources/App/*.swift \
   Sources/Protocol/*.swift \
+  Sources/Net/*.swift \
   Sources/Crypto/*.swift \
   Sources/Keychain/*.swift \
   Sources/Support/*.swift \
   Sources/BLE/*.swift \
   Sources/Security/*.swift \
-  Sources/UI/*.swift 2>&1)
+  Sources/Sync/*.swift \
+  Sources/UI/*.swift \
+  Sources/LiveActivity/*.swift \
+  Sources/Intents/*.swift 2>&1 || true)
 
 if echo "$OUT" | grep -qE "error:"; then
   echo "$OUT" | grep -E "error:|warning:" || true

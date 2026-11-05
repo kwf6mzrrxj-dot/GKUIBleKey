@@ -18,12 +18,40 @@ struct RootView: View {
     @State private var showPairing = false
     /// 密钥详情（点「数字钥匙已就绪」进入）
     @State private var showKeys = false
+    /// 网络通道配置（2026-11-04）
+    @State private var showCloud = false
+    /// 底部标签栏当前页（0 控制 / 1 状态 / 2 我的）
+    @State private var tab = 0
+    /// 「我的」页要展示的账号信息（异步从云端凭据读）
+    @State private var account: GKCloudCredentials?
     /// 点击「当前不可执行」的按钮时，用它弹出明确原因。
     ///
     /// 之前控车按钮直接 `.disabled(!isWriteReady)`：未连接时按钮变灰、
     /// 点了毫无反馈，用户分不清是"没连上"还是"App 坏了"。
     /// 现在改成**可点击 + 弹提示**，每次点击都有回应。
     @State private var actionHint: String?
+
+    /// 远程启动引擎的二次确认（着车有实际后果：尾气、误启动）
+    @State private var confirmingEngineStart = false
+    /// 空调温度选择面板
+    @State private var showACPicker = false
+    /// 上次设定的空调温度（抓包里 `rce` 的值，摄氏度）
+    @AppStorage(CloudPrefs.acTemperature) private var acTemperature = CloudPrefs.defaultACTemperature
+
+    /// 自动解锁开关 —— 与密钥详情页的 Toggle 读同一个 key，两处永远同步
+    @AppStorage(ProximityUnlockController.enabledKey) private var autoUnlockOn = false
+
+    /// 危险动作是否需要长按确认（默认开启）
+    ///
+    /// 覆盖：后备箱、开窗、微开、寻车 —— 这四个误触的后果都要人去现场收拾。
+    /// 闭锁 / 关窗 / 解锁不在其中（前两个是"更安全"方向；解锁有二次确认的替代方案，
+    /// 但单击解锁是最高频操作，加长按会让每次上车都变慢）。
+    @AppStorage("gkuiblekey.holdToConfirm") private var holdToConfirm = true
+
+    /// 未锁车本地提醒（`VehicleNotifier` 读同一个 key）
+    @AppStorage(VehicleNotifier.enabledKey) private var notificationEnabled = true
+
+    @State private var showActionHistory = false
 
     /// 车辆爱称（详情页可改，持久化在 UserDefaults）
     ///
@@ -33,47 +61,36 @@ struct RootView: View {
     private let vehicleModelName = "博越 PRO"
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             background
 
-            // ★ 顶栏吸顶 + 其余可滚动（2026-10-30 修复「UI 超出安全区」）。
+            // ★ 三页标签栏（2026-11-04）
             //
-            // ## 原来为什么会溢出
+            // 原来所有内容堆在一页，设置项挂在右上角的汉堡菜单里 ——
+            // 一个入口能到达的东西有两个入口，用户还得先记住"设置在哪"。
             //
-            // 原先是一个**裸 VStack**：
-            // ```swift
-            // ZStack { background; VStack { topBar … statusSection } }
-            // ```
-            // 各块实测高度加起来约 **796pt**
-            // （顶栏 26 + 标题 60 + 车图 200 + 状态芯片 30 + 控制区 240 + 状态区 240），
-            // 而 iPhone 17 Pro 竖屏可用高度只有约 **781pt**。
-            // 内容一旦超过可用高度，`VStack` 会保持自身高度、在 `ZStack` 里
-            // **默认居中** —— 于是顶部溢出到状态栏/灵动岛那一行、底部被切掉。
-            // 截图实证：顶栏「扫描中 / -100 dBm」和系统时间同一行，
-            // 底部「鉴权：操作成功」被截断。
+            // 现在按「控制 / 状态 / 我的」拆开：
+            //   控制 = 车图 + 一键控车（高频，要一眼看到）
+            //   状态 = 全部车辆数据与链路诊断（低频，但要看全）
+            //   我的 = 账号 + 设置（几乎不点，但必须有）
             //
-            // ## 现在
-            //
-            // 顶栏留在安全区内固定不动（连接状态始终可见），
-            // 其余内容放进 `ScrollView`：内容再多也只是能滚，不会再挤出去。
-            VStack(spacing: 0) {
-                topBar
-                    .padding(.top, 6)      // 与状态栏/灵动岛留一点呼吸间距
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        vehicleHeader
-                        carArt
-                        statusChips
-                        controlSection
-                        statusSection
+            // 标签栏用系统 `TabView`：iOS 26 起系统会把它渲染成 Liquid Glass
+            // （半透明材质 + 边缘折射 + 内容滚动时收窄），自己画反而做不像。
+            TabView(selection: $tab) {
+                controlPage
+                    .tag(0)
+                    .tabItem { Label("控制", systemImage: "car.fill") }
+                statusPage
+                    .tag(1)
+                    .tabItem {
+                        Label("状态", systemImage: "gauge.with.dots.needle.67percent")
                     }
-                    .padding(.bottom, 8)
-                }
+                profilePage
+                    .tag(2)
+                    .tabItem { Label("我的", systemImage: "person.crop.circle") }
             }
-            .padding(.horizontal, 20)
 
             // ★ 控件反馈横幅（2026-11-02）：控制中心点下去后，至少让人看见"收到了"。
-            //   之前整条链断了也没有任何提示，用户只能猜。
             if let banner = model.controlBanner {
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
@@ -86,7 +103,8 @@ struct RootView: View {
                     .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
                     Spacer()
                 }
-                .padding(.top, 6)
+                .padding(.top, 54)
+                .padding(.horizontal, 20)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .allowsHitTesting(false)
             }
@@ -99,6 +117,13 @@ struct RootView: View {
         .sheet(isPresented: $showDeveloper) { DeveloperMenuView() }
         .sheet(isPresented: $showPairing) { PairingView() }
         .sheet(isPresented: $showKeys) { KeyInspectorView() }
+        .sheet(isPresented: $showCloud) { CloudSettingsView() }
+        .sheet(isPresented: $showACPicker) {
+            ACTemperatureSheet(temperature: $acTemperature) {
+                showACPicker = false
+                model.performOnCloud(.airConditioner(on: true, temperature: acTemperature))
+            }
+        }
         .alert("暂时无法执行", isPresented: Binding(
             get: { actionHint != nil },
             set: { if !$0 { actionHint = nil } }
@@ -108,43 +133,179 @@ struct RootView: View {
         } message: {
             Text(actionHint ?? "")
         }
+        // 远程启动引擎的二次确认
+        .alert("远程启动引擎？", isPresented: $confirmingEngineStart) {
+            Button("取消", role: .cancel) {}
+            Button("启动") { model.performOnCloud(.engine(on: true)) }
+        } message: {
+            Text("车辆会启动发动机。请确认车门已关闭、车辆不在密闭空间（车库、室内）。")
+        }
+        // ★ 外部链接来的「开后备箱 / 解锁 / 寻车」必须先确认。
+        //   自定义 URL 无法校验来源，不拦就等于允许任意网页开车门。
+        .alert("确认操作", isPresented: Binding(
+            get: { model.pendingExternalAction != nil },
+            set: { if !$0 { model.cancelExternalAction() } }
+        )) {
+            Button("取消", role: .cancel) { model.cancelExternalAction() }
+            Button("确认执行", role: .destructive) { model.confirmExternalAction() }
+        } message: {
+            Text(model.externalActionPrompt)
+        }
     }
 
-    // MARK: - 背景（随浅色/深色自适应）
+    // MARK: - 三页
 
-    private var background: some View {
-        Group {
-            if colorScheme == .dark {
-                LinearGradient(
-                    colors: [Color(red: 0.11, green: 0.12, blue: 0.16),
-                             Color(red: 0.06, green: 0.07, blue: 0.10)],
-                    startPoint: .top, endPoint: .bottom)
-            } else {
-                LinearGradient(
-                    colors: [Color(red: 0.93, green: 0.95, blue: 0.98),
-                             Color(red: 0.84, green: 0.87, blue: 0.92)],
-                    startPoint: .top, endPoint: .bottom)
+    /// 第一页：控车。车图 + 状态芯片 + 一键按钮，全都在首屏，不用滚。
+    private var controlPage: some View {
+        VStack(spacing: 0) {
+            topBar
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    vehicleHeader
+                    carArt
+                        .padding(.bottom, 2)
+                    // 这里不再放 statusChips —— CarModelView 内部已经画了
+                    // 四门 / 天窗 / 车窗 / 引擎，再叠一排就是同一份数据看两遍。
+                    // 车门/后备箱/上电/ACC 这一组挪到「状态」页做详情。
+
+                    // 准备点火：上车前点一下刷新授权，和"开车"是同一件事，
+                    // 放在控车页才顺 —— 在状态页里它永远想不起来点。
+                    ignitionReadyCard
+                        .padding(.bottom, 12)
+
+                    controlSection
+                }
+                // 底部留 72 —— 悬浮标签栏会盖住滚动内容的最后一段，
+                // 不留白的话「启动引擎」那行永远只能露一半。
+                .padding(.bottom, 72)
+            }
+            // 下拉刷新两条通道（见 `AppModel.refreshAll`）
+            .refreshable { await model.refreshAll() }
+        }
+        .padding(.horizontal, 20)
+        .background(background)
+    }
+
+    /// 第二页：详细状态。链路诊断、无感进入、点火验证这些低频但要看全的东西。
+    private var statusPage: some View {
+        VStack(spacing: 0) {
+            pageHeader("车辆状态", subtitle: statusPageSubtitle)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 12) {
+                    // 这里原来还有一排「已锁 / 门关 / 后备箱关 / 未启动 / ACC关」芯片。
+                    // 俯视图卡片已经把同样八项按瓦片排好了，再叠一排等于同一份数据看两遍，
+                    // 而且五个芯片挤在 362 宽里经常折行。删掉。
+                    statusSection
+                }
+                .padding(.bottom, 72)
+            }
+            .refreshable { await model.refreshAll() }
+        }
+        .padding(.horizontal, 20)
+        .background(background)
+    }
+
+    /// 第三页：我的。账号 + 设置 —— 原先汉堡菜单里的东西全在这里。
+    private var profilePage: some View {
+        VStack(spacing: 0) {
+            pageHeader("我的", subtitle: nil)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 16) {
+                    accountCard
+                    settingsCard
+                    aboutCard
+                }
+                .padding(.bottom, 72)
             }
         }
-        .ignoresSafeArea()
+        .padding(.horizontal, 20)
+        .background(background)
+        .task { await loadAccount() }
+        .onChange(of: model.cloudConfigured) { _, _ in
+            Task { await loadAccount() }
+        }
+        // 两个新的二级页挂在这一页上（而不是和另外 5 个 sheet 挤在最外层）：
+        // 同一层叠太多 `.sheet(isPresented:)` 会互相覆盖，分散挂载更稳。
+        .sheet(isPresented: $showActionHistory) {
+            ActionHistoryView()
+        }
+    }
+
+    /// 状态页的「靠近解锁」详情卡片。
+    ///
+    /// 只在**开启且已标定**时出现 —— 关掉时它只会变成一张「未启用」的噪音卡。
+    private var proximityDetailCard: some View {
+        let prox = model.proximityUnlock
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "hand.wave.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(prox.phase == .inside ? Color.green : Color.secondary)
+                Text("靠近解锁")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(prox.summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(prox.phase == .inside ? Color.green : Color.secondary)
+            }
+
+            HStack(spacing: 16) {
+                proximityMetric("解锁阈值",
+                                prox.unlockThreshold.map { "\($0) dBm" } ?? "—", .cyan)
+                proximityMetric("闭锁阈值",
+                                prox.lockThreshold.map { "\($0) dBm" } ?? "—", .orange)
+                proximityMetric("当前",
+                                String(format: "%.0f", prox.lastCombinedRSSI), .primary)
+                Spacer()
+            }
+
+            if let a = prox.lastAction, let at = prox.lastActionAt {
+                Text("最近一次：\(a.rawValue) · \(AppModel.hhmm(at))")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(radius: Glass.controlRadius, elevated: false)
+    }
+
+    private func proximityMetric(_ title: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color)
+        }
+    }
+
+    // MARK: - 背景
+
+    /// 全屏底统一走 `GlassScreenBackground`（渐变 + 氛围光）。
+    ///
+    /// 之前这段渐变只在本页有，二级页用的是纯 `systemBackground` ——
+    /// 同一块 `.ultraThinMaterial` 在两种底上看起来像两种材质，
+    /// 这是"风格不统一"最根本的一处。
+    private var background: some View {
+        GlassScreenBackground()
     }
 
     // MARK: - 顶部标题栏
 
+    /// 玻璃底填充色（浅色模式用深色半透明，深色模式用白色半透明）
+    private var glassFill: Color {
+        colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)
+    }
+
     private var topBar: some View {
         HStack(spacing: 10) {
-            // 车辆状态胶囊（点色 + 文案）—— 只说车在不在
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(vehicleStatusColor)
-                    .frame(width: 7, height: 7)
-                Text(vehicleStatusText)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(glassFill, in: Capsule())
+            // 蓝牙状态胶囊（点色 + 文案）—— 只说车在不在。
+            // 第二行补上「钥匙状态 + 最近一次车辆数据的时间」：
+            // 这两条原来在状态页那张俯视图的底部，属于同一个问题
+            // （「我的钥匙现在能不能跟车说上话」），拆到两页反而要来回翻。
+            bluetoothStatusPill
 
             // RSSI 信号值：只在「扫描中且最近 10 秒内收到过本车广播」时显示。
             // 停止扫描 / 离开覆盖范围 / 车机停止广播后会自动消失，
@@ -160,93 +321,375 @@ struct RootView: View {
                 .foregroundStyle(rssiColor(r))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(glassFill, in: Capsule())
+                .glassPill()
             }
 
             Spacer()
-            Menu {
-                // ★ 已配对就**不再展示「绑定车辆」**（2026-10-29）
-                //   原来这一项常驻，已配对用户点进去只会弹「本地已有密钥」，
-                //   等于把已建立的配对关系重复展示成"可以再配一次"。
-                if model.hasLocalKey {
-                    // 文案承诺「管理与解绑」，就得真的落到有解绑的那一页
-                    // （`KeyInspectorView` 的「危险操作」）。原来跳的是开发者菜单，
-                    // 里面根本没有解绑入口，用户会找到「断开连接」误以为就是它。
-                    Button { showKeys = true } label: {
-                        Label("车辆已绑定 · 管理与解绑", systemImage: "key.fill")
-                    }
-                } else {
-                    Button { showPairing = true } label: {
-                        Label("绑定车辆", systemImage: "link.badge.plus")
-                    }
-                }
-                Divider()
-                Button { showDeveloper = true } label: {
-                    Label("开发者", systemImage: "wrench.and.screwdriver")
-                }
+            // 汉堡菜单已移除（2026-11-04）：设置项全部搬到「我的」页。
+            // 这里只留一个通道指示 —— 它回答"现在点按钮会走哪条路"，
+            // 点一下直接跳到「我的」。
+            Button {
+                tab = 2
             } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.title3)
-                    .foregroundStyle(.primary)
+                HStack(spacing: 5) {
+                    Image(systemName: model.preferredChannel == .bluetooth
+                          ? "bolt.horizontal.circle.fill" : "wifi.circle.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(model.preferredChannel.label)
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(model.preferredChannel == .bluetooth ? Color.blue : .green)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .glassPill()
             }
+            .buttonStyle(.plain)
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
     }
 
-    /// 玻璃底填充色（浅色模式用深色半透明，深色模式用白色半透明）
-    private var glassFill: Color {
-        colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)
-    }
-
-    /// RSSI 信号颜色：强 → 绿，中 → 黄，弱 → 橙/红
+    /// RSSI → 颜色。-60 以上算强，-75 以下算弱。
     private func rssiColor(_ r: Int) -> Color {
-        switch r {
-        case ...(-85): return .red
-        case ..<(-70): return .orange
-        case ..<(-55): return .yellow
-        default:       return .green
-        }
+        if r >= -60 { return .green }
+        if r >= -75 { return .yellow }
+        return .red
     }
 
-    /// 顶栏胶囊的颜色 —— 只表达「车在不在」，不表达 GATT 走到哪一步。
-    private var vehicleStatusColor: Color {
-        if model.pairingArmed { return .cyan }
-        return model.isVehicleOnline ? .green : .gray
+    // MARK: - 蓝牙状态胶囊
+
+    /// 顶栏的蓝牙状态胶囊：第一行「蓝牙 · 已连接」，第二行「钥匙就绪 · 19:28」，
+    /// 第三行（仅靠近解锁开启且已标定时）显示自动解锁的实时阶段。
+    private var bluetoothStatusPill: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(vehicleStatusColor)
+                    .frame(width: 7, height: 7)
+                Text(vehicleStatusText)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+            }
+            HStack(spacing: 3) {
+                Image(systemName: model.hasLocalKey ? "key.fill" : "key.slash")
+                    .font(.system(size: 8, weight: .bold))
+                Text(keyStatusText)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(model.hasLocalKey ? Color.secondary : Color.orange)
+
+            // 第三行：靠近解锁正在做什么。
+            //
+            // 之前这个功能只在「我的 → 钥匙 → 密钥管理」第三层能看到状态，
+            // 用户站在车边不解锁时，界面上没有任何线索说明它到底在跑没有。
+            // 只显示"有信息量"的三种情况，远处时为 nil，不占位。
+            if let p = proximityStatusText {
+                HStack(spacing: 3) {
+                    Image(systemName: "hand.wave.fill")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(p)
+                        .font(.system(size: 9.5, weight: .medium))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(model.proximityUnlock.phase == .inside ? Color.green : Color.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .glassPill()
+    }
+
+    /// 顶栏第三行的文案。`nil` = 不显示。
+    private var proximityStatusText: String? {
+        guard model.proximityUnlock.isEnabled,
+              model.proximityUnlock.calibration != nil else { return nil }
+        switch model.proximityUnlock.phase {
+        case .inside:
+            return "已自动解锁"
+        case .boundary:
+            return "迟滞带 · 待定"
+        case .far:
+            // 只在「正在攒停留时间」时显示，纯远处不占位置
+            let s = model.proximityUnlock.summary
+            return s.hasPrefix("靠近中") ? s : nil
+        }
     }
 
     // MARK: - 车辆标题
 
     private var vehicleHeader: some View {
-        VStack(spacing: 2) {
-            Text(vehicleModelName)
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(.primary)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(vehicleNickname)
-                .font(.subheadline)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.primary)
+            Text(vehicleModelName)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .glassChip()
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
         .padding(.bottom, 4)
     }
 
-    /// 顶栏文案 —— **语义化状态**，不再显示 BLE 链路阶段。
+    /// 顶栏第一行：只回答"车现在能不能聊上"。
     ///
-    /// ## 为什么不再显示「扫描中 / 连接中 / 已连接」
-    ///
-    /// 原 App 实测（26 天日志）：343 段连接、中位 **0.596 秒**、两次断开间隔中位
-    /// **30.0 秒** —— 链路占空比只有 2%。它界面上从不显示链路状态，
-    /// 所以用户感觉「一直是连着的」。
-    ///
-    /// 我们原来把这套内部状态直接画在顶栏，于是每 29 秒必然闪一次
-    /// 「已连接 → 未连接 → 扫描中」。同一个物理过程，观感完全不同 ——
-    /// 那不是不稳定，是把实现细节暴露给了用户。
-    ///
-    /// 现在只说「车辆在线 / 离线」，依据是最近 60 秒内有没有收到车端信号；
-    /// 原始链路状态（扫描中/握手/已连接）在诊断页「BLE 连接状态」里一字不少。
+    /// 三态而不是两态 —— 蓝牙没连但云端可用时，用户点按钮仍然能控车，
+    /// 写「离线」会让他以为按键无效。
     private var vehicleStatusText: String {
-        if model.pairingArmed { return "配对中" }
-        return model.isVehicleOnline ? "车辆在线" : "车辆离线"
+        if model.bluetoothLinkAlive { return "蓝牙 · 已连接" }
+        if model.isVehicleOnline { return "蓝牙 · 最近在线" }
+        if model.cloudConfigured { return "云端 · 可用" }
+        return "离线"
+    }
+
+    private var vehicleStatusColor: Color {
+        if model.bluetoothLinkAlive { return .green }
+        if model.isVehicleOnline { return .yellow }
+        if model.cloudConfigured { return .gray }
+        return .secondary
+    }
+
+    /// 「钥匙就绪 · 19:28」/「钥匙未绑定」/「钥匙就绪」
+    ///
+    /// 时间取 `activeStatus` 的时点 —— 蓝牙时是最后一次收到广播的时间，
+    /// 云端时是这次拉取的时间。**不写 `Date()`**：状态反映的是那一刻的车况。
+    private var keyStatusText: String {
+        guard model.hasLocalKey else { return "钥匙未绑定" }
+        guard let at = model.activeStatus.source.at else { return "钥匙就绪" }
+        return "钥匙就绪 · " + AppModel.hhmm(at)
+    }
+
+    /// 可以用来做「下一步推荐」的状态快照。
+    ///
+    /// 判据从 `measured.status` 换成了 `activeStatus`（2026-11-04）：
+    /// 只有云端数据时，主控页原来永远不推荐任何按钮，而状态页明明显示着「未锁」。
+    /// 现在两条通道共用一套数据，只是**推荐**比**展示**更保守
+    /// （`recommendationWindow` 120s < `cloudWindow` 180s）。
+    private var recommendableSnapshot: VehicleSnapshot? {
+        let active = model.activeStatus
+        guard let snap = active.snapshot, let at = active.source.at else { return nil }
+        return Date().timeIntervalSince(at) <= StatusFreshness.recommendationWindow ? snap : nil
+    }
+
+    /// 状态页副标题。文案统一由 `StatusSource.displayText` 生成，
+    /// 这里只补两处这一页特有的信息。
+    private var statusPageSubtitle: String {
+        let active = model.activeStatus
+        switch active.source {
+        case .bluetooth:
+            var text = active.source.displayText
+            // 车窗 / 天窗蓝牙广播里没有，是用云端补的 —— 说出来，
+            // 否则用户会以为整页都是秒级数据
+            if active.snapshot?.isWindowsKnown == true {
+                text += " · 窗位来自云端"
+            }
+            return text
+        case .cloud:
+            return (active.snapshot?.isFresh ?? false)
+                ? active.source.displayText
+                : "云端数据过期"
+        case .none:
+            return active.source.displayText
+        }
+    }
+
+    /// 二级页的统一标题（没有汉堡菜单，右侧留给通道状态）
+    private func pageHeader(_ title: String, subtitle: String?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.title2.weight(.bold))
+            if let subtitle {
+                Text(subtitle)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .glassPill()
+            }
+            Spacer()
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: - 「我的」页组件
+
+    private func loadAccount() async {
+        account = await model.cloud.snapshotOfCredentials()
+    }
+
+    /// 手机号脱敏：138****8000。完整号码没有展示价值，反而容易被人瞄到。
+    private func phoneMasked(_ phone: String) -> String {
+        guard phone.count >= 7 else { return phone }
+        return "\(phone.prefix(3))****\(phone.suffix(4))"
+    }
+
+    /// 账号卡：云端账号状态 + 入口
+    private var accountCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: model.cloudConfigured
+                      ? "person.crop.circle.badge.checkmark"
+                      : "person.crop.circle.badge.questionmark")
+                    .font(.system(size: 28))
+                    .foregroundStyle(model.cloudConfigured ? Color.green : Color.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.cloudConfigured ? "云端账号" : "未配置云端账号")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(model.cloudConfigured
+                         ? (account.map { phoneMasked($0.phone) } ?? "读取中…")
+                         : "配置后可在任何地方远程控车")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Button { showCloud = true } label: {
+                Text(model.cloudConfigured ? "管理账号" : "去配置")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass)
+        }
+        .padding(Glass.cardPadding)
+        .glassCard()
+    }
+
+    private var settingsCard: some View {
+        VStack(spacing: 0) {
+            settingRow(icon: "wifi",
+                       title: "网络通道",
+                       detail: model.cloudConfigured ? "已配置" : "未配置") {
+                showCloud = true
+            }
+            divider
+            // 靠近解锁的总开关与阈值都在密钥详情页 —— 这里只做状态提示与入口，
+            // 避免同一个开关出现在两处、状态还各读各的（2026-11-05）
+            settingRow(icon: "key.radiowaves.forward",
+                       title: "靠近解锁",
+                       detail: proximityDetail) {
+                if model.hasLocalKey { showKeys = true } else { showPairing = true }
+            }
+            divider
+            settingRow(icon: "key.fill",
+                       title: model.hasLocalKey ? "车辆已绑定" : "绑定车辆",
+                       detail: model.hasLocalKey ? "管理与解绑" : nil) {
+                if model.hasLocalKey { showKeys = true } else { showPairing = true }
+            }
+            divider
+            settingToggle(icon: "hand.raised.fill",
+                          title: "危险动作长按确认",
+                          detail: "后备箱 / 开窗 / 微开 / 寻车 需按住 0.6 秒",
+                          isOn: $holdToConfirm)
+            divider
+            settingToggle(icon: "bell.badge.fill",
+                          title: "未锁车提醒",
+                          detail: "离开时若发现未锁 / 门未关，发一条本地通知",
+                          isOn: $notificationEnabled)
+            divider
+            settingRow(icon: "clock.arrow.circlepath",
+                       title: "操作历史",
+                       detail: ActionHistory.shared.records.isEmpty
+                           ? "还没有记录" : "最近 \(ActionHistory.shared.records.count) 条") {
+                showActionHistory = true
+            }
+            divider
+            settingRow(icon: "gearshape",
+                       title: "设置",
+                       // 菜单实际有四个分组：车辆 / 钥匙 / 高级（依赖标定）/ 调试。
+                       detail: "车辆 · 钥匙 · 高级 · 调试") {
+                showDeveloper = true
+            }
+        }
+        .glassCard()
+    }
+
+    /// 设置页里「靠近解锁」那一行的说明
+    private var proximityDetail: String {
+        guard autoUnlockOn else { return "未开启" }
+        guard model.passiveStart.isCalibrated else { return "需先标定" }
+        return "已开启"
+    }
+
+    private var aboutCard: some View {
+        VStack(spacing: 6) {
+            Text("蓝牙钥匙")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("版本 \(appVersion)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text("蓝牙通道在车边、不耗流量；网络通道在任何地方都可用")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+    }
+
+    private var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+        return "\(v) (\(b))"
+    }
+
+    private var divider: some View {
+        Divider().padding(.leading, 50)
+    }
+
+    private func settingRow(icon: String, title: String, detail: String?,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+                Text(title).font(.body)
+                Spacer()
+                if let detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 开关型设置行 —— 与 `settingRow` 同样的图标/内边距，只是右边是 Toggle
+    private func settingToggle(icon: String, title: String, detail: String,
+                               isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - 车辆图（原 App 车辆模型帧 + 状态动画）
@@ -266,119 +709,62 @@ struct RootView: View {
     }
 
     private var carArt: some View {
-        CarModelView(status: model.measured.status, stage: carStage)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 200)
-            .padding(.horizontal, 10)
-    }
-
-    // MARK: - 状态芯片（车门/后备箱/上电/发动机/ACC，广播解密状态）
-
-    /// 状态芯片「新鲜度」阈值（秒）。超过就标橙，提示可能已不是当前状态。
-    ///
-    /// 依据：车机广播**不是实时流**，实测间隔从 10 秒到十几分钟不等
-    /// （见日志 21:14:50 → 21:15:00 → 21:15:31 → 21:35:32），
-    /// 所以 2 分钟没收到新广播就足以提示「这条快照可能已经变了」。
-    private let statusStaleSeconds: TimeInterval = 120
-
-    /// 车辆状态是否「新鲜」——只有新鲜时才在按钮上做「下一步推荐」。
-    ///
-    /// 车机广播间隔不固定（实测 10s–17min），所以状态随时可能是旧的。
-    /// 拿过期状态去推荐操作（比如 18 分钟前"已锁"就高亮"解锁"）会误导用户。
-    private var isStatusFresh: Bool {
-        guard let t = model.measured.statusUpdatedAt else { return false }
-        return Date().timeIntervalSince(t) <= statusStaleSeconds
-    }
-
-    @ViewBuilder private var statusChips: some View {
-        if let s = model.measured.status {
-            VStack(spacing: 4) {
-                HStack(spacing: 8) {
-                    chip(icon: s.isLocked ? "lock.fill" : "lock.open.fill",
-                         text: s.isLocked ? "已锁" : "未锁",
-                         good: s.isLocked)
-                    chip(icon: "door.left.hand.closed",
-                         text: s.isDoorClosed ? "门关" : "门开",
-                         good: s.isDoorClosed)
-                    chip(icon: "car.rear.open",
-                         text: s.isTrunkClosed ? "后备箱关" : "后备箱开",
-                         good: s.isTrunkClosed)
-                    chip(icon: "engine.combustion",
-                         text: s.isEngineRunning ? "已启动" : "未启动",
-                         good: true)
-                    chip(icon: "bolt.fill",
-                         text: s.isAccOn ? "ACC开" : "ACC关",
-                         good: true)
-                }
-
-                // ★ 时效标记：明确告诉用户这是「最后一次收到」的快照，
-                //   而不是实时状态。过期就标橙，避免「显示已锁、实际已解锁」的误判。
-                if let t = model.measured.statusUpdatedAt {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        let age = max(0, ctx.date.timeIntervalSince(t))
-                        let stale = age > statusStaleSeconds
-                        HStack(spacing: 4) {
-                            Image(systemName: stale ? "exclamationmark.triangle.fill" : "clock")
-                                .font(.system(size: 9, weight: .semibold))
-                            Text(stale
-                                 ? "\(ageText(age))收到，可能已不是当前状态"
-                                 : "\(ageText(age))更新")
-                                .font(.system(size: 10))
-                        }
-                        .foregroundStyle(stale ? Color.orange : Color.secondary)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 6)
-        }
-    }
-
-    private func ageText(_ age: TimeInterval) -> String {
-        if age < 60 { return "\(Int(age)) 秒前" }
-        if age < 3600 { return "\(Int(age / 60)) 分钟前" }
-        return "\(Int(age / 3600)) 小时前"
-    }
-
-    private func chip(icon: String, text: String, good: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
-            Text(text).font(.system(size: 11, weight: .medium))
-        }
-        .foregroundStyle(good ? Color.primary : Color.orange)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(glassFill, in: Capsule())
+        // ★ 不再套 `.frame(height: 196)`（2026-11-04）。
+        //
+        // 车图 + 通道胶囊 + 两行门/窗芯片的总高约 300，硬裁到 196 后
+        // 多出来的部分画在框外 —— 下面「准备点火」卡和按钮正好压在上面。
+        // 现在把车图高度显式传进去，整块由内容自己撑开。
+        CarModelView(
+            snapshot: model.activeStatus.snapshot,
+            stage: carStage,
+            channel: model.preferredChannel,
+            carHeight: 168
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 6)
     }
 
     // MARK: - 控车区
 
     private var controlSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             // 两大键：解锁 / 闭锁 —— 车锁状态直接体现在按钮上
             HStack(spacing: 12) {
-                // ★ 只有状态**新鲜**（≤ `statusStaleSeconds`）时才做「下一步推荐」。
+                // ★ 只有状态**新鲜**（≤ `StatusFreshness.recommendationWindow`）
+                //   时才做「下一步推荐」。
                 //
                 // 之前不管状态多旧都高亮：截图里状态是 18 分钟前收到的，
                 // 却仍在推荐「解锁」，很可能与实车相反。过期状态只展示、不推荐。
                 primaryAction(.unlock, "解锁", .green, "lock.open.fill",
-                              isCurrentState: isStatusFresh && model.measured.status?.isLocked == true,
-                              stateBadge: isStatusFresh && model.measured.status?.isLocked == true
+                              isCurrentState: recommendableSnapshot?.isLocked == true,
+                              stateBadge: recommendableSnapshot?.isLocked == true
                                   ? "当前已锁" : nil)
                 primaryAction(.lock, "闭锁", .blue, "lock.fill",
-                              isCurrentState: isStatusFresh && model.measured.status?.isLocked == false,
-                              stateBadge: isStatusFresh && model.measured.status?.isLocked == false
+                              isCurrentState: recommendableSnapshot?.isLocked == false,
+                              stateBadge: recommendableSnapshot?.isLocked == false
                                   ? "当前未锁" : nil)
             }
 
-            // 次要动作：后备箱 / 车窗 / 寻车
+            // 次要动作：后备箱 / 车窗 / 寻车 / 微开 / 空调
+            //
+            // 6 个正好铺满 3×2 网格。原来这里是 7 个 —— 最后一行只落一个
+            // 「启动引擎」，右边空两格，看起来像按钮没画完。
+            // 引擎单独拎出来做通栏按钮（它本来也不是开关类动作）。
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
-                                GridItem(.flexible())], spacing: 8) {
-                secondaryAction(.openCloseTrunk, "后备箱", "car.side.rear.open")
+                                GridItem(.flexible())], spacing: 10) {
+                // 误触代价高的三个走长按确认（`requiresHold`）；
+                // 关窗是"更安全"方向，保持单击。
+                secondaryAction(.openCloseTrunk, "后备箱", "car.side.rear.open", requiresHold: true)
                 secondaryAction(.windowUp, "关窗", "arrow.up.square")
-                secondaryAction(.windowDown, "开窗", "arrow.down.square")
-                secondaryAction(.panic, "寻车", "light.beacon.max.fill")
+                secondaryAction(.windowDown, "开窗", "arrow.down.square", requiresHold: true)
+                secondaryAction(.panic, "寻车", "light.beacon.max.fill", requiresHold: true)
+                // 微开只能用网络：蓝牙协议里车窗只有开/关两态
+                ventAction()
+                // 空调 / 引擎启停：车端 BLE 协议里没有，**只能走云端**
+                airConditionerAction
             }
+
+            engineAction
 
             // 上一次成功动作（用户可理解，不暴露控制码）
             if let a = model.measured.lastSucceededAction {
@@ -412,7 +798,7 @@ struct RootView: View {
         //   ② `.glass` buttonStyle 会在 label frame 内再留一圈 rim，
         //      贴着 frame 画的描边就浮在玻璃外面。
         // 改成自绘玻璃后，底色与描边是同一个 shape 的同一个 path，物理上不可能错开。
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Glass.cardRadius, style: .continuous)
 
         return Button {
             // ★ 不再在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
@@ -423,8 +809,9 @@ struct RootView: View {
             // 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
             //
             // 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
-            guard model.ble.managerState == .poweredOn else {
-                actionHint = "蓝牙未开启，无法连接车辆。\n请先在系统设置里打开蓝牙。"
+            // 走网络通道时不需要蓝牙；只有真的要连车时才拦
+            guard model.ble.managerState == .poweredOn || model.preferredChannel == .network else {
+                actionHint = "蓝牙未开启，且云端通道未配置。\n请先打开蓝牙，或在设置里配置云端账号。"
                 return
             }
             model.perform(action)
@@ -441,13 +828,17 @@ struct RootView: View {
                         .foregroundStyle(tint)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 76)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 78)
+            .padding(.vertical, 10)
             // 玻璃底：参数与描边用同一个 shape
             .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: shape)
             // 高亮描边：贴着同一个 shape 的内边描（`strokeBorder` 向内，不改变尺寸）
             .overlay {
                 shape.strokeBorder(isCurrentState ? tint : .clear, lineWidth: 2)
+            }
+            // 通道角标：告诉用户这一下按下去走的是蓝牙还是网络
+            .overlay(alignment: .topTrailing) {
+                channelBadge(model.preferredChannel)
             }
         }
         .buttonStyle(.plain)
@@ -460,39 +851,234 @@ struct RootView: View {
         // 连接状态请看顶部胶囊（车辆在线/离线），那才是它该在的地方。
     }
 
+    /// 次要动作按钮。
+    ///
+    /// - Parameter requiresHold: 误触代价高的动作（后备箱 / 开窗 / 寻车）传 `true`，
+    ///   走 `HoldToConfirmButton` 长按 0.6 秒；用户可在设置里关掉这个保护。
+    @ViewBuilder
     private func secondaryAction(
-        _ action: IBCommandType, _ title: String, _ icon: String
+        _ action: IBCommandType, _ title: String, _ icon: String,
+        requiresHold: Bool = false
     ) -> some View {
-        Button {
-            // ★ 不再在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
-            //
-            // 车端在每条命令执行完会主动断开链路（原 App 日志同样如此），
-            // 所以"点完一次就无法再点"是常态。v3.4 起 `perform` 已经能做到
-            // 「挂起动作 → 立刻重连已知设备 → ready 后自动执行」，
-            // 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
-            //
-            // 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
-            guard model.ble.managerState == .poweredOn else {
-                actionHint = "蓝牙未开启，无法连接车辆。\n请先在系统设置里打开蓝牙。"
-                return
+        if requiresHold && holdToConfirm {
+            HoldToConfirmButton(action: { runSecondaryAction(action) }) {
+                secondaryLabel(icon, title)
             }
-            model.perform(action)
+        } else {
+            Button { runSecondaryAction(action) } label: {
+                secondaryLabel(icon, title)
+            }
+            .buttonStyle(.glass)
+        }
+    }
+
+    private func secondaryLabel(_ icon: String, _ title: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 18))
+            Text(title).font(.caption)
+        }
+        .frame(maxWidth: .infinity, minHeight: 62)
+        .overlay(alignment: .topTrailing) {
+            channelBadge(model.preferredChannel)
+        }
+    }
+
+    /// 次要动作的统一入口（原 `secondaryAction` 里的闭包体）。
+    ///
+    /// ★ 不在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
+    ///
+    /// 车端在每条命令执行完会主动断开链路（原 App 日志同样如此），
+    /// 所以"点完一次就无法再点"是常态。v3.4 起 `perform` 已经能做到
+    /// 「挂起动作 → 立刻重连已知设备 → ready 后自动执行」，
+    /// 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
+    /// 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
+    private func runSecondaryAction(_ action: IBCommandType) {
+        guard model.ble.managerState == .poweredOn || model.preferredChannel == .network else {
+            actionHint = "蓝牙未开启，且云端通道未配置。\n请先打开蓝牙，或在设置里配置云端账号。"
+            return
+        }
+        model.perform(action)
+    }
+
+
+    /// 通道角标 —— 蓝牙时是蓝色闪电，网络时是绿色 wifi。
+    ///
+    /// 需求只要求"蓝牙时显示角标"，但两种状态都给一个标记更实用：
+    /// 用户能看出「现在这一下会走哪条路」，而不是在蓝牙时看到角标、
+    /// 网络时什么都没有，只能靠猜。
+    @ViewBuilder
+    private func channelBadge(_ channel: ControlChannel) -> some View {
+        let isBT = channel == .bluetooth
+        Image(systemName: isBT ? "bolt.horizontal.circle.fill" : "wifi.circle.fill")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(isBT ? Color.blue : Color.green.opacity(0.85))
+            .padding(2.5)
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+            .padding(6)
+            .accessibilityLabel(isBT ? "将走蓝牙通道" : "将走网络通道")
+    }
+
+    /// 车窗微开 —— 只有云端支持（蓝牙协议只有开/关两态）。
+    /// 按钮常驻，但会明确标出"需网络"。
+    /// 微开 —— 只能走云端（蓝牙协议里车窗只有开/关两态，没有中间档）。
+    ///
+    /// 与「开窗」同类：开着窗离开 = 进水风险，所以同样走长按确认。
+    @ViewBuilder
+    private func ventAction() -> some View {
+        if holdToConfirm {
+            HoldToConfirmButton(action: { runVentWindow() }) { ventLabel }
+        } else {
+            Button { runVentWindow() } label: { ventLabel }
+                .buttonStyle(.glass)
+        }
+    }
+
+    private var ventLabel: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "wind.circle").font(.system(size: 18))
+            Text("微开").font(.caption)
+            Text("需网络").font(.system(size: 8, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity, minHeight: 62)
+        .overlay(alignment: .topTrailing) {
+            channelBadge(.network)
+        }
+    }
+
+    private func runVentWindow() {
+        guard model.ble.managerState == .poweredOn || model.cloudConfigured else {
+            actionHint = "蓝牙未开启，且云端通道未配置。\n请先打开蓝牙，或在设置里配置云端账号。"
+            return
+        }
+        model.ventWindow()
+    }
+
+    // MARK: - 空调 / 引擎（仅云端）
+
+    /// 远程空调。
+    ///
+    /// 车端 BLE 协议里**没有**空调命令（原厂 App 也做不到），所以这个按钮
+    /// 只走云端。状态取自云端 `climateStatus.preClimateActive`；
+    /// 没拿到就显示「开空调」，点下去按当前状态取反。
+    private var airConditionerAction: some View {
+        let on = model.cloudAirConditionerOn
+        let title = on == true ? "关空调" : "开空调"
+
+        return Button {
+            guard model.cloudConfigured else { return ackNoCloud() }
+            if on == true {
+                // 关空调：服务端同样要求带 `rce` 参数，用本地记住的温度。
+                // 注意这不是「车内实际设定温度」—— 那个值云端有，但字段不固定，
+                // 拿本地值更稳（服务端对关命令的 rce 基本只做格式校验）。
+                model.performOnCloud(.airConditioner(on: false, temperature: acTemperature))
+            } else {
+                // 开空调：温度是必填参数，先让用户选
+                showACPicker = true
+            }
         } label: {
             VStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 18))
+                Image(systemName: "snowflake").font(.system(size: 18))
                 Text(title).font(.caption)
+                // 副标题只保留温度：参数已固化，不再有"待配置"这个状态
+                Text("\(acTemperature)°" + (on == true ? "" : " 起步"))
+                    .font(.system(size: 8))
             }
-            .frame(maxWidth: .infinity, minHeight: 60)
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .foregroundStyle(.primary)
+            .overlay(alignment: .topTrailing) {
+                channelBadge(.network)      // 明确告诉用户：这一下走网络
+            }
         }
         .buttonStyle(.glass)
-        // 同主按钮：不调暗。能点就画成能点。
+    }
+
+    /// 远程启动 / 熄火。**一个按钮自动切换**：
+    /// 引擎在转就显示「熄火」，否则显示「启动引擎」。
+    ///
+    /// 启动需要二次确认 —— 远程着车有实际后果（尾气、误启动），
+    /// 熄火则直接执行（让它停转不会造成危险）。
+    private var engineAction: some View {
+        let running = model.activeStatus.snapshot?.isEngineRunning
+        let title = running == true ? "熄火" : "启动引擎"
+        let badge = running == true ? "运行中"
+            : (running == false ? "已熄火" : "状态未知")
+
+        return Button {
+            guard model.cloudConfigured else { return ackNoCloud() }
+            if running == true {
+                model.performOnCloud(.engine(on: false))
+            } else {
+                confirmingEngineStart = true       // 着车先确认
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "power").font(.system(size: 16))
+                Text(title).font(.system(size: 14, weight: .medium))
+                Spacer(minLength: 0)
+                Text(badge)
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.secondary.opacity(0.12), in: Capsule())
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.quaternary.opacity(0.35))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func ackNoCloud() {
+        actionHint = "「空调 / 启动熄火」只能走网络通道。\n请先在「我的 → 网络通道」配置 GKUI 账号。"
     }
 
     // MARK: - 状态区
 
     private var statusSection: some View {
-        VStack(spacing: 10) {
-            // 蓝牙适配器异常提示（排在最前，因为它一错后面全白搭）
+        let active = model.activeStatus
+        return VStack(spacing: 14) {
+            // ★ 俯视图 + 全量标注（2026-11-04）
+            //
+            // 侧视图（car_on）好看但看不出哪里开着 —— 3/4 视角下四门互相遮挡。
+            // 俯视图四门四窗在平面上,可以把状态直接标在位置上。
+            // ★ 蓝牙优先、云端兜底（2026-11-04）
+            //
+            // 判定在 `AppModel.activeStatus`：蓝牙**新鲜**（收到过且 60 秒内还在线）
+            // 就用蓝牙，否则用云端。俯视图底部会把来源和时间标出来。
+            VehicleTopView(snapshot: active.snapshot,
+                           // 上电 / ACC 只有蓝牙有。蓝牙不活跃时必须传 nil ——
+                           // `measured.status` 车走了也不清空，会把最后一次
+                           // 蓝牙看到的上电状态一直挂在页面上。
+                           status: model.bluetoothStatusIsLive ? model.measured.status : nil,
+                           onOpenKey: {
+                               if model.hasLocalKey { showKeys = true } else { showPairing = true }
+                           },
+                           onOpenCloud: { showCloud = true })
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard()
+
+            // 靠近解锁：只在功能开启且已标定时出现。
+            // 状态页是"看全"的地方，这里给阈值和实时值，排障时不用进三层菜单。
+            if model.proximityUnlock.isEnabled, model.proximityUnlock.calibration != nil {
+                proximityDetailCard
+            }
+
+            // ★ 精选字段（2026-11-04）
+            //
+            // 服务端回了七十多个字段，其中一半是车厂调试用的原始位。
+            // 这里只列对用户有判断价值的，每项带一句「这个值意味着什么」。
+            // 白名单之外的收进底部折叠区，保证不丢数据。
+            if !model.cloudFields.isEmpty {
+                curatedFieldsSection
+            }
+
+            // 蓝牙适配器异常提示（一错后面全白搭，排在状态图之后）
             if !model.ble.isBluetoothReady {
                 alertCard(icon: "exclamationmark.triangle.fill",
                           color: .orange,
@@ -500,87 +1086,11 @@ struct RootView: View {
                           detail: hintForBluetoothState)
             }
 
-            // 无感进入（PE：靠近车辆拉门把手解锁）总开关
-            passiveEntryCard
-
-            // ★ 点火前主动打招呼（2026-10-29）
+            // ★ 动作结果 / 拒绝原因
             //
-            // 预认证的自动节奏是 29 秒一次，而用户上车按按钮是随机时刻 ——
-            // 这就是「试好多次才打不着」的数学原因。这个按钮把该发的
-            // 0x0C 提前发一次，不做任何新协议动作。
-            if model.hasLocalKey, model.preAuth.isEnabled {
-                Button {
-                    model.sendPreAuthNow()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "key.radiowaves.forward.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.cyan)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("准备点火")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            // 倒计时交给 `Text(timerInterval:)` 由渲染层驱动 ——
-                            // 不占 AppModel 的 @Published，5 分钟不重算整页 body。
-                            // 显示顺序按「约束强弱」：2 分钟的可启动授权 > 5 分钟心跳窗口。
-                            // 心跳还在跑但授权已过期时**必须说出来**，否则用户会以为
-                            // 蓝色倒计时还在就代表能点火（这正是真车踩过的坑）。
-                            if let end = model.unlockWindowEndsAt, end > Date() {
-                                // 原厂文案：解锁后「两分钟内可以启动车辆」
-                                HStack(spacing: 2) {
-                                    Text("可启动 · 还剩")
-                                    Text(timerInterval: Date()...end, countsDown: true)
-                                }
-                                .font(.caption2)
-                                .foregroundStyle(.green)
-                            } else if let end = model.ignitionWindowEndsAt, end > Date() {
-                                Text("可启动授权已过期 · 再点一次刷新")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            } else {
-                                Text("上车前点一下：会先刷新解锁授权")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                }
-                // ★ 与相邻两栏同一套系统样式（2026-10-30）。
-                //   三栏全部 `.buttonStyle(.glass)`：圆角/按压态/高光都由系统给，
-                //   不再和手写 `cornerRadius` 混用 —— 那正是「圆角对不上」的根因。
-                .buttonStyle(.glass)
-            }
-
-            // 密钥状态（未配对时整行可点，引导去绑定）
-            //
-            // ★ 用 `hasLocalKey`（内存 + Keychain 双查）而不是 `measured.keys`：
-            //   解绑后如果内存副本没清干净，这里会继续显示「数字钥匙已就绪」，
-            //   用户以为没解绑成功。
-            statusRow(icon: model.hasLocalKey ? "key.fill" : "key",
-                      iconColor: model.hasLocalKey ? .green : .orange,
-                      text: model.hasLocalKey ? "数字钥匙已就绪" : "尚未绑定车辆",
-                      trailing: model.hasLocalKey ? nil : "去绑定",
-                      // 已绑定 → 看密钥详情；未绑定 → 去配对。
-                      // 系统按钮样式必须挂在 Button 上，所以这一行一定有去处。
-                      action: {
-                          if model.hasLocalKey { showKeys = true } else { showPairing = true }
-                      })
-
-            // ★★★ 动作结果 / 拒绝原因（2026-10-29 补上）
-            //
-            // `perform` 的所有反馈都只写 `model.statusLine`：
-            // 未连接、锁定中、密钥完整性失败、鉴权1 构造失败、写入失败、
-            // 4 秒超时、预认证是否已被车内认可……
-            // 之前主界面**一处都没渲染**，只有「开发者 → 诊断」里能看到，
-            // 用户点解锁后界面零回应，以为按钮坏了。
+            // `perform` 的所有反馈都只写 `model.statusLine`：未连接、锁定中、
+            // 密钥完整性失败、鉴权构造失败、4 秒超时……
+            // 之前主界面一处都没渲染，用户点解锁后界面零回应，以为按钮坏了。
             if !model.statusLine.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: statusLineIcon)
@@ -604,108 +1114,137 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.15), value: model.statusLine)
     }
 
-    /// 状态行的图标 / 颜色 —— 按内容粗分类，不做协议层判断
-    private var statusLineIcon: String {
-        let s = model.statusLine
-        if s.contains("✅") || s.contains("成功") { return "checkmark.circle.fill" }
-        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return "exclamationmark.circle.fill" }
-        if s.contains("锁定") || s.contains("超时") { return "lock.circle.fill" }
-        return "info.circle"
-    }
-
-    private var statusLineColor: Color {
-        let s = model.statusLine
-        if s.contains("✅") || s.contains("成功") { return .green }
-        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return .red }
-        if s.contains("锁定") || s.contains("超时") { return .orange }
-        return .secondary
-    }
-
-    /// 无感进入的实际可生效性 —— 开关只是**车端受理过 0x11**，
-    /// 真正「拉门把手能解锁」还要求预认证保活开着、RSSI 已标定。
-    private var passiveEntrySubtitle: String {
-        guard model.passiveEntryEnabled else { return "手动控车（不自动解锁）" }
-        var missing: [String] = []
-        if !model.preAuth.isEnabled { missing.append("预认证保活未开") }
-        if !model.passiveStart.isCalibrated { missing.append("RSSI 未标定") }
-        guard !missing.isEmpty else { return "靠近车辆时拉门把手解锁" }
-        return "已开启，但\(missing.joined(separator: "、"))—— 现在不会自动解锁"
-    }
-
-    /// 无感进入开关卡片：靠近车辆时拉门把手解锁。
-    private var passiveEntryCard: some View {
-        // ★ 统一用系统 `.buttonStyle(.glass)`（2026-10-30）。
-        //
-        // 这一栏原来是 `Toggle` + 手写 `.glassEffect(cornerRadius: 14)`，
-        // 而相邻两栏用的是系统按钮样式 —— 两套外观的圆角/边距来源不同，
-        // 必然对不齐。现在三栏全部走系统样式：圆角、按压态、高光全由系统给，
-        // 以后系统改版也会自动跟随。
-        //
-        // 代价：系统玻璃按钮里放不了 `Toggle`，所以开关状态改用
-        // `togglepower` 图标 + 颜色表达，点击整行切换。
-        Button {
-            model.setPassiveEntry(!model.passiveEntryEnabled)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: model.passiveEntryEnabled
-                      ? "figure.walk.arrival" : "figure.walk.departure")
-                    .font(.system(size: 18))
-                    .foregroundStyle(model.passiveEntryEnabled ? .green : .secondary)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("无感进入")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    // ★ 开着开关 ≠ 真的会解锁（2026-10-30）：
-                    //   还要求「预认证保活已开」+「RSSI 已标定」，而这两项
-                    //   默认都不满足。原来直接承诺「拉门把手解锁」。
-                    Text(passiveEntrySubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+    /// 精选字段：白名单里有定义的、且云端确实返回了的
+    private var curatedFieldsSection: some View {
+        VStack(spacing: 10) {
+            ForEach(StatusFieldCatalog.sections, id: \.title) { section in
+                let rows = section.specs.compactMap { spec -> (StatusFieldSpec, String)? in
+                    guard let v = StatusFieldCatalog.resolve(spec, from: model.cloudFields)
+                    else { return nil }
+                    return (spec, v)
                 }
-
-                Spacer(minLength: 0)
-
-                if model.passiveEntrySwitching {
-                    ProgressView()
-                } else {
-                    Image(systemName: "togglepower")
-                        .font(.system(size: 20))
-                        .foregroundStyle(model.passiveEntryEnabled
-                                         ? Color.green : Color.secondary)
+                if !rows.isEmpty {
+                    fieldSectionCard(title: section.title, rows: rows)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.glass)
-        // ★ 不用 `.disabled(passiveEntrySwitching)`：那会让整行在切换的 1–4 秒里
-        //   变灰，而「能点的按钮画成不能点」正是之前修过的问题。
-        //   切换中的重复点击由 `setPassiveEntry` 内部 guard 拦下并给提示。
-    }
 
-    private var hintForBluetoothState: String {
-        switch model.ble.bluetoothStatusText {
-        case "未授权":
-            return "请到「设置 → 隐私与安全性 → 蓝牙」里允许本 App 使用蓝牙"
-        case "未开启":
-            return "请在控制中心或「设置 → 蓝牙」里打开蓝牙"
-        case "不支持":
-            return "此设备不支持 BLE"
-        case "重置中":
-            return "蓝牙正在重置，请稍候再试"
-        default:
-            return "蓝牙状态异常，请稍候再试"
+            leftoverFieldSection
         }
     }
 
-    /// 蓝牙异常提示卡 —— 与整列其它卡片一样走系统 `.buttonStyle(.glass)`。
-    ///
-    /// 它平时不显示，但一旦蓝牙没开/没授权就会和三行状态卡同时出现；
-    /// 若保留手写 `glassEffect`，那一刻又会出现「圆角不一样」。
-    /// 点击直接跳系统设置，正好是这一步用户要做的事。
+    private func fieldSectionCard(title: String,
+                                  rows: [(StatusFieldSpec, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title, count: rows.count)
+
+            ForEach(Array(rows.enumerated()), id: \.element.0.id) { idx, pair in
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(pair.0.title)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 6)
+                        Text(pair.1)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(valueTone(pair.0, pair.1))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    // 每项都说明它是什么 —— 少了这句，用户只能靠猜
+                    Text(pair.0.note)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(idx.isMultiple(of: 2) ? Color.clear : glassFill.opacity(0.5))
+            }
+        }
+        .padding(.bottom, 8)
+        .glassCard(radius: Glass.controlRadius, elevated: false)
+    }
+
+    /// 白名单之外的字段，默认收起 —— 真要看原始数据时再展开
+    private var leftoverFieldSection: some View {
+        let rest = StatusFieldCatalog.leftovers(from: model.cloudFields)
+        return Group {
+            if !rest.isEmpty {
+                DisclosureGroup {
+                    VStack(spacing: 0) {
+                        ForEach(Array(rest.enumerated()), id: \.element.id) { idx, f in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(shortPath(f.path))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(f.value)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.trailing)
+                                    .lineLimit(2)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 5)
+                            .background(idx.isMultiple(of: 2) ? Color.clear
+                                                               : glassFill.opacity(0.4))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("其他原始字段")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(rest.count)")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .glassPill()
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .glassCard(radius: Glass.controlRadius, elevated: false)
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("\(count)")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .glassPill()
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
+    }
+
+    /// 异常值上色：胎压报警、未锁、门窗开这些要跳出来
+    private func valueTone(_ spec: StatusFieldSpec, _ value: String) -> Color {
+        let alarming = ["报警", "未锁", "开", "告警", "未布防"]
+        if alarming.contains(value) { return .orange }
+        switch value {
+        case "正常", "已锁", "关", "已布防", "已拉起": return .primary
+        default: return .primary
+        }
+    }
+
+    /// 路径太长会挤掉值，只保留最后两段
+    private func shortPath(_ path: String) -> String {
+        let parts = path.split(separator: ".")
+        guard parts.count > 2 else { return path }
+        return parts.suffix(2).joined(separator: ".")
+    }
     private func alertCard(icon: String, color: Color, title: String, detail: String) -> some View {
         Button {
             if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -733,42 +1272,85 @@ struct RootView: View {
         .buttonStyle(.glass)
     }
 
-    /// 通用状态行 —— **统一走系统 `.buttonStyle(.glass)`**（2026-10-30）。
-    ///
-    /// 之前这里手写 `.glassEffect(cornerRadius: 14)`，而相邻的「准备点火」
-    /// 用系统按钮样式，两套外观的圆角/边距来源不同，视觉上必然对不齐。
-    /// 现在整列三行统一交给系统：圆角、按压态、高光全由系统决定。
-    ///
-    /// 代价：系统按钮样式必须挂在 `Button` 上，所以**纯展示行也要有 action**。
-    /// 这里让「已绑定」点击进密钥详情、「未绑定」点击去配对 —— 有去处，
-    /// 不会出现「按下去有反馈但什么都没发生」。
-    private func statusRow(
-        icon: String, iconColor: Color, text: String, trailing: String?,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 24)
-                Text(text)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-                if let t = trailing {
-                    Text(t).font(.caption2).foregroundStyle(.cyan)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
+    private var hintForBluetoothState: String {
+        switch model.ble.bluetoothStatusText {
+        case "未授权":
+            return "请到「设置 → 隐私与安全性 → 蓝牙」里允许本 App 使用蓝牙"
+        case "未开启":
+            return "请在控制中心或「设置 → 蓝牙」里打开蓝牙"
+        case "不支持":
+            return "此设备不支持 BLE"
+        case "重置中":
+            return "蓝牙正在重置，请稍候再试"
+        default:
+            return "蓝牙状态异常，请稍候再试"
         }
-        .buttonStyle(.glass)
     }
+
+    private var statusLineIcon: String {
+        let s = model.statusLine
+        if s.contains("✅") || s.contains("成功") { return "checkmark.circle.fill" }
+        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return "exclamationmark.circle.fill" }
+        if s.contains("锁定") || s.contains("超时") { return "lock.circle.fill" }
+        return "info.circle"
+    }
+
+    private var statusLineColor: Color {
+        let s = model.statusLine
+        if s.contains("✅") || s.contains("成功") { return .green }
+        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return .red }
+        if s.contains("锁定") || s.contains("超时") { return .orange }
+        return .secondary
+    }
+
+    /// 点火前主动打招呼。预认证的自动节奏是 29 秒一次，
+    /// 而用户上车按按钮是随机时刻 —— 这就是「试好多次才打不着」的数学原因。
+    /// 这个按钮把该发的 0x0C 提前发一次，不做任何新协议动作。
+    @ViewBuilder
+    private var ignitionReadyCard: some View {
+        if model.hasLocalKey, model.preAuth.isEnabled {
+            Button {
+                model.sendPreAuthNow()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.radiowaves.forward.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.cyan)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("准备点火")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        if let end = model.unlockWindowEndsAt, end > Date() {
+                            HStack(spacing: 2) {
+                                Text("可启动 · 还剩")
+                                Text(timerInterval: Date()...end, countsDown: true)
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                        } else if let end = model.ignitionWindowEndsAt, end > Date() {
+                            Text("可启动授权已过期 · 再点一次刷新")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        } else {
+                            Text("上车前点一下：会先刷新解锁授权")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass)
+        }
+    }
+
 }
 
 // MARK: - 开发者菜单
@@ -781,6 +1363,8 @@ struct DeveloperMenuView: View {
 
     @State private var showDiagnostics = false
     @State private var showKeys = false
+    /// 网络通道配置（2026-11-04）
+    @State private var showCloud = false
     @State private var showLogs = false
     @State private var showVehicleDetail = false
 
@@ -791,6 +1375,27 @@ struct DeveloperMenuView: View {
                     Button { showVehicleDetail = true } label: {
                         menuRow("车辆详情", "car.side", "查看 CIDPU、连接状态")
                     }
+
+                    // 无感进入（PE：靠近车辆拉门把手解锁）
+                    //
+                    // 原来在「状态」页用一个自绘玻璃按钮 —— 但它是个开关，
+                    // 不是状态指示器，放在设置里用系统 Toggle 才符合预期。
+                    Toggle(isOn: Binding(
+                        get: { model.passiveEntryEnabled },
+                        set: { model.setPassiveEntry($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("无感进入")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            Text(model.passiveEntrySwitching
+                                 ? "正在切换…"
+                                 : "靠近车辆拉门把手即解锁")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(model.passiveEntrySwitching)
                 }
 
                 Section("钥匙") {
@@ -798,7 +1403,10 @@ struct DeveloperMenuView: View {
                     // （KeyInspectorView 顶部注释：不提供从原 App 导入），
                     // 留着「导入」是死描述，会让人去找不存在的能力。
                     Button { showKeys = true } label: {
-                        menuRow("密钥管理", "key.horizontal", "检视 / 备份 / 恢复")
+                        menuRow("数字钥匙",
+                                model.hasLocalKey ? "key.fill" : "key",
+                                model.hasLocalKey ? "已就绪 · 检视 / 备份 / 恢复"
+                                                  : "尚未绑定 · 去配对")
                     }
                 }
 
@@ -829,7 +1437,7 @@ struct DeveloperMenuView: View {
                     Toggle(isOn: $model.liveLogFloatingEnabled) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("实时日志浮窗").font(.subheadline).foregroundStyle(.primary)
-                            Text("在主页面悬浮显示实时日志，可拖动、折叠")
+                            Text("悬浮在界面左上角显示实时日志，可折叠；不会阻挡其他区域的操作")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
@@ -837,7 +1445,7 @@ struct DeveloperMenuView: View {
                         menuRow("诊断", "waveform.path.ecg", "自检、时序、原始报文")
                     }
                     Button { showLogs = true } label: {
-                        menuRow("日志", "text.alignleft", "会话 / 报文 / 配对日志")
+                        menuRow("日志", "text.alignleft", "会话 / 报文 / 配对 / 全模块")
                     }
                 }
 
@@ -893,7 +1501,9 @@ struct DeveloperMenuView: View {
     /// 4. App 进程活着（后台被系统回收后定时器停摆）
     private var preAuthDetail: String {
         if !model.passiveStart.isCalibrated {
-            return "未标定 RSSI：区域判定不会成立，先在「点火位置验证」里标定"
+            // 标定入口实际在密钥详情页（「靠近解锁 / 远离闭锁」卡片）。
+            // 原来写「点火位置验证」—— 那个页面没有标定按钮，用户会找不到。
+            return "未标定 RSSI：区域判定不会成立，先到「我的 → 设置 → 钥匙 → 密钥管理」里标定"
         }
         guard model.preAuth.isEnabled else {
             return "已关闭：车端不会认钥匙在场，只能遥控解锁、无法点火"
@@ -1025,7 +1635,7 @@ struct PassiveStartDetailView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .glassCard()
         }
     }
 }
@@ -1133,7 +1743,7 @@ struct VehicleDetailView: View {
                         //    （未收到 0x0F 就断开）可能残留，disabled 会让按钮
                         //    永久变灰、再也点不动。重复点只是重发一次幂等查询。
                     }
-                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                    .glassCard(radius: Glass.controlRadius)
 
                     // ★★★ 车辆状态（照原 App parseBroadcastData: 广播解密）
                     if let st = model.measured.status {
@@ -1148,7 +1758,7 @@ struct VehicleDetailView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                        .glassCard(radius: Glass.controlRadius)
                     }
 
                     if cidpuText == "未获取" {
@@ -1223,5 +1833,51 @@ struct VehicleDetailView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
+    }
+}
+
+// MARK: - 空调温度选择
+
+/// 开空调前选温度。
+///
+/// 为什么要有这一步：抓包显示云端命令必须带 `rce`（目标温度），
+/// 而温度是用户当场决定的，写死 22 会和他在车里设的温度打架。
+/// 关空调不需要它 —— 那条命令照抄当前温度即可。
+struct ACTemperatureSheet: View {
+    @Binding var temperature: Int
+    var onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let range = Array(16...32)
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                Text("\(temperature)°C")
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+
+                Picker("温度", selection: $temperature) {
+                    ForEach(range, id: \.self) { t in
+                        Text("\(t)°").tag(t)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(height: 120)
+
+                HStack(spacing: 10) {
+                    Button("取消") { dismiss() }
+                        .buttonStyle(.bordered)
+                    Button("开启空调") { onConfirm() }
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(.top, 4)
+            }
+            .padding(20)
+            .navigationTitle("远程空调")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
     }
 }
