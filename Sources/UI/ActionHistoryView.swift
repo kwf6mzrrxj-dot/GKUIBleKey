@@ -24,7 +24,7 @@ struct ActionHistoryView: View {
                     // 与液态玻璃背景打架（看起来像贴了一张白纸）。
                     // 改成 ScrollView + 玻璃卡片，与其它页同一套材质。
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 14) {
+                        LazyVStack(alignment: .leading, spacing: Glass.sectionSpacing) {
                             ForEach(groups, id: \.day) { group in
                                 dayCard(group)
                             }

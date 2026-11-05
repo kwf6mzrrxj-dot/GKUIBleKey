@@ -16,10 +16,15 @@ import SwiftUI
 /// `glassEffect` 是 iOS 26 起系统提供的 Liquid Glass 材质，
 /// 与 `.buttonStyle(.glass)`、控制中心、Dock 用的是**同一套**渲染，
 /// 高光方向、折射强度、深浅色适配都由系统统一。
-/// 所有面板一律走它，才能和系统控件看起来是一体的。
+/// 内容面板一律走它，才能和系统控件看起来是一体的。
+///
+/// **唯一例外**：实时日志浮窗（`LiveLogFloatingView`）用
+/// `.ultraThinMaterial` + 深色压层。它盖的是**内容**而不是空底，
+/// 需要与下面的文字强分离；玻璃的透光性在这里反而是缺点。
+/// 这是有意的，不要"统一"掉。
 enum Glass {
 
-    // MARK: - 圆角（只有三档，别再发明第四档）
+    // MARK: - 圆角（四档；不要发明第五档）
 
     /// 大卡片（车辆状态、设置分组、日志卡、密钥卡）
     static let cardRadius: CGFloat = 20
@@ -49,21 +54,26 @@ enum Glass {
     /// 96 = 标签栏顶沿（80）+ 16 的呼吸位。
     static let tabBarInset: CGFloat = 96
 
-    // MARK: - 字体（只有五档，遇到新的先想想能不能复用已有的）
+    // MARK: - 字体（五档；遇到新的先想想能不能复用已有的）
     //
     // 改之前全项目有 8 / 9 / 9.5 / 10 / 11 / 12 / 13 / 14 / 15 / 16 / 18 十一种字号，
     // 差别都在 1pt 上下 —— 读者说不出哪里不对，但会觉得"每块都不一样"。
     // 1pt 的差异不产生层级，只产生噪声；层级要靠**跨档**拉开（9 → 13 → 22）。
+    //
+    // ★ 存量还有约 34 处 10pt / 12pt 没并进来。
+    //   不是忘了：1pt 的改动会改变换行与行高，必须逐屏目视确认，
+    //   批量替换会把已经调好的密集布局撑破。新增代码只用这里的五档。
 
     enum Typo {
         /// 页标题（22pt）。三个 Tab 页与二级页标题共用这一档
         static let page = Font.title2.weight(.bold)
-        /// 卡片标题 / 弹窗标题（15pt semibold）
-        static let cardTitle = Font.system(size: 15, weight: .semibold)
+        /// 卡片标题 / 弹窗标题。
+        ///
+        /// 用 `.subheadline` 而不是 `system(size: 15)`：字号固定会失去
+        /// Dynamic Type（用户调大系统字号时这里不跟着变）。视觉上二者都是 15pt。
+        static let cardTitle = Font.subheadline.weight(.semibold)
         /// 正文、列表主行（13pt）
         static let body = Font.system(size: 13)
-        /// 次要说明、按钮标签（11pt）
-        static let caption = Font.caption
         /// 极次要信息、状态第三行（9pt）
         static let micro = Font.system(size: 9)
         /// 等宽数字（计时、dBm、字节）
@@ -119,18 +129,6 @@ enum Glass {
     /// 收敛成单值：浅色 4.5% 黑 / 深色 5.5% 白 —— 刚好能横向串行，又不形成条纹。
     static func zebra(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
-    }
-
-    // MARK: - 描边
-
-    /// 玻璃边缘高光。
-    ///
-    /// 之前散落着 `white.opacity(0.15)` / `0.12` 两处自绘描边，问题有两个：
-    /// ① 浅色模式下白色描边压在浅底上等于隐形，深色下才成立 —— 同一根线时有时无；
-    /// ② 与 `glassEffect` 自带高光叠在一起，转角处会出现双线。
-    /// 现在统一交给系统材质，这里只保留需要强调"可点"的一层内描边。
-    static func rimStroke(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.55)
     }
 }
 
@@ -267,20 +265,5 @@ extension View {
     /// 套一层投影（`.card` 或 `.floating`）。已是玻璃的视图用这个补层次。
     func glassElevation(_ level: Glass.Elevation) -> some View {
         modifier(GlassShadowModifier(level: level))
-    }
-}
-
-// MARK: - 分组容器
-
-/// 把一屏里的多个玻璃面板包进来，让系统在同一容器内统一处理折射与重叠。
-///
-/// 不包也能跑，但相邻的两块玻璃各自采样背景，边界处会出现一道"接缝"。
-struct GlassSection<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        GlassEffectContainer(spacing: Glass.sectionSpacing) {
-            content
-        }
     }
 }

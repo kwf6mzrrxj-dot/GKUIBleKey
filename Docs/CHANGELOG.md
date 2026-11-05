@@ -5,6 +5,54 @@
 
 ---
 
+## v9.7（2026-11-05）—— 视觉统一 + 靠近解锁双阈值 + 四项车控能力
+
+### 新增能力
+
+| 能力 | 说明 |
+|---|---|
+| 靠近解锁 | 双阈值（enter 18 / exit 28 dB）+ 3 dB 迟滞带，脱离点火验证的 `leaveOffset` 独立判定 |
+| 防误触 | 后备箱 / 开窗 / 微开 / 寻车长按 0.6 秒，进度条铺满才执行 |
+| 未锁提醒 | 蓝牙断开（= 离开车）时若未锁或门窗未关，本地通知，每天上限 3 条 |
+| 操作历史 | 本地 100 条环形 JSON，按天分组，可复制 |
+| 桌面小组件 | small/medium，点按直接控车（`.background` 模式，不弹 App） |
+
+### 视觉
+
+统一到系统 Liquid Glass，新增 `DesignSystem.swift` 作为唯一来源：
+圆角四档、间距五档、字号五档、语义色六个、投影两级。
+详见 `Docs/UI_STYLE_GUIDE.md`。
+
+### 移除
+
+- **定时任务**：云端 `scheduledTime` 传未来时间实测仍立即执行（抓包取自官方 App
+  "立即执行"场景，`scheduledTime == 请求时间`，无法证明它是计划时刻）。
+  本地调度版本用户判定价值不足，整块删除。
+
+### 修掉的三处"看不见的"缺陷
+
+1. **全项目实际没有阴影**：唯一 `.shadow` 写在 `.clipShape` 之前，被裁掉。
+2. **浮窗投影只画出两条边**：宿主 `frame` 严格等于内容尺寸，投影无处可落。
+   （第 1 条修完症状变了，但没修对 —— 两层裁剪，只修了一层。）
+3. **三个列表页的页面级遮罩断裂**：`List`/`Form` 的 `.insetGrouped` 自带不透明分组底，
+   盖住页面渐变。必须同时改 `listRowBackground` + `scrollContentBackground` + 背景。
+
+### 靠近解锁的两个逻辑 bug
+
+- `enterOffset` / `exitOffset` 是普通 `var`，Stepper 改完不刷新 ——
+  它之所以"能动"，纯粹是因为顺手写了行 `recordNote` 顺带 publish 了 AppModel。
+- 解锁成功只清了 `dwellProgress`、没清 `insideSince`，走进迟滞带时
+  界面卡在「靠近中 2.0/2.0 秒」（`min()` 封顶了）。
+
+### 工程
+
+- `SWIFT_STRICT_CONCURRENCY: minimal → complete`，一次通过 0 error
+- `AppModel` 拆分：阈值与标定搬到 `AppModel+Proximity.swift`（3020 → 2850 行）
+- `typecheck.sh` 补 `Sources/Sync`、修 `set -e` 吞掉 swiftc 报错
+- 版本 9.6(96) → 9.7(100)
+
+---
+
 ## v9.6（2026-11-02）—— 全仓审计「断言型注释」
 
 ### 怎么查的

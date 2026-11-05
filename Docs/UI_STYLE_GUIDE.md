@@ -212,10 +212,43 @@ GlassEffectContainer {       // ← 容器里只有一个元素
 
 ---
 
-## 七、状态
+## 七、令牌落地情况
 
-- `typecheck` 0 error 0 warning（64 文件 / 20,734 行）
+第四轮审查发现一个**自述与实现不符**的问题：上一轮建立的六个令牌
+（`Typo` / `Tone` / `rimStroke` / `GlassSection` / `innerSpacing` / `sectionSpacing`）
+**全部零引用** —— 文档写着"唯一来源"，代码里没人用。等于给自己发了张空头支票。
+
+本轮处理：
+
+| 令牌 | 处理 | 现有引用 |
+|---|---|---|
+| `Typo.cardTitle` | 落地到 4 处卡片标题；改为 `.subheadline`（保留 Dynamic Type） | 4 |
+| `Typo.page` | 落地到 3 处页标题 | 2 |
+| `Typo.body` | 落地到正文 13pt | 1 |
+| `Typo.micro` | 落地到状态胶囊第二/三行（原 9.5pt） | 2 |
+| `Typo.caption` | **删除** —— 它就是 `Font.caption`，没有信息量 | — |
+| `Tone.*` | 落地到状态条 / 车辆状态 / 通道角标 | 6 |
+| `innerSpacing` | 落地到 `VStack(spacing: 10)` | 4 |
+| `sectionSpacing` | 落地到卡片间距 | 5 |
+| `rimStroke` | **删除** —— 零引用，且系统材质自带高光 | — |
+| `GlassSection` | **删除** —— 零引用，"多玻璃融合"的真实场景尚未出现 | — |
+
+## 八、已知残留（诚实记录）
+
+1. **约 34 处 10pt / 12pt 未并入五档**。
+   1pt 的改动会改变换行与行高，必须逐屏目视；批量替换会撑破已调好的密集布局。
+   新增代码只用五档令牌。
+
+2. **`typecheck` 覆盖不到布局**。0 error 只说明能编译，
+   字号/间距的视觉结果必须装机看。
+
+3. **深色模式未经真机确认**。模拟器只有 iOS 26.5 运行时（包是 iOS 27），
+   深色参数按渲染原理推算：浅色卡片投影 7%、深色 18%。
+   深色我不敢给更高 —— 黑压在近黑背景上不产生分离，只会在四周留一圈更黑的脏边。
+
+## 九、状态
+
+- `typecheck` 0 error 0 warning（64 文件 / 20,725 行）
 - `xcodebuild` BUILD SUCCEEDED
-- **装机未完成**：设备锁屏（`CoreDeviceError 4016`，需要 `powerAssertionTaken`）。
-  上一版 9.7 (100) 已在机上，本轮改动（列表页背景、浮窗宿主、容器移除）
-  需解锁后重装才能验证
+- 上一轮（列表页背景、浮窗宿主）**未装机**：设备锁屏
+  （`CoreDeviceError 4016`，需要 `powerAssertionTaken`）

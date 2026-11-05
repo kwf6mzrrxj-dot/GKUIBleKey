@@ -82,7 +82,7 @@ struct LogView: View {
     // MARK: - 顶部控制
 
     private var controls: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Glass.innerSpacing) {
             // 四段已经很挤，标签里不再带条数（会在窄屏被截断）——
             // 当前来源的条数在下面「共 N 条」显示。
             Picker("来源", selection: $source) {
@@ -135,7 +135,7 @@ struct LogView: View {
             if source == .appLog {
                 AppLogList(autoScroll: autoScroll)
             } else if lines.isEmpty {
-                VStack(spacing: 10) {
+                VStack(spacing: Glass.innerSpacing) {
                     Image(systemName: "text.alignleft")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
@@ -223,7 +223,7 @@ private struct AppLogList: View {
 
     var body: some View {
         if feed.lines.isEmpty {
-            VStack(spacing: 10) {
+            VStack(spacing: Glass.innerSpacing) {
                 Image(systemName: "text.alignleft")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
@@ -304,7 +304,7 @@ struct LogExportSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 14) {
+            VStack(spacing: Glass.sectionSpacing) {
                 Image(systemName: "doc.text.fill")
                     .font(.largeTitle)
                     .foregroundStyle(.blue)

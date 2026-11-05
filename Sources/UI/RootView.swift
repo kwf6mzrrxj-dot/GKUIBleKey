@@ -377,7 +377,7 @@ struct RootView: View {
                 Image(systemName: model.hasLocalKey ? "key.fill" : "key.slash")
                     .font(.system(size: 9, weight: .bold))
                 Text(keyStatusText)
-                    .font(.system(size: 9.5, weight: .medium))
+                    .font(Glass.Typo.micro.weight(.medium))
                     .monospacedDigit()
             }
             .foregroundStyle(model.hasLocalKey ? Color.secondary : Color.orange)
@@ -392,7 +392,7 @@ struct RootView: View {
                     Image(systemName: "hand.wave.fill")
                         .font(.system(size: 9, weight: .bold))
                     Text(p)
-                        .font(.system(size: 9.5, weight: .medium))
+                        .font(Glass.Typo.micro.weight(.medium))
                         .monospacedDigit()
                 }
                 .foregroundStyle(model.proximityUnlock.phase == .inside ? Color.green : Color.secondary)
@@ -424,7 +424,7 @@ struct RootView: View {
     private var vehicleHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(vehicleNickname)
-                .font(.title2.weight(.bold))
+                .font(Glass.Typo.page)
                 .foregroundStyle(.primary)
             Text(vehicleModelName)
                 .font(.caption.weight(.medium))
@@ -449,8 +449,9 @@ struct RootView: View {
     }
 
     private var vehicleStatusColor: Color {
-        if model.bluetoothLinkAlive { return .green }
-        if model.isVehicleOnline { return .yellow }
+        if model.bluetoothLinkAlive { return Glass.Tone.success }
+        // 「最近在线」原用 yellow，与 warning(orange) 是同一语义的两档 —— 合并
+        if model.isVehicleOnline { return Glass.Tone.warning }
         if model.cloudConfigured { return .gray }
         return .secondary
     }
@@ -502,7 +503,7 @@ struct RootView: View {
     /// 二级页的统一标题（没有汉堡菜单，右侧留给通道状态）
     private func pageHeader(_ title: String, subtitle: String?) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.title2.weight(.bold))
+            Text(title).font(Glass.Typo.page)
             if let subtitle {
                 Text(subtitle)
                     .font(.caption.weight(.medium))
@@ -730,7 +731,7 @@ struct RootView: View {
     // MARK: - 控车区
 
     private var controlSection: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Glass.sectionSpacing) {
             // 两大键：解锁 / 闭锁 —— 车锁状态直接体现在按钮上
             HStack(spacing: 12) {
                 // ★ 只有状态**新鲜**（≤ `StatusFreshness.recommendationWindow`）
@@ -920,7 +921,7 @@ struct RootView: View {
         let isBT = channel == .bluetooth
         Image(systemName: isBT ? "bolt.horizontal.circle.fill" : "wifi.circle.fill")
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(isBT ? Color.blue : Color.green.opacity(0.85))
+            .foregroundStyle(isBT ? Glass.Tone.bluetooth : Glass.Tone.network)
             .padding(2.5)
             .glassBadge()
             .padding(6)
@@ -1045,7 +1046,7 @@ struct RootView: View {
 
     private var statusSection: some View {
         let active = model.activeStatus
-        return VStack(spacing: 14) {
+        return VStack(spacing: Glass.sectionSpacing) {
             // ★ 俯视图 + 全量标注（2026-11-04）
             //
             // 侧视图（car_on）好看但看不出哪里开着 —— 3/4 视角下四门互相遮挡。
@@ -1126,7 +1127,7 @@ struct RootView: View {
 
     /// 精选字段：白名单里有定义的、且云端确实返回了的
     private var curatedFieldsSection: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Glass.innerSpacing) {
             ForEach(StatusFieldCatalog.sections, id: \.title) { section in
                 let rows = section.specs.compactMap { spec -> (StatusFieldSpec, String)? in
                     guard let v = StatusFieldCatalog.resolve(spec, from: model.cloudFields)
@@ -1151,7 +1152,7 @@ struct RootView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(pair.0.title)
-                            .font(.system(size: 13))
+                            .font(Glass.Typo.body)
                             .foregroundStyle(.primary)
                         Spacer(minLength: 6)
                         Text(pair.1)
@@ -1267,7 +1268,7 @@ struct RootView: View {
                     .foregroundStyle(color)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                    Text(title).font(Glass.Typo.cardTitle).foregroundStyle(color)
                     Text(detail).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -1307,9 +1308,9 @@ struct RootView: View {
 
     private var statusLineColor: Color {
         let s = model.statusLine
-        if s.contains("✅") || s.contains("成功") { return .green }
-        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return .red }
-        if s.contains("锁定") || s.contains("超时") { return .orange }
+        if s.contains("✅") || s.contains("成功") { return Glass.Tone.success }
+        if s.contains("❌") || s.contains("失败") || s.contains("未通过") { return Glass.Tone.danger }
+        if s.contains("锁定") || s.contains("超时") { return Glass.Tone.warning }
         return .secondary
     }
 
@@ -1322,6 +1323,12 @@ struct RootView: View {
     /// 原来是通栏卡片（整行 88pt、标题 15pt semibold、右侧还带 chevron），
     /// 和下面 8 个胶囊按钮不是一个物种。现在改成同样的网格按钮：
     /// 图标 18 + 标题 caption + 一行 9pt 状态，与「微开」结构完全一致。
+    ///
+    /// **显示条件从"有钥匙且预认证开启"改为常显**：原先没配对时整块消失，
+    /// 用户既不知道有这个能力，也没有入口去配对。现在恒在，
+    /// 未就绪时第三行写「需配对 / 已关闭」，点击给出明确指引。
+    /// 代价是控制区多一个当前不可用的按钮 —— 但对「点火」这种主路径能力，
+    /// 可发现性比纯净度更重要。
     private var ignitionAction: some View {
         Button {
             guard model.hasLocalKey else {
@@ -1351,10 +1358,17 @@ struct RootView: View {
     /// 点火按钮的第三行：优先显示剩余可启动时间（它有时效，是这里唯一会变的信息）
     @ViewBuilder
     private var ignitionHint: some View {
-        if let end = model.unlockWindowEndsAt, end > Date() {
+        // ★ 判断和构造 Range 必须用**同一个** `now`。
+        //
+        // 写成 `end > Date()` … `Date()...end` 时取了两次当前时间：
+        // 若 end 恰好落在两次调用之间（授权到期的那一帧），
+        // `ClosedRange(lowerBound:upperBound:)` 会直接 fatalError ——
+        // 不是"显示错"，是崩在渲染里。概率极低但那是必现的一帧。
+        let now = Date()
+        if let end = model.unlockWindowEndsAt, end > now {
             HStack(spacing: 2) {
                 Text("剩")
-                Text(timerInterval: Date()...end, countsDown: true)
+                Text(timerInterval: now...end, countsDown: true)
             }
             .font(.system(size: 9))
             .foregroundStyle(.green)
@@ -1655,7 +1669,7 @@ struct PassiveStartDetailView: View {
 
     private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+            Text(title).font(Glass.Typo.cardTitle).foregroundStyle(.primary)
             content()
         }
         .padding(16)
@@ -1771,7 +1785,7 @@ struct VehicleDetailView: View {
 
                     // ★★★ 车辆状态（照原 App parseBroadcastData: 广播解密）
                     if let st = model.measured.status {
-                        VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: Glass.sectionSpacing) {
                             Text("车辆状态")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
