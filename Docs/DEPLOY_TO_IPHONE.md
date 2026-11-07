@@ -122,6 +122,23 @@ App 已构建、签名并安装到你的 iPhone 17 Pro。**最后两步必须你
    → 命令行拿不到 Apple ID 凭据（钥匙串里 `Xcode-AppleID` 条目不存在）。
    这时**命令行无法续签**，必须先打开 Xcode 重新登录。
 
+### 一条命令（推荐）
+
+```bash
+./tools/install.sh               # 完整构建（含手表）并安装
+./tools/install.sh --phone-only  # 只出手机端（Watch 签名坏了时）
+./tools/install.sh --build-only  # 只构建不安装（手机不在身边时）
+```
+
+脚本把三个失败点分别检查、分别说清：设备不可用 / 某张 profile 过期或缺失 /
+账号凭据丢失。三者报错完全不同，混在一起看很难判断。
+
+它还有两个判断值得记：
+- `grep -qw available` —— **`unavailable` 里包含 `available`**，普通 `grep` 会把
+  "不可用"判成"可用"。
+- **watchkitapp 的 profile 过期后会被 Xcode 直接删掉**，这时列表里根本看不到它。
+  所以不能只判断"是否过期"，要判断"是否存在有效的"。
+
 ### 诊断命令
 
 ```bash
