@@ -38,6 +38,8 @@ public enum SelfTest {
             testPassiveStartLeaveDebounce(),
             testErrorCodeTable(),
             testProximityUnlockHysteresis(),
+            testCoordinateTransform(),
+            testMicroDegreeDecode(),
         ]
     }
 
@@ -556,6 +558,68 @@ public enum SelfTest {
                   + "cooled=\(String(describing: cooled)) "
                   + "阈值=\(c.unlockThreshold.map(String.init) ?? "nil")/"
                   + "\(c.lockThreshold.map(String.init) ?? "nil")"
+        )
+    }
+
+    // MARK: - ★ 车辆位置
+
+    /// WGS-84 → GCJ-02 的换算。
+    ///
+    /// 期望值不是抄来的常量，而是**同一组输入**用独立 Python 实现算出来的
+    /// （见 Docs/VEHICLE_POSITION.md）。两个实现对上，才说明这不是"我抄我自己"。
+    static func testCoordinateTransform() -> Result {
+        // 2026-11-07 从车端拿到的真实坐标（上海浦东）
+        let wgsLat = 31.3601578, wgsLon = 121.5281489
+        let got = CoordinateTransform.wgs84ToGCJ02(latitude: wgsLat, longitude: wgsLon)
+
+        // 独立实现的结果
+        let expLat = 31.3581088, expLon = 121.5324924
+
+        let numOK = abs(got.latitude - expLat) < 1e-5
+            && abs(got.longitude - expLon) < 1e-5
+
+        // 偏移量应落在火星坐标的典型量级（300–700 米）。
+        // 太小说明没转，太大说明算法写错。
+        let dy = (got.latitude - wgsLat) * 111_000
+        let dx = (got.longitude - wgsLon) * 111_000 * cos(wgsLat * .pi / 180)
+        let dist = (dx * dx + dy * dy).squareRoot()
+        let offsetOK = dist > 300 && dist < 700
+
+        // 境外必须原样返回 —— 否则会把东京的坐标"平移"到不存在的地方
+        let tokyo = CoordinateTransform.wgs84ToGCJ02(latitude: 35.6812, longitude: 139.7671)
+        let abroadOK = tokyo.latitude == 35.6812 && tokyo.longitude == 139.7671
+
+        let ok = numOK && offsetOK && abroadOK
+        return Result(
+            name: "车辆位置 · WGS-84 → GCJ-02",
+            passed: ok,
+            detail: ok
+                ? String(format: "偏移 %.0f 米；境外不偏移", dist)
+                : String(format: "got %.7f,%.7f（期望 %.7f,%.7f）偏移 %.0f m，境外=%d",
+                         got.latitude, got.longitude, expLat, expLon, dist, abroadOK ? 1 : 0)
+        )
+    }
+
+    /// 微度 → 度数。
+    ///
+    /// 服务端给的是 `"112896144"` 这种**字符串型微度**。这个用例守住两件事：
+    /// 字符串能解析、除数是 3_600_000（不是 1e6、也不是 1e7）。
+    static func testMicroDegreeDecode() -> Result {
+        let lat = Double("112896144")! / 3_600_000
+        let lon = Double("437501430")! / 3_600_000
+
+        let ok = abs(lat - 31.36004) < 1e-4
+            && abs(lon - 121.528175) < 1e-4
+            // 同时确认它落在中国的经纬度范围内 —— 除错量级会立刻出界
+            && lat > 3.86 && lat < 53.55
+            && lon > 73.66 && lon < 135.05
+
+        return Result(
+            name: "车辆位置 · 微度换算",
+            passed: ok,
+            detail: ok
+                ? String(format: "112896144 → %.5f, 437501430 → %.5f", lat, lon)
+                : String(format: "得到 %.5f, %.5f，量级不对", lat, lon)
         )
     }
 

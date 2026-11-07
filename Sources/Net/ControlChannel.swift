@@ -164,6 +164,37 @@ enum VehicleCommand: Sendable, Equatable {
 /// 蓝牙快照来自 `VehicleStatus`（16 字节广播明文，字段齐全但**只在车附近有**）；
 /// 网络快照来自 `vehicleStatus`（74 个字段，任何地方都有但延迟数秒）。
 /// 两者字段名、含义都不同，这里只保留两边都能表达的公共子集。
+/// 车辆位置（车端上报）。
+///
+/// ## 坐标系
+/// `latitude` / `longitude` 是 **WGS-84** 原始 GPS，和 `CLLocation` 一致。
+/// 要交给 `MKMapView` / 地图 SDK 显示，必须先过 `CoordinateTransform.wgs84ToGCJ02` ——
+/// 否则在中国大陆会偏 400–500 米。判定依据见 `CoordinateTransform` 的注释。
+///
+/// ## 单位
+/// 服务端给的是**微度**（度 × 3,600,000）的字符串，解析时已经除掉；
+/// 这里存的是标准度数，可以直接用。
+struct VehicleCoordinate: Sendable, Equatable {
+    let latitude: Double
+    let longitude: Double
+    /// 海拔（米）。车端不一定给，缺失时为 nil
+    let altitude: Double?
+    /// 车端自评「这条位置能不能信」。地库、隧道里通常是 false ——
+    /// 这时界面必须标出来，不能拿一个不可信的点当实时位置。
+    let trusted: Bool
+    /// 这份位置**在车端被采集**的时刻（服务端 `updateTime`）。
+    ///
+    /// 注意它可能比当前时间早很多：车停稳后车机休眠，位置就不再更新。
+    /// 「找车」场景里，这个时间和坐标本身一样重要 ——
+    /// 拿两小时前的位置当刚停的位置，会让人在错误的地方绕圈。
+    let reportedAt: Date
+
+    /// 转成地图用的 GCJ-02。UI 只应该用它，不要直接把 `latitude/longitude` 丢给地图。
+    var mapCoordinate: (latitude: Double, longitude: Double) {
+        CoordinateTransform.wgs84ToGCJ02(latitude: latitude, longitude: longitude)
+    }
+}
+
 struct VehicleSnapshot: Sendable, Equatable {
     var isLocked: Bool?
     var isTrunkClosed: Bool?
@@ -179,6 +210,12 @@ struct VehicleSnapshot: Sendable, Equatable {
     var isWindowsClosed: Bool?
     var isSunroofOpen: Bool? = nil
     var updatedAt: Date
+
+    /// 车辆位置。云端没回 `position`、或坐标全为 0 时为 nil。
+    ///
+    /// 蓝牙广播没有位置，只有云端车况带这个字段 ——
+    /// 所以只用蓝牙时它是 nil，界面据此不显示地图卡。
+    var coordinate: VehicleCoordinate? = nil
 
     // ★ 2026-11-04：删掉了 `source: ControlChannel` 字段。
     //   它和 `StatusSource` 表达同一件事（这份数据从哪来），但没人读它 ——

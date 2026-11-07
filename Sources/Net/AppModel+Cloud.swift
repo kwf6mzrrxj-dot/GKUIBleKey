@@ -90,7 +90,11 @@ extension AppModel {
             isWindowsKnown: cloudUsable ? (c?.isWindowsKnown ?? false) : false,
             isWindowsClosed: cloudUsable ? c?.isWindowsClosed : nil,
             isSunroofOpen: cloudUsable ? c?.isSunroofOpen : nil,
-            updatedAt: bluetoothStatusTime)
+            updatedAt: bluetoothStatusTime,
+            // 位置**不跟 `cloudUsable` 走**：车停稳后车机休眠、坐标不再更新，
+            // 但"车停在哪"这件事不会因为数据旧了就失效。
+            // 新鲜度由 `VehicleCoordinate.reportedAt` 单独表达，界面标"X 小时前"。
+            coordinate: c?.coordinate)
     }
 
     /// **界面唯一应该读的状态入口。**

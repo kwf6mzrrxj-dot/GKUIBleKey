@@ -1135,6 +1135,12 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassCard()
 
+            // 车辆位置：只有云端车况带坐标，纯蓝牙时整卡不出现。
+            // 放在俯视图之后 —— 一个回答"车什么状态"，一个回答"车在哪"。
+            if let coord = active.snapshot?.coordinate {
+                VehicleLocationCard(coordinate: coord, title: vehicleNickname)
+            }
+
             // 靠近解锁：只在功能开启且已标定时出现。
             // 状态页是"看全"的地方，这里给阈值和实时值，排障时不用进三层菜单。
             if model.proximityUnlock.isEnabled, model.proximityUnlock.calibration != nil {

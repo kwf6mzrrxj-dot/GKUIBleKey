@@ -426,6 +426,47 @@ actor GKCloudClient {
         let anyWindowOpen = winPositions.contains { $0 > 0 }
         let windowsKnown = anyWindowOpen || winPositions.count >= 4
 
+        // ── 车辆位置 ──
+        //
+        // 服务端返回的是**字符串型微度**：`"latitude": "112896144"` ——
+        // 既不是数字，也不是度数。两个坑都踩过：
+        //   ① `as? Double` 直接失败（实测里 GetData 报过 'str' / int）
+        //   ② 忘了除 3_600_000，会得到"一亿度"的纬度
+        let coordinate: VehicleCoordinate? = {
+            guard let pos = basic?["position"] as? [String: Any] else { return nil }
+
+            func num(_ key: String) -> Double? {
+                if let d = pos[key] as? Double { return d }
+                if let n = pos[key] as? NSNumber { return n.doubleValue }
+                if let s = pos[key] as? String { return Double(s) }
+                return nil
+            }
+
+            // 全 0 表示车端还没定过位，不是"停在几内亚湾"
+            guard let rawLat = num("latitude"), let rawLon = num("longitude"),
+                  rawLat != 0, rawLon != 0 else { return nil }
+
+            let trusted = (pos["posCanBeTrusted"] as? Bool)
+                ?? (String(describing: pos["posCanBeTrusted"] ?? "").lowercased() == "true")
+
+            // `updateTime` 是毫秒。缺失时**不能**退回 Date()：
+            // 那会把一份不知何时采集的位置标成"刚刚"，比不显示更糟。
+            let reported: Date
+            if let ms = (vs["updateTime"] as? NSNumber)?.doubleValue {
+                reported = Date(timeIntervalSince1970: ms / 1000)
+            } else if let str = vs["updateTime"] as? String, let ms = Double(str) {
+                reported = Date(timeIntervalSince1970: ms / 1000)
+            } else {
+                reported = .distantPast
+            }
+
+            return VehicleCoordinate(latitude: rawLat / 3_600_000,
+                                     longitude: rawLon / 3_600_000,
+                                     altitude: num("altitude"),
+                                     trusted: trusted,
+                                     reportedAt: reported)
+        }()
+
         return VehicleSnapshot(
             isLocked: on(safety?["doorLockStatusDriver"]),
             isTrunkClosed: on(safety?["trunkOpenStatus"]).map { !$0 },
@@ -435,7 +476,8 @@ actor GKCloudClient {
             isWindowsKnown: windowsKnown,
             isWindowsClosed: windowsKnown ? !anyWindowOpen : nil,
             isSunroofOpen: sunroofOpen,
-            updatedAt: Date()
+            updatedAt: Date(),
+            coordinate: coordinate
         )
     }
 
