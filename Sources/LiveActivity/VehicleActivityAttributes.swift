@@ -54,11 +54,36 @@ public struct VehicleActivityAttributes: ActivityAttributes, Sendable {
         /// 引擎是否在转
         public var isEngineRunning: Bool?
         /// ACC 是否开
+        ///
+        /// ⚠️ **当前卡片不显示这两项**（2026-11-07 被「窗」替换）。
+        /// 保留字段与传值是为了将来给 CarPlay 单独排版时直接用 ——
+        /// 坐在车机前看「电源通没通」是有意义的，站在车外看没有。
+        /// 删掉它们省不了几行，却要重新接一遍数据。
         public var isAccOn: Bool?
         /// 是否已上电（点火档）
         public var isIgnitionOn: Bool?
         /// **这份状态是什么时候从车上收到的** —— 离线后它就是"最后一次上报"
         public var lastReportedAt: Date?
+
+        // ── 2026-11-07 追加：离车时真正该看的三项 ─────────────
+        //
+        // 锁屏卡原来的四格是「门 / 后箱 / 引擎 / 电源」，其中
+        // **「电源」在离车场景几乎无用**，而「窗没关」完全没显示 ——
+        // 可车窗是下车后最需要回头确认的一件事，`VehicleSnapshot.isWindowsClosed`
+        // 一直有这个值（蓝牙时从云端补），只是从没传进来。
+
+        /// 车窗是否全关。`nil` = 不知道（蓝牙广播里没有窗位，
+        /// 而云端又快照过期了）—— 不能写成「全关」。
+        public var isWindowsClosed: Bool?
+        /// 天窗是否开着。`nil` = 不知道
+        public var isSunroofOpen: Bool?
+        /// 四门逐门状态，顺序 左前 / 右前 / 左后 / 右后，`true` = 关。
+        ///
+        /// 有它才能在卡片上写出「左后」而不是笼统的「开」——
+        /// 找车 / 离车时，「哪一扇」是有用信息，「有门开着」不够。
+        public var doorClosed: [Bool]?
+        /// 油量百分比。空 = 没配云端。CarPlay（medium）画布才显示。
+        public var fuelLevel: Double?
 
         public init(
             isLocked: Bool? = nil,
@@ -70,7 +95,11 @@ public struct VehicleActivityAttributes: ActivityAttributes, Sendable {
             isEngineRunning: Bool? = nil,
             isAccOn: Bool? = nil,
             isIgnitionOn: Bool? = nil,
-            lastReportedAt: Date? = nil
+            lastReportedAt: Date? = nil,
+            isWindowsClosed: Bool? = nil,
+            isSunroofOpen: Bool? = nil,
+            doorClosed: [Bool]? = nil,
+            fuelLevel: Double? = nil
         ) {
             self.isLocked = isLocked
             self.isConnected = isConnected
@@ -82,6 +111,10 @@ public struct VehicleActivityAttributes: ActivityAttributes, Sendable {
             self.isAccOn = isAccOn
             self.isIgnitionOn = isIgnitionOn
             self.lastReportedAt = lastReportedAt
+            self.isWindowsClosed = isWindowsClosed
+            self.isSunroofOpen = isSunroofOpen
+            self.doorClosed = doorClosed
+            self.fuelLevel = fuelLevel
         }
     }
 

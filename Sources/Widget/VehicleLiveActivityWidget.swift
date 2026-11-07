@@ -11,8 +11,13 @@ import SwiftUI
 /// - 蓝牙没收到、云端有   → 整份用云端
 /// - 两边都没有           → 「暂无数据」
 ///
-/// 上电 / ACC 只有蓝牙广播里有，云端不提供 —— 蓝牙不在时显示「—」。
-/// `statusText` 会写明「蓝牙 · 19:28」或「云端 · 19:28」，用户能看出数据新旧。
+/// `statusText` 只说数据从哪来（蓝牙实时 / 云端 / 暂无数据），
+/// 时间统一由 `lastReportedAt` 以相对形式表达 —— 两者不再各写一遍时分。
+///
+/// ## 四格为什么是「门 / 窗 / 后箱 / 引擎」
+/// 2026-11-07 把「电源」换成了「窗」。ACC / 点火档只有坐在车里才有意义，
+/// 而这张卡绝大多数时候是**站在车外**看的 —— 那一刻「窗关没关」
+/// 比「电源通没通」重要得多。
 ///
 /// ## CarPlay
 /// 车载屏幕观看距离远，锁屏那套 9pt/11pt 的字在上面基本看不清。
@@ -27,7 +32,9 @@ struct VehicleLiveActivityWidget: Widget {
                 .activityBackgroundTint(Color.black.opacity(0.55))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
-            DynamicIsland {
+            let grid = StatGrid(context.state)
+
+            return DynamicIsland {
                 // MARK: 展开态
                 DynamicIslandExpandedRegion(.leading) {
                     Label {
@@ -39,24 +46,27 @@ struct VehicleLiveActivityWidget: Widget {
                     .foregroundStyle(.white)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // 没有数据 ≠ 未锁。以前 `isLocked == true ? "已锁" : "未锁"`
-                    // 会把「还没收到广播」直接画成「未锁」，比不显示更糟。
-                    Text(lockShortText(context.state.isLocked, long: true))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(lockShortColor(context.state.isLocked))
+                    VStack(alignment: .trailing, spacing: 1) {
+                        // 没有数据 ≠ 未锁。以前 `isLocked == true ? "已锁" : "未锁"`
+                        // 会把「还没收到广播」直接画成「未锁」，比不显示更糟。
+                        Text(lockShortText(context.state.isLocked, long: true))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(lockShortColor(context.state.isLocked))
+                        if let at = context.state.lastReportedAt {
+                            Text(at, style: .relative)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 10) {
-                        StatusDot(ok: context.state.isConnected)
-                        Text(context.state.statusText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        if let at = context.state.lastPreAuthAt {
-                            Text(at, style: .relative)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
+                    // 展开态的高度足够放这四格，且必须和锁屏卡给出**同一组结论** ——
+                    // 长按展开后看到的信息比锁屏更少，会让人以为锁屏那版是错的。
+                    HStack(spacing: 4) {
+                        islandStat("门", grid.door)
+                        islandStat("窗", grid.window)
+                        islandStat("后箱", grid.trunk)
+                        islandStat("引擎", grid.engine)
                     }
                 }
             } compactLeading: {
@@ -73,6 +83,133 @@ struct VehicleLiveActivityWidget: Widget {
         // 声明同时支持「锁屏小卡」和「CarPlay / 更大画布」两种家族。
         // 不写这行时系统只会用锁屏那套排版去渲染车机，字会小到看不清。
         .supplementalActivityFamilies([.small, .medium])
+    }
+
+    /// 动态岛展开态的一格。
+    ///
+    /// 不加背景块：灵动岛本来就是纯黑，`white.opacity(0.08)` 的底几乎看不见，
+    /// 反而把三行文字挤在一起。只用「标签淡 + 值亮」的对比分层。
+    private func islandStat(_ title: String, _ stat: Stat) -> some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.5))
+            Text(stat.value)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(stat.tone.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - 四格的取值
+
+/// 一格的值与语气。
+private struct Stat {
+    let value: String
+    let tone: StatTone
+
+    init(_ value: String, _ tone: StatTone) {
+        self.value = value
+        self.tone = tone
+    }
+
+    static let unknown = Stat("—", .unknown)
+}
+
+/// 一格的状态语气。
+///
+/// 之前唯一的一套规则是 `value == true ? 白 : 橙` —— 对门 / 后箱成立
+/// （关着是常态、开着要留意），但套到引擎上就反了：
+/// **引擎停着显示橙色警示、转着显示白色**。车停着是常态，不该报警。
+///
+/// 语气由每个字段自己声明「哪个方向算异常」，而不是从布尔值统一猜 ——
+/// 没有一个通用规则能同时对上这四项。
+private enum StatTone {
+    /// 常态
+    case normal
+    /// 需要留意（门开着 / 引擎在转 / 天窗开着）
+    case alert
+    /// 没上报过 —— 必须和「上报了是关」区分开
+    case unknown
+
+    var color: Color {
+        switch self {
+        case .normal:  return .white
+        case .alert:   return .orange
+        case .unknown: return .white.opacity(0.35)
+        }
+    }
+}
+
+/// 从卡片内容算出四格。
+///
+/// 放在文件级而不是某个 View 里：锁屏卡和灵动岛展开态**必须给出同一组结论**，
+/// 各算一遍迟早会漂移（一边改了、另一边忘了）。
+private struct StatGrid {
+    let door: Stat
+    let window: Stat
+    let trunk: Stat
+    let engine: Stat
+
+    init(_ s: VehicleActivityAttributes.ContentState) {
+        door = Self.doorStat(s)
+        window = Self.windowStat(s)
+        trunk = Self.trunkStat(s)
+        engine = Self.engineStat(s)
+    }
+
+    /// 门：有逐门数据就说「哪一扇」，没有才退回聚合值。
+    ///
+    /// 「有门开着」和「左后门开着」是两个量级的信息 ——
+    /// 前者要绕车检查一圈，后者直接走过去关。
+    private static func doorStat(_ s: VehicleActivityAttributes.ContentState) -> Stat {
+        if let doors = s.doorClosed, doors.count == 4 {
+            let names = ["左前", "右前", "左后", "右后"]
+            let open = zip(names, doors).filter { !$0.1 }.map { $0.0 }
+            if open.isEmpty { return Stat("关", .normal) }
+            if open.count == 1 { return Stat(open[0], .alert) }
+            return Stat("\(open.count)门开", .alert)
+        }
+        guard let closed = s.isDoorClosed else { return .unknown }
+        return Stat(closed ? "关" : "开", closed ? .normal : .alert)
+    }
+
+    /// 窗：车窗与天窗合并成一个语义 ——「还有没有能进水的口子」。
+    ///
+    /// 两个都写「开」会撑爆格子，所以分开表达：
+    /// 车窗开 → 「开」；只有天窗开 → 「天」。
+    ///
+    /// ## 天窗未知时的取舍
+    /// `isSunroofOpen == nil` 时以车窗为准显示「关」，**不**因为天窗不确定就报「—」。
+    /// 两条理由：
+    /// 1. 没有天窗的车型，这个字段可能恒缺 —— 要求「天窗已知才敢说关」
+    ///    会让这类车永远显示「—」，把一个能确定的答案变成不知道。
+    /// 2. 车窗才是进水的常见来源。
+    /// 天窗开着时下一次刷新就会变成「天」，不会长期显示错误。
+    private static func windowStat(_ s: VehicleActivityAttributes.ContentState) -> Stat {
+        let win = s.isWindowsClosed
+        let sun = s.isSunroofOpen
+
+        if win == false { return Stat("开", .alert) }
+        // 车窗关着（或未知）但天窗开着 —— 都算有口子，只是来源不同
+        if sun == true { return Stat("天", .alert) }
+        if win == true { return Stat("关", .normal) }
+        // 车窗未知、天窗也没开：真的不知道
+        return .unknown
+    }
+
+    private static func trunkStat(_ s: VehicleActivityAttributes.ContentState) -> Stat {
+        guard let closed = s.isTrunkClosed else { return .unknown }
+        return Stat(closed ? "关" : "开", closed ? .normal : .alert)
+    }
+
+    private static func engineStat(_ s: VehicleActivityAttributes.ContentState) -> Stat {
+        guard let running = s.isEngineRunning else { return .unknown }
+        // 在转才值得留意（远程启动中 / 车正在被使用），停着是常态
+        return Stat(running ? "转" : "停", running ? .alert : .normal)
     }
 }
 
@@ -105,6 +242,8 @@ private struct LockScreenView: View {
     }
 
     var body: some View {
+        let grid = StatGrid(context.state)
+
         VStack(alignment: .leading, spacing: 8) {
             // 第一行：车名 / 在线 / 锁态
             HStack(alignment: .center, spacing: 12) {
@@ -141,13 +280,12 @@ private struct LockScreenView: View {
                 }
             }
 
-            // 第二行：全部车辆状态（门 / 后备箱 / 引擎 / 电源）
+            // 第二行：离车时真正要确认的四项（见 `StatGrid`）
             HStack(spacing: 8) {
-                miniStat("门", context.state.isDoorClosed, on: "关", off: "开")
-                miniStat("后箱", context.state.isTrunkClosed, on: "关", off: "开")
-                miniStat("引擎", context.state.isEngineRunning, on: "转", off: "停")
-                miniStat("电源", context.state.isIgnitionOn ?? context.state.isAccOn,
-                         on: "开", off: "关")
+                miniStat("门", grid.door)
+                miniStat("窗", grid.window)
+                miniStat("后箱", grid.trunk)
+                miniStat("引擎", grid.engine)
             }
         }
         .padding(.horizontal, isWide ? 22 : 16)
@@ -164,18 +302,16 @@ private struct LockScreenView: View {
         return locked ? .green : .orange
     }
 
-    /// 一格小状态。`value == nil` 时显示「—」——区分「没上报过」和「上报了是关」
-    private func miniStat(_ title: String, _ value: Bool?,
-                          on: String, off: String) -> some View {
+    private func miniStat(_ title: String, _ stat: Stat) -> some View {
         VStack(spacing: isWide ? 3 : 1) {
             Text(title)
                 .font(.system(size: scaled(9)))
                 .foregroundStyle(.white.opacity(0.5))
-            Text(value == nil ? "—" : (value! ? on : off))
+            Text(stat.value)
                 .font(.system(size: scaled(11), weight: .semibold))
-                .foregroundStyle(value == nil
-                                 ? Color.white.opacity(0.35)
-                                 : (value! ? Color.white : Color.orange))
+                .foregroundStyle(stat.tone.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, isWide ? 8 : 3)

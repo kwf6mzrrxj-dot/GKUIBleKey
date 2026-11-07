@@ -1573,19 +1573,24 @@ public final class AppModel: ObservableObject {
             online = false
         }
 
-        // 标签写清数据从哪来 —— 用户必须能看出这是秒级还是分钟级
-        let text: String
-        switch active.source {
-        case .bluetooth(let at): text = "蓝牙 · " + Self.hhmm(at)
-        case .cloud(let at):     text = "云端 · " + Self.hhmm(at)
-        case .none:              text = "暂无数据"
-        }
+        // 标签只写「数据从哪来」，**不再带时分**（2026-11-07）。
+        //
+        // 原来写「蓝牙 · 19:28」，而右边又有 `lastReportedAt` 的相对时间 ——
+        // 两个时间说的是同一件事（最后一次收到广播）。锁屏上并列两个时间，
+        // 用户得先判断哪个是哪个，才能回答"这数据新不新"。
+        // 现在只留相对时间（"3 分钟前" 比 "19:28" 更好读），这里只说来源。
+        let text = active.source.label
 
         // 上电 / ACC 只有蓝牙广播有；蓝牙不新鲜就当没有
         let bt: VehicleStatus? = bluetoothStatusIsLive ? measured.status : nil
 
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
+
+        // 油量只在 CarPlay 那套画布上用（锁屏塞不下，也不该挤掉门窗）。
+        // 取不到就是 nil，界面对应格不画。
+        let fuel = StatusFieldCatalog.number(StatusFieldCatalog.fuelLevelPath,
+                                             from: cloudFields)
 
         let ok = liveActivity.startOrUpdate(
             vehicleName: name,
@@ -1599,7 +1604,13 @@ public final class AppModel: ObservableObject {
                 isEngineRunning: snap?.isEngineRunning,
                 isAccOn: bt?.isAccOn,
                 isIgnitionOn: bt?.isIgnitionOn,
-                lastReportedAt: snap?.updatedAt))
+                lastReportedAt: snap?.updatedAt,
+                // ★ 窗位：蓝牙源时由 `snapshotFromBluetooth` 从云端补过，
+                //   补不到就是 nil（不是"全关"）。之前这个字段从没传进卡片。
+                isWindowsClosed: snap?.isWindowsClosed,
+                isSunroofOpen: snap?.isSunroofOpen,
+                doorClosed: snap?.doorClosed,
+                fuelLevel: fuel))
         if !ok {
             // 前台没启动成功通常只有两种原因：系统关了实时活动权限，
             // 或者当前不是前台（`Target is not foreground`）。

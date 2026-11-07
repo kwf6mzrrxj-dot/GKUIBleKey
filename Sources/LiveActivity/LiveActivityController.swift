@@ -32,6 +32,20 @@ public final class LiveActivityController {
 
     private var activity: Activity<VehicleActivityAttributes>?
 
+    /// 内容多久没更新就让系统把卡片标为过期。
+    ///
+    /// ## 为什么必须给 `staleDate`
+    /// App 被系统杀掉之后，没有任何代码在更新这张卡。之前传的是 `nil` ——
+    /// 系统永远不会把它标成过期，锁屏上就一直挂着一份**看起来是实时的旧状态**。
+    /// 用户据此判断"车锁着"然后走开，这比没有卡片更危险。
+    ///
+    /// 取 300 秒，比 `VehicleSnapshot.staleSeconds`（180 s）宽松一档：
+    /// 卡片更新本身有 2 秒节流，后台唤醒也可能晚几十秒，
+    /// 用 180 会在正常使用中误报过期。
+    ///
+    /// 只要 App 还活着，每次 `update` 都会把 staleDate 往后推 —— 正常使用中不会触发。
+    private static let staleAfter: TimeInterval = 300
+
     /// 当前是否有活动在跑
     public var isRunning: Bool { activity != nil }
 
@@ -52,7 +66,9 @@ public final class LiveActivityController {
             return false
         }
 
-        let content = ActivityContent(state: state, staleDate: nil)
+        let content = ActivityContent(
+            state: state,
+            staleDate: Date().addingTimeInterval(Self.staleAfter))
 
         if let a = activity {
             Task { @MainActor in await a.update(content) }
@@ -84,7 +100,10 @@ public final class LiveActivityController {
     /// 只更新内容（不创建）
     public func update(_ state: VehicleActivityAttributes.ContentState) {
         guard let a = activity else { return }
-        Task { @MainActor in await a.update(ActivityContent(state: state, staleDate: nil)) }
+        let content = ActivityContent(
+            state: state,
+            staleDate: Date().addingTimeInterval(Self.staleAfter))
+        Task { @MainActor in await a.update(content) }
     }
 
     /// 结束并立即从锁屏移除
