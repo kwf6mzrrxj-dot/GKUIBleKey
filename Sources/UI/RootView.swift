@@ -53,8 +53,6 @@ struct RootView: View {
 
     /// 未锁车本地提醒（`VehicleNotifier` 读同一个 key）
     @AppStorage(VehicleNotifier.enabledKey) private var notificationEnabled = true
-    /// 油量格显示升数（true）还是百分比（false）。点一下切换，选择会记住。
-    @AppStorage("gkuiblekey.fuel.inLiters") private var fuelInLiters = false
 
     @State private var showActionHistory = false
 
@@ -750,7 +748,14 @@ struct RootView: View {
 
         if fuel != nil || range != nil || volts != nil {
             HStack(spacing: 8) {
-                if let fuel { fuelCell(fuel) }
+                if let fuel {
+                    // 只显示百分比：接口只给百分比，不给油箱容积。
+                    // 早前用 58 L 折算过升数并标了「估算」，但那是猜的容量，
+                    // 算出来的数字看着像实测值 —— 没有确切数据就不显示。
+                    energyCell(icon: "fuelpump.fill", label: "油量",
+                               value: String(format: "%.0f%%", fuel),
+                               tint: fuel < 15 ? Glass.Tone.warning : .primary)
+                }
                 if let range {
                     energyCell(icon: "map.fill", label: "续航", value: "\(Int(range.rounded())) km")
                 }
@@ -763,45 +768,6 @@ struct RootView: View {
             }
             .padding(.top, 12)
         }
-    }
-
-    /// 油量格：点按在「百分比」和「升数」之间切换。
-    ///
-    /// 接口只给百分比，升数是按 `StatusFieldCatalog.fuelTankLiters` 换算的**估算**，
-    /// 所以升数态的标签写「油量·估算」—— 不能让一个算出来的数看起来像实测值。
-    private func fuelCell(_ pct: Double) -> some View {
-        // 低于 15% 开始提醒：这个量大概还能跑 50–80 km
-        let low = pct < 15
-
-        return Button {
-            withAnimation(.snappy(duration: 0.18)) { fuelInLiters.toggle() }
-        } label: {
-            VStack(spacing: 3) {
-                HStack(spacing: 4) {
-                    Image(systemName: "fuelpump.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(fuelInLiters ? "油量·估算" : "油量")
-                        .font(.system(size: 9, weight: .medium))
-                }
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-                Text(fuelText(pct))
-                    .font(.system(size: 15, weight: .semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .foregroundStyle(low ? Glass.Tone.warning : .primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-            }
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .glassCard(radius: Glass.controlRadius, elevated: false)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("油量 \(fuelText(pct))")
-        .accessibilityHint("点按切换百分比与升数")
     }
 
     /// 只读的一格
@@ -828,12 +794,6 @@ struct RootView: View {
         .glassCard(radius: Glass.controlRadius, elevated: false)
     }
 
-    private func fuelText(_ pct: Double) -> String {
-        if fuelInLiters {
-            return String(format: "%.1f L", pct / 100 * StatusFieldCatalog.fuelTankLiters)
-        }
-        return String(format: "%.0f%%", pct)
-    }
 
     // MARK: - 控车区
 
