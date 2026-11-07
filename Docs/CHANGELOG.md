@@ -54,6 +54,33 @@ Apple 反查给出「严家港路」、OSM 给出「港城路」，两条不同�
 
 ---
 
+## v9.12（2026-11-07）—— 性能调度：三处 2 Hz 开销
+
+详见 `Docs/PERFORMANCE_REVIEW_2026-11-07.md`。
+
+三个问题的根因相同：**2 Hz 的数据流被接到了 0.5 Hz 的界面上，
+中间靠「全量重绘」当桥**。
+
+| 问题 | 量级 |
+|---|---|
+| `lastBluetoothStatusAt` 每帧 `@Published` → 全界面重建 | 每天 17 万次 |
+| RSSI 看门狗每帧创建/销毁 Task | 每天 17 万次 |
+| 匹配日志每帧写盘 | 每天 17 万行，约 4 小时轮转一次 |
+
+**修法**：
+1. 顶栏 RSSI 抽成独立 `RSSIPill` 订阅 `BLECentral`（2 Hz 只重绘一个胶囊）；
+   `lastBluetoothStatusAt` 去掉 `@Published`；顶栏时间由已有循环按分钟推。
+   → 全量重绘从每秒 2 次降到每分钟最多 1 次。
+2. 删掉每帧重置的 Task 看门狗，改成 `purgeStaleRSSI()` 挂在已有 0.5 秒循环上。
+   语义本来就是「读时判断」而不是「到点主动清」。
+3. 匹配日志 10 秒节流，判断放在字符串拼接之前。
+
+**一个隐藏依赖**：RSSI 原来能刷新，靠的正是"每帧全量重绘"这个副作用 ——
+RootView 只订阅了 AppModel，收不到 BLECentral 的 objectWillChange。
+所以不能单独去掉 @Published。
+
+---
+
 ## v9.11（2026-11-07）—— 第五轮审查：两处「做了没生效」
 
 详见 `Docs/CODE_REVIEW_2026-11-07_ROUND5.md`。9 项，全部已修。

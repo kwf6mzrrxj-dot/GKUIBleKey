@@ -312,22 +312,19 @@ struct RootView: View {
             // （「我的钥匙现在能不能跟车说上话」），拆到两页反而要来回翻。
             bluetoothStatusPill
 
-            // RSSI 信号值：只在「扫描中且最近 10 秒内收到过本车广播」时显示。
-            // 停止扫描 / 离开覆盖范围 / 车机停止广播后会自动消失，
-            // 不会把过期值当实时信号挂着（v2.2 之前就是永久冻结的假值）。
-            if let r = model.ble.rssi {
-                HStack(spacing: 3) {
-                    Image(systemName: "cellularbars")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("\(r) dBm")
-                        .font(.system(size: 11, weight: .medium))
-                        .monospacedDigit()
-                }
-                .foregroundStyle(rssiColor(r))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .glassPill()
-            }
+            // RSSI 信号值。
+            //
+            // ★ 抽成独立的 `RSSIPill` 订阅 `BLECentral`（2026-11-07）。
+            //
+            // 它每收到一帧广播就变（0.5 秒一次）。原来这个值直接读
+            // `model.ble.rssi`，而 RootView 只订阅了 AppModel —— 也就是说
+            // 这里**根本收不到 ble 的 objectWillChange**。
+            // 当时它能刷新，靠的是 `lastBluetoothStatusAt` 每帧赋值触发的
+            // AppModel 全量重绘（一个无意的副作用）。
+            //
+            // 现在把那个副作用去掉（它让整个 RootView 每秒重建 2 次），
+            // 改成这个小视图自己订阅：2Hz 只重绘一个胶囊。
+            RSSIPill(ble: model.ble)
 
             Spacer()
             // 汉堡菜单已移除（2026-11-04）：设置项全部搬到「我的」页。
@@ -352,13 +349,6 @@ struct RootView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
-    }
-
-    /// RSSI → 颜色。-60 以上算强，-75 以下算弱。
-    private func rssiColor(_ r: Int) -> Color {
-        if r >= -60 { return .green }
-        if r >= -75 { return .yellow }
-        return .red
     }
 
     // MARK: - 蓝牙状态胶囊
@@ -1996,5 +1986,44 @@ struct ACTemperatureSheet: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium])
+    }
+}
+
+// MARK: - 顶栏 RSSI
+
+/// 顶栏的 RSSI 胶囊。
+///
+/// **独立订阅 `BLECentral`**：它每 0.5 秒更新一次，但只有这一个胶囊需要跟着变。
+/// 如果让 AppModel 代为转发，代价是整个 RootView（车图 + 10 个按钮 + 能源条）
+/// 每秒重建两次 —— 那是 2026-11-07 审查里发现的真实问题：
+/// 它当时靠 `lastBluetoothStatusAt` 每帧赋值触发的全量重绘「搭便车」刷新，
+/// 而那个副作用本身就是最大的性能浪费。
+///
+/// 值为 `nil` 时**不占位**：停止扫描 / 离开覆盖 / 车机停播时
+/// `BLECentral` 的看门狗会把它置空，这里跟着消失。
+private struct RSSIPill: View {
+    @ObservedObject var ble: BLECentral
+
+    var body: some View {
+        if let r = ble.rssi {
+            HStack(spacing: 3) {
+                Image(systemName: "cellularbars")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("\(r) dBm")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(color(r))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .glassPill()
+        }
+    }
+
+    /// -60 以上算强，-75 以下算弱
+    private func color(_ r: Int) -> Color {
+        if r >= -60 { return .green }
+        if r >= -75 { return .yellow }
+        return .red
     }
 }

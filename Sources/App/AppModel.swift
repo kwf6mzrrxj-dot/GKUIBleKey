@@ -164,7 +164,18 @@ public final class AppModel: ObservableObject {
     ///
     /// 状态显示必须用这一个 —— 用户要求「蓝牙有效 = 实际收到广播车辆数据」。
     /// 只发了一条命令成功、但没收到过广播时，屏幕上的门锁状态其实还是旧值。
-    @Published public private(set) var lastBluetoothStatusAt: Date?
+    /// ⚠️ **不是 `@Published`**（2026-11-07 性能修复）。
+    ///
+    /// 它在**每一帧广播**（0.5 秒一次）都会被重新赋值。标成 `@Published` 时，
+    /// 每次赋值都让整个 AppModel 发一次 `objectWillChange` ——
+    /// RootView（车图 + 10 个按钮 + 能源条）每秒重建 **2 次**，
+    /// 开着 sheet 时那些页面也一起重建。而界面并不直接读它：
+    /// 时间显示走 `activeStatus.source.at`（分钟精度）。
+    ///
+    /// 需要"分钟变了就刷新顶栏"的那点更新，由 0.5 秒循环里的
+    /// `lastPillMinute` 判断补上 —— 一分钟最多推一次重绘，
+    /// 比原来每帧推省了 120 倍。
+    public private(set) var lastBluetoothStatusAt: Date?
 
     /// 云端凭据是否已经从 Keychain 读出来（`reloadCloudConfig` 完成）。
     /// 控制中心 / Siri 这类「App 可能没在运行」的入口靠它判断是否要等一等，
@@ -173,6 +184,11 @@ public final class AppModel: ObservableObject {
 
     /// 只用于让「在线」随时间自然过期 —— SwiftUI 不会因为 `Date()` 推进而重绘。
     @Published private var onlineTick = Date()
+    /// 顶栏「钥匙就绪 · HH:MM」上一次刷新时的分钟。
+    ///
+    /// 存在的理由：`lastBluetoothStatusAt` 不再是 `@Published`（它在每帧广播时都变），
+    /// 但顶栏那行时间仍要跟着走。分钟变化才推一次重绘 —— 恰好是这行文字的精度。
+    private var lastPillMinute: String?
     private var onlineTickTask: Task<Void, Never>?
     /// 上一次同步给锁屏卡片的在线状态（只在翻转时刷新，避免每帧都推一次活动）
     private var lastKnownOnline = false
@@ -863,6 +879,21 @@ public final class AppModel: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, !Task.isCancelled else { return }
+                // RSSI 过期清理。原来 BLECentral 用「每帧重置一个 120 秒 Task」
+                // 做这件事（每秒 2 次创建/取消），改成挂在这个已有的循环上。
+                self.ble.purgeStaleRSSI()
+
+                // 顶栏那行「钥匙就绪 · 19:28」的分钟刷新。
+                // 它不能靠 `lastBluetoothStatusAt` 发布（那个每帧都变，
+                // 发布一次就是一次全界面重建），只在这里按分钟推。
+                if let at = self.lastBluetoothStatusAt {
+                    let minute = AppModel.hhmm(at)
+                    if minute != self.lastPillMinute {
+                        self.lastPillMinute = minute
+                        self.onlineTick = Date()
+                    }
+                }
+
                 let alive = self.bluetoothLinkAliveRaw
                 guard alive != self.lastLinkAlive else { continue }
                 self.lastLinkAlive = alive

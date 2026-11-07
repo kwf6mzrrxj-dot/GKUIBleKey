@@ -35,8 +35,17 @@ public final class BLECentral: NSObject, ObservableObject {
     /// （车静止时系统会限流）。所以太短会导致正常扫描中 RSSI 反复消失，
     /// 120 秒既能清掉「已离开范围」的假值，又不会误伤正常间隔。
     public var rssiStaleSeconds: TimeInterval = 120
-    /// RSSI 过期看门狗：每收到一次新值就重置，超时则清空
-    private var rssiWatchdog: Task<Void, Never>?
+    // （原 `rssiWatchdog` 已删除：每帧创建 Task 的开销见 `purgeStaleRSSI()`）
+
+    /// 「匹配日志」的上次记录时刻。
+    ///
+    /// 这行日志原来**每帧广播都写**（0.5 秒一次）：一次字符串插值 +
+    /// 一次 `configLock` 加锁 + 一次队列投递 + 一次落盘。
+    /// 一天 17 万行，2 MB 轮转约每 4 小时切一次文件。
+    ///
+    /// 它的价值只是「确认匹配到了本车」，重复记录没有新信息 —— 节流到 10 秒。
+    /// 需要连续观察时看界面上的实时 RSSI，不要靠日志。
+    private var lastMatchLogAt: Date?
     /// 是否启用「连接失败 → 改用扫描重试」的回退（原 App 无自动重连，仅保留扫描回退）
     public var autoReconnect = true
 
@@ -499,28 +508,30 @@ public final class BLECentral: NSObject, ObservableObject {
         isInRange = false
     }
 
-    /// 清空 RSSI 显示值并停掉看门狗
+    /// 清空 RSSI 显示值
     private func clearRSSI() {
-        rssiWatchdog?.cancel()
-        rssiWatchdog = nil
         rssi = nil
         rssiUpdatedAt = nil
     }
 
-    /// 收到新 RSSI 后重启看门狗；`rssiStaleSeconds` 内没有新广播就清空。
     ///
     /// 为什么需要它：`rssi` 只有「扫描到本车广播」这一个来源（原 App 连接后
     /// 不做 readRSSI，我们也不做，避免干扰 bonding 协商）。所以必须靠超时
     /// 反推「已离开范围」，否则界面会永远停留在最后一次的值。
-    private func armRSSIWatchdog() {
-        rssiWatchdog?.cancel()
-        let timeout = rssiStaleSeconds
-        rssiWatchdog = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.rssi = nil
-            self?.rssiUpdatedAt = nil
-        }
+    /// 清掉过期的 RSSI 显示值。
+    ///
+    /// ## 为什么不用「每帧重置一个 Task」
+    /// 原来这里是 `armRSSIWatchdog()`：每次收到本车广播就 cancel 旧 Task、
+    /// 新建一个睡 120 秒的 Task。广播 0.5 秒一帧 —— 那是**每秒 2 次、
+    /// 每天 17 万次**的 Task 创建与取消，为的只是一次时间比较。
+    ///
+    /// 现在由 `AppModel` 那个本来就在跑的 0.5 秒循环调用（见 `linkLivenessTask`），
+    /// 零额外调度开销。
+    func purgeStaleRSSI() {
+        guard let at = rssiUpdatedAt else { return }
+        guard Date().timeIntervalSince(at) > rssiStaleSeconds else { return }
+        rssi = nil
+        rssiUpdatedAt = nil
     }
 
     // MARK: - 连接
@@ -1306,16 +1317,22 @@ extension BLECentral: CBCentralManagerDelegate {
             if hit {
                 rssi = rssiValue
                 rssiUpdatedAt = Date()
-                armRSSIWatchdog()
             }
 
             if let adv {
-                FileLogger.shared.debug(
-                    "匹配：\(adv.genLabel) 版本=\(adv.protocolVersion) "
-                    + "cryptedID=\(adv.cryptedID.map { String(format: "%02X", $0) }.joined()) "
-                    + "→ \(identity.rawValue)"
-                    + (weak ? "（RSSI \(rssiValue) ≤ -91，原 App 会丢弃）" : ""),
-                    module: "匹配")
+                // 10 秒节流：广播 0.5 秒一帧，不加节流就是一天 17 万行日志。
+                // 判断放在字符串拼接**之前** —— 否则省下的只是 IO，格式化开销照付。
+                let now = Date()
+                let shouldLog = lastMatchLogAt.map { now.timeIntervalSince($0) >= 10 } ?? true
+                if shouldLog {
+                    lastMatchLogAt = now
+                    FileLogger.shared.debug(
+                        "匹配：\(adv.genLabel) 版本=\(adv.protocolVersion) "
+                        + "cryptedID=\(adv.cryptedID.map { String(format: "%02X", $0) }.joined()) "
+                        + "→ \(identity.rawValue)"
+                        + (weak ? "（RSSI \(rssiValue) ≤ -91，原 App 会丢弃）" : ""),
+                        module: "匹配")
+                }
 
                 // ★ 分路 RSSI：按 antenna 字段高 4 位分路（0x80=天线1/0x40=天线2），
                 //   供标定流程（addRSSI: @0x801c）采集两路 RSSI。

@@ -133,6 +133,7 @@ tools/            同步脚本、类型检查
 - `Docs/BIZ_AUDIT_v2.md` —— 与官方 App 的业务实现对照
 - `Docs/REVIEW_CHECKLIST.md` —— **改代码前必看**：从 30 个真实 bug 反推的审查清单
 - `Docs/CODE_REVIEW_2026-11-07_ROUND5.md` —— 最近一轮全项目审查
+- `Docs/PERFORMANCE_REVIEW_2026-11-07.md` —— 性能与调度审查（2 Hz 数据流的三个开销）
 
 ## 关于密钥
 

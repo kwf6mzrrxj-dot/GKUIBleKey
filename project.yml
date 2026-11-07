@@ -142,8 +142,8 @@ targets:
       properties:
         CFBundleDisplayName: 数字钥匙
         # 扩展版本必须与宿主 App 一致，否则 App Store 上传报 ITMS-90473
-        CFBundleShortVersionString: "9.11"
-        CFBundleVersion: "104"
+        CFBundleShortVersionString: "9.12"
+        CFBundleVersion: "105"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -225,8 +225,8 @@ targets:
       #   和 target 的 Protocol/BLE 源码，缺一个都会静默失败（v7.4 踩过）。
       properties:
         CFBundleDisplayName: 蓝牙钥匙
-        CFBundleShortVersionString: "9.11"
-        CFBundleVersion: "104"
+        CFBundleShortVersionString: "9.12"
+        CFBundleVersion: "105"
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.mmxisme.gkuiblekey
     settings:
