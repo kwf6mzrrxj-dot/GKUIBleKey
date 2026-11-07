@@ -789,30 +789,33 @@ struct RootView: View {
 
     private var controlSection: some View {
         VStack(spacing: Glass.sectionSpacing) {
-            // 两大键：解锁 / 闭锁 —— 车锁状态直接体现在按钮上
-            HStack(spacing: 12) {
-                // ★ 只有状态**新鲜**（≤ `StatusFreshness.recommendationWindow`）
-                //   时才做「下一步推荐」。
-                //
-                // 之前不管状态多旧都高亮：截图里状态是 18 分钟前收到的，
-                // 却仍在推荐「解锁」，很可能与实车相反。过期状态只展示、不推荐。
+            // 3 列网格，10 个按钮同一规格（图标 18 + caption + minHeight 62 + 玻璃胶囊）。
+            //
+            // ★ 解锁 / 闭锁也在这里面（2026-11-07 用户要求统一）。
+            //   原来是"两大键"单独一行：圆角矩形、图标 26、headline、
+            //   minHeight 78 —— 一屏里只它俩长得不一样，像另一套设计。
+            //   现在形状、尺寸、字号全部一致，主次只由**图标颜色**区分
+            //   （解锁绿 / 闭锁蓝）。形状表达"这是什么控件"，颜色表达
+            //   "这个动作属于哪一类"，两个维度不该混用。
+            //
+            // 排布按语义分组，每行三个：
+            //   锁相关 → 窗与找车 → 舒适与启动准备 → 启动引擎
+            // 10 个不能被 3 整除，最后一行落一个 —— 引擎是"一次性的重量级动作"，
+            // 单独一行反而合适，不硬凑。
+            //
+            // 「下一步推荐」的表达也从"高亮描边"改成了第三行文字
+            // （`stateBadge`），与「点火」「启动引擎」的第三行同构。
+            // 只在状态**新鲜**（≤ `StatusFreshness.recommendationWindow`）时给，
+            // 过期状态只展示、不推荐 —— 否则可能推荐与实车相反的动作。
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
+                                GridItem(.flexible())], spacing: 10) {
                 primaryAction(.unlock, "解锁", .green, "lock.open.fill",
-                              isCurrentState: recommendableSnapshot?.isLocked == true,
                               stateBadge: recommendableSnapshot?.isLocked == true
                                   ? "当前已锁" : nil)
                 primaryAction(.lock, "闭锁", .blue, "lock.fill",
-                              isCurrentState: recommendableSnapshot?.isLocked == false,
                               stateBadge: recommendableSnapshot?.isLocked == false
                                   ? "当前未锁" : nil)
-            }
 
-            // 次要动作：后备箱 / 车窗 / 寻车 / 微开 / 空调
-            //
-            // 6 个正好铺满 3×2 网格。原来这里是 7 个 —— 最后一行只落一个
-            // 「启动引擎」，右边空两格，看起来像按钮没画完。
-            // 引擎单独拎出来做通栏按钮（它本来也不是开关类动作）。
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
-                                GridItem(.flexible())], spacing: 10) {
                 // 误触代价高的三个走长按确认（`requiresHold`）；
                 // 关窗是"更安全"方向，保持单击。
                 secondaryAction(.openCloseTrunk, "后备箱", "car.side.rear.open", requiresHold: true)
@@ -824,11 +827,6 @@ struct RootView: View {
                 // 空调 / 引擎启停：车端 BLE 协议里没有，**只能走云端**
                 airConditionerAction
                 // 点火（BLE 预授权）与启动引擎（云端）
-                //
-                // 这两个原来是"通栏卡片 + 通栏按钮"，比其它按钮宽 3 倍、
-                // 字号大一档、还带右箭头 —— 在一屏胶囊里像两个列表项。
-                // 现在并进同一个网格：图标 18 + 标题 caption + 一行 9pt 状态，
-                // 与「微开 / 开空调」的三行结构完全同构。
                 ignitionAction
                 engineAction
             }
@@ -849,73 +847,57 @@ struct RootView: View {
         .padding(.bottom, 16)
     }
 
-    /// 主按钮 —— `isCurrentState` 为 `true` 时（车正处于该按钮对应的状态）
-    /// 加亮边框和状态角标，提示用户「下一步该按哪个」：
-    /// 已锁 → 高亮「解锁」；未锁 → 高亮「闭锁」。
+    /// 主按钮 —— 解锁 / 闭锁。
+    ///
+    /// ## 与次要按钮同规格（2026-11-07 用户要求）
+    ///
+    /// 原来是自绘玻璃：圆角矩形 20、图标 26pt、标题 `.headline`、minHeight 78、
+    /// 外加一圈 2pt 高亮描边 —— 一屏里就它俩长得不一样，像另一套设计。
+    ///
+    /// 现在改成与 `secondaryLabel` **完全同构**：
+    /// 图标 18 + `.caption` 标题 + minHeight 62 + `.buttonStyle(.glass)` 胶囊，
+    /// 并且并进同一个 3 列网格。
+    ///
+    /// **主次的区分改由颜色承担**：图标染 `tint`（解锁绿 / 闭锁蓝），
+    /// 而不是靠尺寸和形状 —— 形状是"这是什么控件"的层级，
+    /// 颜色才是"这个动作属于哪一类"的层级。之前混用了这两个维度。
+    ///
+    /// `stateBadge` 放在第三行（与「点火」「启动引擎」的第三行同构）。
+    /// 没有它时用空格占位，保证与有第三行的按钮等高。
     private func primaryAction(
         _ action: IBCommandType, _ title: String, _ tint: Color, _ icon: String,
-        isCurrentState: Bool = false, stateBadge: String? = nil
+        stateBadge: String? = nil
     ) -> some View {
-        // ★ 形状只定义一次，玻璃底与高亮描边共用同一个 path。
-        //
-        // 之前是 `.buttonStyle(.glass)` + 独立的 `RoundedRectangle(cornerRadius: 22)` 描边，
-        // 两者形状不同源，四角必然错位：
-        //   ① `RoundedRectangle` 默认 `.circular` 圆角，系统玻璃用的是 continuous 超椭圆，
-        //      同样 22pt 半径下两者在四个角的曲率明显不同；
-        //   ② `.glass` buttonStyle 会在 label frame 内再留一圈 rim，
-        //      贴着 frame 画的描边就浮在玻璃外面。
-        // 改成自绘玻璃后，底色与描边是同一个 shape 的同一个 path，物理上不可能错开。
-        let shape = RoundedRectangle(cornerRadius: Glass.cardRadius, style: .continuous)
-
-        return Button {
-            // ★ 不再在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
-            //
-            // 车端在每条命令执行完会主动断开链路（原 App 日志同样如此），
-            // 所以"点完一次就无法再点"是常态。v3.4 起 `perform` 已经能做到
-            // 「挂起动作 → 立刻重连已知设备 → ready 后自动执行」，
-            // 但如果 UI 先 guard 掉，那段逻辑就永远走不到（v3.4 的实际缺陷）。
-            //
-            // 现在只在**蓝牙不可用**时才提示，其余情况都由 perform 接管。
-            // 走网络通道时不需要蓝牙；只有真的要连车时才拦
+        Button {
+            // ★ 不在 UI 层拦「未连接」——交给 `AppModel.perform` 处理。
+            //   车端每条命令执行完会主动断开链路，"点完一次就无法再点"是常态；
+            //   `perform` 能做「挂起动作 → 重连 → ready 后自动执行」。
+            //   UI 先 guard 掉的话，那段逻辑永远走不到。
             guard model.ble.managerState == .poweredOn || model.preferredChannel == .network else {
                 actionHint = "蓝牙未开启，且云端通道未配置。\n请先打开蓝牙，或在设置里配置云端账号。"
                 return
             }
             model.perform(action)
         } label: {
-            VStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 26, weight: .medium))
-                Text(title).font(.headline)
-                if let badge = stateBadge {
-                    Text(badge)
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(tint.opacity(0.25), in: Capsule())
-                        .foregroundStyle(tint)
-                }
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(tint)
+                Text(title).font(.caption)
+                // 第三行：有状态就显示，没有就用空格占位保持等高
+                Text(stateBadge ?? " ")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity, minHeight: 78)
-            .padding(.vertical, 10)
-            // 玻璃底：参数与描边用同一个 shape
-            .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: shape)
-            // 高亮描边：贴着同一个 shape 的内边描（`strokeBorder` 向内，不改变尺寸）
-            .overlay {
-                shape.strokeBorder(isCurrentState ? tint : .clear, lineWidth: 2)
-            }
-            // 通道角标：告诉用户这一下按下去走的是蓝牙还是网络
+            .frame(maxWidth: .infinity, minHeight: 62)
             .overlay(alignment: .topTrailing) {
                 channelBadge(model.preferredChannel)
             }
         }
-        .buttonStyle(.plain).tactile(Haptics.commit)
-        // ★ 不再按任何状态调暗（2026-10-29）。
-        //
-        // 之前是 `.opacity(isWriteReady ? 1 : 0.55/0.7)` —— 未连接时按钮发灰，
-        // 用户第一反应就是"按钮坏了/不能点"。但 v5.0 之后点它真的有效：
-        // `perform` 会挂起动作、自动连接、就绪后执行。
-        // **能点的按钮就不该画成不能点**，否则等于把功能藏起来。
-        // 连接状态请看顶部胶囊（车辆在线/离线），那才是它该在的地方。
+        .buttonStyle(.glass).tactile(Haptics.commit)
+        // 不按连接状态调暗：能点的按钮不该画成不能点（见 v5.0 的说明）
     }
 
     /// 次要动作按钮。
