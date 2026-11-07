@@ -45,10 +45,10 @@ enum StatusFieldCatalog {
         .init(path: "additionalVehicleStatus.maintenanceStatus.odometer",
               title: "总里程", note: "车辆累计行驶里程",
               kind: .number("km")),
-        .init(path: "basicVehicleStatus.distanceToEmpty",
+        .init(path: rangePath,
               title: "续航里程", note: "按当前油量估算还能开多远",
               kind: .number("km")),
-        .init(path: "additionalVehicleStatus.runningStatus.fuelLevel",
+        .init(path: fuelLevelPath,
               title: "油量", note: "油箱剩余百分比",
               kind: .number("%")),
         .init(path: "additionalVehicleStatus.runningStatus.aveFuelConsumption",
@@ -178,7 +178,7 @@ enum StatusFieldCatalog {
         .init(path: "additionalVehicleStatus.maintenanceStatus.distanceToService",
               title: "距下次保养", note: "还剩多少公里需要保养",
               kind: .number("km")),
-        .init(path: "additionalVehicleStatus.maintenanceStatus.mainBatteryStatus.voltage",
+        .init(path: batteryVoltagePath,
               title: "电瓶电压", note: "熄火静置时正常约 12.2–12.8 V，低于 12 V 可能亏电",
               kind: .number("V")),
         .init(path: "additionalVehicleStatus.maintenanceStatus.mainBatteryStatus.stateOfCharge",
@@ -189,7 +189,38 @@ enum StatusFieldCatalog {
               kind: .text)
     ]
 
+    // MARK: - 关键路径（状态页白名单与车控页能源条共用）
+
+    /// 油量（百分比）
+    static let fuelLevelPath = "additionalVehicleStatus.runningStatus.fuelLevel"
+    /// 续航里程
+    static let rangePath = "basicVehicleStatus.distanceToEmpty"
+    /// 电瓶电压
+    static let batteryVoltagePath =
+        "additionalVehicleStatus.maintenanceStatus.mainBatteryStatus.voltage"
+
     // MARK: - 取值
+
+    /// 油箱容积（升）。
+    ///
+    /// 博越 PRO 官方 58 L。**这个值只用于把百分比换算成升数** ——
+    /// 官方接口只给 `fuelLevel`（百分比），不给实际容积，
+    /// 所以界面上的升数一律带"约"，且标签写「油量·估算」。
+    /// 换车或换年款时改这一个常量即可。
+    static let fuelTankLiters: Double = 58
+
+    /// 取原始数值。
+    ///
+    /// 与 `resolve` 的分工：
+    /// - `resolve` 返回**给人看的字符串**（带单位、布尔转中文）
+    /// - `number` 返回**给代码算的 Double**（需要自己换算时用，如 百分比 → 升数）
+    ///
+    /// 拿不到或不是数字时返回 nil —— 调用方据此整格不显示，不写占位。
+    static func number(_ path: String, from fields: [StatusField]) -> Double? {
+        guard let raw = fields.first(where: { $0.id == path })?.value,
+              raw != "—", raw != "(空)" else { return nil }
+        return Double(raw.trimmingCharacters(in: .whitespaces))
+    }
 
     /// 从摊平后的字段表里取一项并按 `kind` 格式化。
     /// 字段不在响应里时返回 nil —— 界面整行不显示，不写「—」占位。

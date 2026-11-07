@@ -53,6 +53,8 @@ struct RootView: View {
 
     /// 未锁车本地提醒（`VehicleNotifier` 读同一个 key）
     @AppStorage(VehicleNotifier.enabledKey) private var notificationEnabled = true
+    /// 油量格显示升数（true）还是百分比（false）。点一下切换，选择会记住。
+    @AppStorage("gkuiblekey.fuel.inLiters") private var fuelInLiters = false
 
     @State private var showActionHistory = false
 
@@ -176,6 +178,8 @@ struct RootView: View {
                     vehicleHeader
                     carArt
                         .padding(.bottom, 2)
+
+                    energyStrip
                     // 这里不再放 statusChips —— CarModelView 内部已经画了
                     // 四门 / 天窗 / 车窗 / 引擎，再叠一排就是同一份数据看两遍。
                     // 车门/后备箱/上电/ACC 这一组挪到「状态」页做详情。
@@ -726,6 +730,109 @@ struct RootView: View {
         )
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 6)
+    }
+
+    // MARK: - 能源条（油量 / 续航 / 电瓶）
+
+    /// 三项**都来自云端**：蓝牙广播协议里没有油量和电压，所以只配了云端账号才有。
+    ///
+    /// 取不到的格子不显示，三项都取不到时整条不出现 —— 不留三张写「—」的空壳。
+    /// 位置放在车图之下、按钮之上：这是"开车前想知道"的信息，
+    /// 但都不需要操作，所以给它一排小格而不是按钮区。
+    @ViewBuilder
+    private var energyStrip: some View {
+        let fuel = StatusFieldCatalog.number(StatusFieldCatalog.fuelLevelPath,
+                                            from: model.cloudFields)
+        let range = StatusFieldCatalog.number(StatusFieldCatalog.rangePath,
+                                             from: model.cloudFields)
+        let volts = StatusFieldCatalog.number(StatusFieldCatalog.batteryVoltagePath,
+                                             from: model.cloudFields)
+
+        if fuel != nil || range != nil || volts != nil {
+            HStack(spacing: 8) {
+                if let fuel { fuelCell(fuel) }
+                if let range {
+                    energyCell(icon: "map.fill", label: "续航", value: "\(Int(range.rounded())) km")
+                }
+                if let volts {
+                    energyCell(icon: "car.battery", label: "电瓶",
+                               value: String(format: "%.1f V", volts),
+                               // 熄火静置低于 12 V 就快打不着了，这格值得变色
+                               tint: volts < 12.0 ? Glass.Tone.danger : .primary)
+                }
+            }
+            .padding(.top, 12)
+        }
+    }
+
+    /// 油量格：点按在「百分比」和「升数」之间切换。
+    ///
+    /// 接口只给百分比，升数是按 `StatusFieldCatalog.fuelTankLiters` 换算的**估算**，
+    /// 所以升数态的标签写「油量·估算」—— 不能让一个算出来的数看起来像实测值。
+    private func fuelCell(_ pct: Double) -> some View {
+        // 低于 15% 开始提醒：这个量大概还能跑 50–80 km
+        let low = pct < 15
+
+        return Button {
+            withAnimation(.snappy(duration: 0.18)) { fuelInLiters.toggle() }
+        } label: {
+            VStack(spacing: 3) {
+                HStack(spacing: 4) {
+                    Image(systemName: "fuelpump.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(fuelInLiters ? "油量·估算" : "油量")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+                Text(fuelText(pct))
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundStyle(low ? Glass.Tone.warning : .primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .glassCard(radius: Glass.controlRadius, elevated: false)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("油量 \(fuelText(pct))")
+        .accessibilityHint("点按切换百分比与升数")
+    }
+
+    /// 只读的一格
+    private func energyCell(icon: String, label: String, value: String,
+                            tint: Color = .primary) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+
+            Text(value)
+                .font(.system(size: 15, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, minHeight: 50)
+        .glassCard(radius: Glass.controlRadius, elevated: false)
+    }
+
+    private func fuelText(_ pct: Double) -> String {
+        if fuelInLiters {
+            return String(format: "%.1f L", pct / 100 * StatusFieldCatalog.fuelTankLiters)
+        }
+        return String(format: "%.0f%%", pct)
     }
 
     // MARK: - 控车区

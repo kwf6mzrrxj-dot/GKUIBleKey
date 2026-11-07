@@ -91,3 +91,62 @@ App 已构建、签名并安装到你的 iPhone 17 Pro。**最后两步必须你
 **最快定参办法**：用诊断仪重新匹配时抓一次 HCI 日志
 （Android 开发者选项 → 启用蓝牙 HCI 信息收集日志），
 拿到 `btsnoop_hci.log` 后即可把 `DKTuning` 里的待定值全部定死。
+
+---
+
+## 签名过期：症状与处理（2026-11-07 实测）
+
+免费个人账号签出来的 profile 只有 **7 天**。三个 target 各自一张，**到期时间不同**。
+
+### 症状
+
+1. `devicectl install` 报 `CoreDeviceError 4016`：
+   ```
+   The device is not able to fulfill the requested usage assertion requirements.
+   RequestedDeviceStates = ("com.apple.coredevice.powerAssertionTaken", ...)
+   CurrentlyAssertableStates = ()
+   ```
+   → **设备锁屏**，不是签名问题。解锁即可。
+
+2. `xcodebuild` 报：
+   ```
+   error: No profiles for 'com.mmxisme.gkuiblekey.watchkitapp' were found
+   ```
+   → **Watch 的 profile 过期**。因为 watch app 被 `embed` 进主 App，
+   它一过期，**整个构建失败**——哪怕主 App 的 profile 还有效。
+
+3. `-allowProvisioningUpdates` 报：
+   ```
+   error: No Accounts: Add a new account in Accounts settings.
+   ```
+   → 命令行拿不到 Apple ID 凭据（钥匙串里 `Xcode-AppleID` 条目不存在）。
+   这时**命令行无法续签**，必须先打开 Xcode 重新登录。
+
+### 诊断命令
+
+```bash
+# 三张 profile 各自的到期时间
+for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+  printf "%-46s %s\n" "$(basename "$f")" \
+    "$(security cms -D -i "$f" 2>/dev/null | plutil -extract ExpirationDate raw -)"
+done
+
+# 已构建产物里嵌的那张
+security cms -D -i DerivedData/Build/Products/Debug-iphoneos/GKUIBleKey.app/embedded.mobileprovision \
+  | plutil -extract ExpirationDate raw -
+```
+
+### 处理
+
+- **能续**：Xcode → Settings → Accounts 确认 Apple ID 在线，然后
+  `xcodebuild ... -allowProvisioningUpdates build`。
+- **不能续**（账号凭据丢失）：只能在 Xcode GUI 里 Run 一次，GUI 走的是另一条凭证通道。
+- **临时只要手机端**：把 `project.yml` 里主 App 的
+  `- target: GKUIBleKeyWatch` 依赖注释掉再 `xcodegen generate`，
+  构建就不再需要 watch 的 profile。**代价是装上去的包里没有手表 App**，
+  验证完务必恢复。
+
+### 教训
+
+`-allowProvisioningUpdates` **不是万能的**：它只在本地没有可用 profile 时才向 Apple 申请，
+而申请又依赖命令行可见的账号凭据。两者缺一，就只能回到 GUI。

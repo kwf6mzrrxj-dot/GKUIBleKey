@@ -110,6 +110,21 @@
 一律 `.glassCard()`。**列表里成批出现的传 `elevated: false`** ——
 十几张卡各自投影会在间隙叠成灰带，反而更脏，且每张都要离屏合成。
 
+### 数据格（energyStrip）
+
+车控页的油量 / 续航 / 电瓶是**一排小格**，不是按钮：
+
+- 三格等宽，`HStack(spacing: 8)`，每格 `minHeight: 50` + `.glassCard(radius: controlRadius, elevated: false)`
+- 结构固定：`图标 9pt + 标签 9pt`（secondary）→ `数值 15pt semibold`（monospacedDigit）
+- 取不到值的格子**不显示**，整条都取不到时整条不出现（不写「—」占位）
+
+**唯一可点的一格是油量**：点按在百分比与升数间切换，用 `.contentTransition(.numericText())`。
+升数按 `StatusFieldCatalog.fuelTankLiters`（58 L）换算，标签写「油量·估算」——
+算出来的数不能看起来像实测值。
+
+配色只做两处语义提示：油量 < 15% 转 `Tone.warning`，电压 < 12.0 V 转 `Tone.danger`。
+其余一律 `primary`（见第二节的铁律）。
+
 ### 玻璃与背景
 
 - 玻璃要有东西可透。纯 `systemBackground` 做底会让材质退化成灰板。
