@@ -51,9 +51,12 @@ struct ActionHistoryView: View {
                     } label: {
                         Image(systemName: "trash")
                     }
-                    .disabled(history.records.isEmpty)
-                    // 危险入口：清空不可撤销，给一记更实的手感
+                    // 危险入口：清空不可撤销，给一记更实的手感。
+                    // ⚠️ 必须写在 `.disabled` **之前**：disabled 靠环境值往下传，
+                    //    tactile 挂在它外层时不受约束 —— 按钮已禁用却仍然会震，
+                    //    那等于告诉用户"操作被接受了"。
                     .tactile(Haptics.warn)
+                    .disabled(history.records.isEmpty)
                 }
             }
             .alert("清空操作历史？", isPresented: $confirmClear) {

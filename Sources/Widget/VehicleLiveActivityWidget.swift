@@ -53,9 +53,18 @@ struct VehicleLiveActivityWidget: Widget {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(lockShortColor(context.state.isLocked))
                         if let at = context.state.lastReportedAt {
-                            Text(at, style: .relative)
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.5))
+                            HStack(spacing: 2) {
+                                if context.isStale {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 8, weight: .semibold))
+                                }
+                                Text(at, style: .relative)
+                                    .font(.system(size: 9))
+                            }
+                            // 与锁屏卡一致：过期时整组变橙
+                            .foregroundStyle(context.isStale
+                                             ? Color.orange
+                                             : Color.white.opacity(0.5))
                         }
                     }
                 }
@@ -272,10 +281,26 @@ private struct LockScreenView: View {
                         .foregroundStyle(lockColor)
                     // ★ 离线后**保留**最后一次上报的状态，并明确标出时间
                     //   —— 不让用户把"5 分钟前的快照"当成实时状态。
+                    //
+                    // 超过 `staleDate`（20 分钟）后系统会置 `context.isStale`，
+                    // 这时把时间标成橙色并加一个三角标记。
+                    //
+                    // ⚠️ 这一步不能省：`staleDate` 本身只是给开发者的标记，
+                    //    **系统不会自动改变外观**。设了不读，等于没设 ——
+                    //    这是本轮审查发现的真实缺陷（上一版只设了 staleDate，
+                    //    整个 Widget 里没有一处读 isStale）。
                     if let at = context.state.lastReportedAt {
-                        Text(at, style: .relative)
-                            .font(.system(size: scaled(10)))
-                            .foregroundStyle(.white.opacity(0.55))
+                        HStack(spacing: 3) {
+                            if context.isStale {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: scaled(8), weight: .semibold))
+                            }
+                            Text(at, style: .relative)
+                                .font(.system(size: scaled(10)))
+                        }
+                        .foregroundStyle(context.isStale
+                                         ? Color.orange
+                                         : Color.white.opacity(0.55))
                     }
                 }
             }

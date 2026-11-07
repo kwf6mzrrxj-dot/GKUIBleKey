@@ -44,7 +44,7 @@ extension View {
 /// 前者是 SwiftUI 原生类型，能直接喂给 `.sensoryFeedback`。
 ///
 /// ⚠️ `impact` 有两个维度，别混：
-/// - `weight: .light / .medium / .heavy` —— 力量（没 有 rigid）
+/// - `weight: .light / .medium / .heavy` —— 力量（没有 rigid —— rigid 在下一个维度）
 /// - `flexibility: .rigid / .solid / .soft` —— 软硬，rigid 是「硬而快地衰减」
 enum Haptics {
     /// 普通按钮（次要动作、设置行、图标按钮）

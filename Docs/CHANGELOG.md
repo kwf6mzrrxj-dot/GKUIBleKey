@@ -54,6 +54,51 @@ Apple 反查给出「严家港路」、OSM 给出「港城路」，两条不同�
 
 ---
 
+## v9.11（2026-11-07）—— 第五轮审查：两处「做了没生效」
+
+详见 `Docs/CODE_REVIEW_2026-11-07_ROUND5.md`。9 项，全部已修。
+
+### 一、`staleDate` 设了但没人读（P1）
+
+v9.10 给 `ActivityContent` 传了 `staleDate`，本意是「App 被杀后卡片别假装实时」。
+但 `staleDate` 只是给开发者的标记，**系统不会自动改变外观** ——
+要在 Widget 里读 `context.isStale` 自己处理，而整个 Widget 里一处都没有。等于没设。
+
+现在锁屏卡与灵动岛展开态都读：过期时时间转橙 + 三角标记。
+
+> 这是第二次踩同一个坑。第一次是阴影：`.shadow` 顺序调对了，
+> 但宿主 frame 仍等于内容尺寸，投影只画出两条边。
+> 模式相同 —— **用了 API，却没验证效果是否真的落地**。
+
+### 二、三处触感排在 `.disabled` 之后（P2）
+
+清空历史 / 清除配置 / 删除日志三个按钮，`tactile` 挂在 `disabled` 外层 ——
+按钮已置灰、点了没反应，但**手机会震一下**，等于告诉用户"操作被接受了"。
+三处都改成 `tactile` 在内、`disabled` 在外。
+
+### 三、`staleAfter` 300 秒太短（P2）
+
+原思路是"比 `VehicleSnapshot.staleSeconds`（180 s）宽一档"，但**两个阈值量的不是一回事**：
+
+| 阈值 | 回答的问题 |
+|---|---|
+| `staleSeconds` | 这份数据能不能用来做决策 |
+| `staleDate` | 这张卡片还可能代表现状吗 |
+
+车锁状态在没人动它时是稳定的 —— 锁车走开、蓝牙断开是最正常场景，
+5 分钟就标「过期」属于误报。改 1200 秒（20 分钟）。
+
+### 四、死字段与文档不一致（P3 × 6）
+
+- `ContentState.fuelLevel` / `isAccOn` / `isIgnitionOn` 三个字段零消费 → 删。
+  「留给将来 CarPlay」不是保留死代码的理由。
+- UI_STYLE_GUIDE 写「按钮三种」，实际四种（8 处 `.plain`）→ 改为四种并写明理由。
+- 三处列表行 `.ultraThinMaterial` 与卡片 `Glass.surface` 材质语言不一 → 新增
+  `GlassListRowBackground` 统一。
+- `Haptics` 注释笔误、`statusText` 默认值与语义不符、LIVE_ACTIVITY 缺两条边界 → 修。
+
+---
+
 ## v9.10（2026-11-07）—— 材质三分层 + 全按钮触感
 
 ### 一、推翻上一版：「所有面板都用液态玻璃」是错的

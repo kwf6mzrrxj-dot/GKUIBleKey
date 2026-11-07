@@ -1581,7 +1581,7 @@ struct DeveloperMenuView: View {
                     }
                 }
             }
-            .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+            .listRowBackground(GlassListRowBackground())
             .scrollContentBackground(.hidden)
             .background(GlassScreenBackground())
             .navigationTitle("开发者")

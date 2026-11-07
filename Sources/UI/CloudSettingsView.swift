@@ -110,12 +110,13 @@ struct CloudSettingsView: View {
                         } label: {
                             Text("清除云端配置")
                         }
-                        .disabled(busy)
+                        // 顺序：tactile 在内、disabled 在外（否则禁用时仍会震）
                         .tactile(Haptics.warn)
+                        .disabled(busy)
                     }
                 }
             }
-            .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+            .listRowBackground(GlassListRowBackground())
             .scrollContentBackground(.hidden)
             .background(GlassScreenBackground())
             .navigationTitle("网络通道")

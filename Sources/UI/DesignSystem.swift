@@ -289,6 +289,27 @@ private struct ContentCardModifier: ViewModifier {
     }
 }
 
+// MARK: - List 行背景
+
+/// `List` / `Form` 的行背景。
+///
+/// 之前三处列表页都用 `Rectangle().fill(.ultraThinMaterial)` —— 那是**模糊**，
+/// 而内容卡片已经改成半透明实心面（`Glass.surface`）。两种材质语言并存时，
+/// 从主界面点进设置页，质感会明显跳一下。
+///
+/// 用同一个 `Glass.surface` 而不是 `.ultraThinMaterial`：
+/// 行与卡片属于同一层（L1 内容），材质应当一致。
+///
+/// 注意 `.listRowBackground(...)` 收的是 **View 不是 ShapeStyle** ——
+/// 直接传 `.ultraThinMaterial` 会报 `generic parameter 'V' could not be inferred`。
+struct GlassListRowBackground: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Rectangle().fill(Glass.surface(scheme))
+    }
+}
+
 // MARK: - 玻璃容器
 
 extension View {

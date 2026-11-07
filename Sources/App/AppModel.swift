@@ -1581,16 +1581,8 @@ public final class AppModel: ObservableObject {
         // 现在只留相对时间（"3 分钟前" 比 "19:28" 更好读），这里只说来源。
         let text = active.source.label
 
-        // 上电 / ACC 只有蓝牙广播有；蓝牙不新鲜就当没有
-        let bt: VehicleStatus? = bluetoothStatusIsLive ? measured.status : nil
-
         let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
             ?? VehicleProfile.defaultNickname
-
-        // 油量只在 CarPlay 那套画布上用（锁屏塞不下，也不该挤掉门窗）。
-        // 取不到就是 nil，界面对应格不画。
-        let fuel = StatusFieldCatalog.number(StatusFieldCatalog.fuelLevelPath,
-                                             from: cloudFields)
 
         let ok = liveActivity.startOrUpdate(
             vehicleName: name,
@@ -1602,15 +1594,12 @@ public final class AppModel: ObservableObject {
                 isDoorClosed: snap?.isDoorsClosed,
                 isTrunkClosed: snap?.isTrunkClosed,
                 isEngineRunning: snap?.isEngineRunning,
-                isAccOn: bt?.isAccOn,
-                isIgnitionOn: bt?.isIgnitionOn,
                 lastReportedAt: snap?.updatedAt,
                 // ★ 窗位：蓝牙源时由 `snapshotFromBluetooth` 从云端补过，
                 //   补不到就是 nil（不是"全关"）。之前这个字段从没传进卡片。
                 isWindowsClosed: snap?.isWindowsClosed,
                 isSunroofOpen: snap?.isSunroofOpen,
-                doorClosed: snap?.doorClosed,
-                fuelLevel: fuel))
+                doorClosed: snap?.doorClosed))
         if !ok {
             // 前台没启动成功通常只有两种原因：系统关了实时活动权限，
             // 或者当前不是前台（`Target is not foreground`）。

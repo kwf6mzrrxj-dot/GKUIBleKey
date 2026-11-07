@@ -83,7 +83,7 @@ struct LogHistoryView: View {
                                  + "日志按大小自动轮转，超过 7 天的会被清理。")
                         }
                     }
-                    .listRowBackground(Rectangle().fill(.ultraThinMaterial))
+                    .listRowBackground(GlassListRowBackground())
                     .scrollContentBackground(.hidden)
                     .background(GlassScreenBackground())
                 }
@@ -112,8 +112,9 @@ struct LogHistoryView: View {
                     } label: {
                         Image(systemName: "trash")
                     }
-                    .disabled(files.isEmpty)
+                    // 顺序：tactile 在内、disabled 在外（否则禁用时仍会震）
                     .tactile(Haptics.warn)
+                    .disabled(files.isEmpty)
                 }
             }
             .alert("删除全部历史日志？", isPresented: $confirmDelete) {

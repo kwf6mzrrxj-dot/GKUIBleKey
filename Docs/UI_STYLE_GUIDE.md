@@ -94,13 +94,18 @@
 
 ## 三、组件规则
 
-### 按钮（三种，不再有第四种）
+### 按钮（四种）
 
-| 场景 | 写法 |
-|---|---|
-| 主操作（解锁 / 闭锁） | 自绘 `glassEffect(.regular.tint(x).interactive(), in: RoundedRectangle(20))` + 同 shape 的 `strokeBorder` 高亮 |
-| 次要操作（网格内 8 个） | `.buttonStyle(.glass)`，label = 图标 18 + `caption` 标题 + 可选 9pt 第三行 |
-| 破坏性 / 确认 | `.buttonStyle(.glassProminent)` |
+| 场景 | 写法 | 触感 |
+|---|---|---|
+| 主操作（解锁 / 闭锁） | 自绘 `glassEffect(.regular.tint(x).interactive(), in: RoundedRectangle(20))` + 同 shape 的 `strokeBorder` 高亮 | `.commit` |
+| 次要操作（网格内 8 个） | `.buttonStyle(.glass)`，label = 图标 18 + `caption` 标题 + 可选 9pt 第三行 | `tap` |
+| 破坏性 / 确认 | `.buttonStyle(.glassProminent)` | `commit`；入口用 `warn` |
+| 整行 / 图标按钮（设置行、工具栏、列表行） | `.buttonStyle(.plain)` + 自绘 label | `tap` |
+
+第四种（`.plain`）此前没写进文档，实际有 8 处 —— 它们不是"忘了统一"，
+而是**有意**的：这些按钮的可点区域是整个子视图（设置行是一整行、工具栏是图标本身），
+套 `.glass` 会在行内再长出一个胶囊，把列表撑变形。
 
 - **能点的按钮不画成不能点**：不按连接状态调 `.opacity`，状态由顶部胶囊表达。
 - 误触代价高的（后备箱 / 开窗 / 微开 / 寻车）走 `HoldToConfirmButton` 长按 0.6 秒。

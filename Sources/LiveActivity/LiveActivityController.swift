@@ -39,12 +39,24 @@ public final class LiveActivityController {
     /// 系统永远不会把它标成过期，锁屏上就一直挂着一份**看起来是实时的旧状态**。
     /// 用户据此判断"车锁着"然后走开，这比没有卡片更危险。
     ///
-    /// 取 300 秒，比 `VehicleSnapshot.staleSeconds`（180 s）宽松一档：
-    /// 卡片更新本身有 2 秒节流，后台唤醒也可能晚几十秒，
-    /// 用 180 会在正常使用中误报过期。
+    /// ## 阈值为什么是 20 分钟而不是 5 分钟（2026-11-07 修正）
     ///
-    /// 只要 App 还活着，每次 `update` 都会把 staleDate 往后推 —— 正常使用中不会触发。
-    private static let staleAfter: TimeInterval = 300
+    /// 最初取 300 秒，想的是"比 `VehicleSnapshot.staleSeconds`（180 s）宽一档"。
+    /// 那个思路错了 —— **两个阈值量的根本不是一回事**：
+    ///
+    /// - `staleSeconds` 判断的是「这份数据能不能用来做决策」（远程控车前要确认）
+    /// - `staleDate` 判断的是「这张卡片还可能代表现状吗」
+    ///
+    /// 而**车锁状态在没人动它时是稳定的**。用户锁车走开、蓝牙断开、收不到广播，
+    /// 这是最正常不过的场景；此时锁屏卡上写「已锁」依然是对的，
+    /// 5 分钟后就把它标成「过期」属于误报。
+    ///
+    /// 20 分钟的依据：超过这个时长，人大概率已经离开了车的视野范围，
+    /// 且期间车辆被他人操作的可能性开始变得不能忽略 —— 那时候提示"可能已过期"是有价值的。
+    ///
+    /// 只要 App 还活着且收得到广播，每次 `update` 都会把 staleDate 往后推
+    /// （`measured.$status` 每帧触发，内部 2 秒节流），正常使用中不会触发。
+    private static let staleAfter: TimeInterval = 1200
 
     /// 当前是否有活动在跑
     public var isRunning: Bool { activity != nil }
