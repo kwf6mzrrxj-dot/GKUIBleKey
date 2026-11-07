@@ -205,7 +205,7 @@ struct VehicleTopView: View {
                     .fill(Color.secondary.opacity(0.14))
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).tactile()
         .foregroundStyle(.secondary)
     }
 

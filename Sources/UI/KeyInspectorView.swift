@@ -62,7 +62,7 @@ struct KeyInspectorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
         }
@@ -286,7 +286,7 @@ struct KeyInspectorView: View {
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).tactile()
         }
     }
 
@@ -396,7 +396,7 @@ struct KeyInspectorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("取消标定") { model.cancelCalibration() }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glass).tactile()
                     .controlSize(.small)
             }
         } else if let cal = model.passiveStart.calibration {
@@ -413,7 +413,7 @@ struct KeyInspectorView: View {
                 }
                 Spacer()
                 Button("重新标定") { model.startCalibration() }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glass).tactile()
                     .controlSize(.small)
             }
         } else {
@@ -424,7 +424,7 @@ struct KeyInspectorView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Button("开始标定") { model.startCalibration() }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.glassProminent).tactile(Haptics.commit)
                         .controlSize(.small)
                     Text("需要在车辆连接状态下操作")
                         .font(.system(size: 9))
@@ -472,7 +472,7 @@ struct KeyInspectorView: View {
                     Label("导出并复制（仅本机）", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glassProminent).tactile(Haptics.commit)
 
                 TextField("粘贴备份内容后点「恢复」", text: $backupText, axis: .vertical)
                     .font(.system(.caption2, design: .monospaced))
@@ -500,7 +500,7 @@ struct KeyInspectorView: View {
                     Label("从备份恢复", systemImage: "square.and.arrow.down.on.square")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glass).tactile()
 
                 if !backupResult.isEmpty {
                     Text(backupResult).font(.caption2).foregroundStyle(.cyan)
@@ -570,7 +570,7 @@ struct KeyInspectorView: View {
                     Label("重新应用内置钥匙", systemImage: "arrow.down.to.line.compact")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glass).tactile()
             }
         }
     }
@@ -586,7 +586,7 @@ struct KeyInspectorView: View {
                 Label("解绑车辆（清除密钥与标定）", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.glass).tactile(Haptics.warn)
             .confirmationDialog(
                 "确认解绑这台车？",
                 isPresented: $confirmUnbind,
@@ -612,6 +612,6 @@ struct KeyInspectorView: View {
         }
         .padding(Glass.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .contentCard()
     }
 }

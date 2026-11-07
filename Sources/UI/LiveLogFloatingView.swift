@@ -94,7 +94,7 @@ struct LiveLogFloatingView: View {
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).tactile()
 
             Button {
                 // 关掉浮窗：写 UserDefaults（下次启动不再出现）+ 通知 AppModel 同步开关
@@ -107,7 +107,7 @@ struct LiveLogFloatingView: View {
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).tactile()
             .accessibilityLabel("关闭实时日志浮窗")
         }
         .padding(.horizontal, 10)

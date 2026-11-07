@@ -76,6 +76,7 @@ struct LogHistoryView: View {
                                             .monospacedDigit()
                                     }
                                 }
+                                .tactile()
                             }
                         } footer: {
                             Text("共 \(files.count) 个文件（当前 + 最多 5 个轮转，单个上限 2 MB）。"
@@ -91,7 +92,7 @@ struct LogHistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     // 全部轮转文件合并导出 —— 排查时贴给人看只需要一个文件
@@ -112,6 +113,7 @@ struct LogHistoryView: View {
                         Image(systemName: "trash")
                     }
                     .disabled(files.isEmpty)
+                    .tactile(Haptics.warn)
                 }
             }
             .alert("删除全部历史日志？", isPresented: $confirmDelete) {
@@ -192,7 +194,7 @@ struct LogFileDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
                 ToolbarItem(placement: .primaryAction) {
                     ShareLink(item: file.url) {

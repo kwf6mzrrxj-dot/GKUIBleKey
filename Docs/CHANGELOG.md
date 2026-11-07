@@ -54,6 +54,76 @@ Apple 反查给出「严家港路」、OSM 给出「港城路」，两条不同�
 
 ---
 
+## v9.10（2026-11-07）—— 材质三分层 + 全按钮触感
+
+### 一、推翻上一版：「所有面板都用液态玻璃」是错的
+
+v9.7 把 17 处内容卡片全部改成 `glassEffect(.regular)`，当时的理由是
+「统一到系统材质，与系统控件看起来是一体的」。方向对，但**用错了层**：
+
+> 玻璃是「控件层」的材质，不是内容容器的材质。
+
+三条具体后果：
+
+1. **玻璃失去意义**。它之所以像玻璃，是因为背后有内容可透。
+   17 张卡片摞在渐变底上，每张背后都是另一张卡片 —— 全部退化成模糊白板，
+   与 `.ultraThinMaterial` 看不出区别，却贵得多（每张都要离屏合成）。
+2. **层次反而消失**。所有层同一种材质时，深浅只由模糊程度决定。
+3. **glass on glass**。卡片里的按钮本身就是 `.buttonStyle(.glass)`，
+   两层折射互相干扰。
+
+改法见 `Docs/UI_STYLE_GUIDE.md` 的「材质三分层」：
+
+| 层 | 材质 |
+|---|---|
+| L0 背景 | 渐变 + 两盏氛围光 |
+| L1 内容 | **半透明表面**（`contentCard` = 72%/7% 白 + 0.5pt 描边 + 投影） |
+| L2 控件 | 玻璃（`.buttonStyle(.glass)`、`glassPill`） |
+| L3 浮层 | 玻璃 + `.floating` |
+
+`glassCard` → `contentCard`（16 处调用）。名字里删掉 glass 是故意的 —— 它不是玻璃。
+
+顺带把小尺寸图形的玻璃也换掉：通道角标（16pt 圆）、车型角标。
+它们叠在玻璃按钮上，16pt 上看不出折射只能看到噪点，要的是轮廓清晰。
+
+### 二、全按钮触感（65 处）
+
+| 档位 | 常量 | 用于 | 数量 |
+|---|---|---|---|
+| 轻 | `Haptics.tap` | 次要动作、设置行、图标按钮、关闭 | 50 |
+| 中 | `Haptics.commit` | 主操作（解锁 / 闭锁 / 启动 / 提交） | 10 |
+| 重 | `Haptics.warn` | 危险入口（解绑、清空历史、删除日志、断开连接） | 5 |
+
+**为什么不写 ButtonStyle 包装器**：系统的 `.glass` / `.glassProminent` 是
+`PrimitiveButtonStyle`，其 `Configuration` 只暴露 `label` 和 `trigger()`，
+**没有 `isPressed`**，写不出「按下时震动」；而且
+`PrimitiveButtonStyleConfiguration` 没有公开 init，不能自己造一个带回调的副本。
+
+所以用 `.simultaneousGesture(TapGesture())` 计数 + `.sensoryFeedback(trigger:)` ——
+并行手势不与 Button 抢事件，触感交给系统管线程与生命周期。
+
+**`HoldToConfirmButton` 是例外**：它用 `LongPressGesture`，加 `.tactile()`
+会在长按完成时多震一次（`TapGesture` 没有时长上限）。它自己用两处
+`.sensoryFeedback`：按下 `tap`、到位 `warn`。到位用 `warn` 而不是 `.success` ——
+那一刻只是「命令发出去了」，还不知道车端结果。
+
+**不覆盖**：alert / confirmationDialog 里的按钮（系统管理，加了双震）、
+系统 `TabView` 的 tab（自带）。
+
+### 三、顺手修的
+
+- `HoldToConfirmButton` 原来直接 `UIImpactFeedbackGenerator(style:).impactOccurred()`，
+  每次都新建生成器（有几十毫秒延迟）。改用系统 API。
+- 它的伪 Button（`allowsHitTesting(false)`）上被批量加过一个 `.tactile()` ——
+  永远不触发的死代码，已删并注明原因。
+
+### 验证
+
+`typecheck` 0 error（67 文件 / 21,717 行）；`xcodebuild` BUILD SUCCEEDED。
+**材质与触感的实际观感/手感未装机验证**（设备不可达）。
+
+---
+
 ## v9.9（2026-11-07）—— 实时活动内容重构
 
 详见 `Docs/LIVE_ACTIVITY.md`。四件事，其中一件是真 bug。

@@ -277,7 +277,7 @@ struct RootView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(radius: Glass.controlRadius, elevated: false)
+        .contentCard(radius: Glass.controlRadius, elevated: false)
     }
 
     private func proximityMetric(_ title: String, _ value: String, _ color: Color) -> some View {
@@ -348,7 +348,7 @@ struct RootView: View {
                 .padding(.vertical, 5)
                 .glassPill()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).tactile()
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
@@ -433,7 +433,7 @@ struct RootView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
-                .glassChip()
+                .surfaceChip()
             Spacer()
         }
         .padding(.bottom, 4)
@@ -558,10 +558,10 @@ struct RootView: View {
                 Text(model.cloudConfigured ? "管理账号" : "去配置")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.glass).tactile()
         }
         .padding(Glass.cardPadding)
-        .glassCard()
+        .contentCard()
     }
 
     private var settingsCard: some View {
@@ -610,7 +610,7 @@ struct RootView: View {
                 showDeveloper = true
             }
         }
-        .glassCard()
+        .contentCard()
     }
 
     /// 设置页里「靠近解锁」那一行的说明
@@ -672,7 +672,7 @@ struct RootView: View {
             .padding(.vertical, 14)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).tactile()
     }
 
     /// 开关型设置行 —— 与 `settingRow` 同样的图标/内边距，只是右边是 Toggle
@@ -791,7 +791,7 @@ struct RootView: View {
                 .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, minHeight: 50)
-        .glassCard(radius: Glass.controlRadius, elevated: false)
+        .contentCard(radius: Glass.controlRadius, elevated: false)
     }
 
 
@@ -918,7 +918,7 @@ struct RootView: View {
                 channelBadge(model.preferredChannel)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).tactile(Haptics.commit)
         // ★ 不再按任何状态调暗（2026-10-29）。
         //
         // 之前是 `.opacity(isWriteReady ? 1 : 0.55/0.7)` —— 未连接时按钮发灰，
@@ -945,7 +945,7 @@ struct RootView: View {
             Button { runSecondaryAction(action) } label: {
                 secondaryLabel(icon, title)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.glass).tactile()
         }
     }
 
@@ -990,7 +990,7 @@ struct RootView: View {
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(isBT ? Glass.Tone.bluetooth : Glass.Tone.network)
             .padding(2.5)
-            .glassBadge()
+            .surfaceBadge()
             .padding(6)
             .accessibilityLabel(isBT ? "将走蓝牙通道" : "将走网络通道")
     }
@@ -1006,7 +1006,7 @@ struct RootView: View {
             HoldToConfirmButton(action: { runVentWindow() }) { ventLabel }
         } else {
             Button { runVentWindow() } label: { ventLabel }
-                .buttonStyle(.glass)
+                .buttonStyle(.glass).tactile()
         }
     }
 
@@ -1066,7 +1066,7 @@ struct RootView: View {
                 channelBadge(.network)      // 明确告诉用户：这一下走网络
             }
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass).tactile()
     }
 
     /// 远程启动引擎（云端）。
@@ -1102,7 +1102,7 @@ struct RootView: View {
                 channelBadge(.network)
             }
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass).tactile()
     }
 
     private func ackNoCloud() {
@@ -1133,7 +1133,7 @@ struct RootView: View {
                            onOpenCloud: { showCloud = true })
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
+                .contentCard()
 
             // 车辆位置：只有云端车况带坐标，纯蓝牙时整卡不出现。
             // 放在俯视图之后 —— 一个回答"车什么状态"，一个回答"车在哪"。
@@ -1246,7 +1246,7 @@ struct RootView: View {
             }
         }
         .padding(.bottom, 8)
-        .glassCard(radius: Glass.controlRadius, elevated: false)
+        .contentCard(radius: Glass.controlRadius, elevated: false)
     }
 
     /// 白名单之外的字段，默认收起 —— 真要看原始数据时再展开
@@ -1290,7 +1290,7 @@ struct RootView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .glassCard(radius: Glass.controlRadius, elevated: false)
+                .contentCard(radius: Glass.controlRadius, elevated: false)
             }
         }
     }
@@ -1353,7 +1353,7 @@ struct RootView: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass).tactile()
     }
 
     private var hintForBluetoothState: String {
@@ -1425,7 +1425,7 @@ struct RootView: View {
                 channelBadge(.bluetooth)
             }
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.glass).tactile()
     }
 
     /// 点火按钮的第三行：优先显示剩余可启动时间（它有时效，是这里唯一会变的信息）
@@ -1485,6 +1485,7 @@ struct DeveloperMenuView: View {
                     Button { showVehicleDetail = true } label: {
                         menuRow("车辆详情", "car.side", "查看 CIDPU、连接状态")
                     }
+                    .tactile()
 
                     // 无感进入（PE：靠近车辆拉门把手解锁）
                     //
@@ -1518,6 +1519,7 @@ struct DeveloperMenuView: View {
                                 model.hasLocalKey ? "已就绪 · 检视 / 备份 / 恢复"
                                                   : "尚未绑定 · 去配对")
                     }
+                    .tactile()
                 }
 
                 Section("高级（依赖标定）") {
@@ -1554,15 +1556,18 @@ struct DeveloperMenuView: View {
                     Button { showDiagnostics = true } label: {
                         menuRow("诊断", "waveform.path.ecg", "自检、时序、原始报文")
                     }
+                    .tactile()
                     Button { showLogs = true } label: {
                         menuRow("日志", "text.alignleft", "会话 / 报文 / 配对 / 全模块")
                     }
+                    .tactile()
                 }
 
                 Section {
                     Button(role: .destructive) { model.disconnect() } label: {
                         Label("断开连接", systemImage: "xmark.circle")
                     }
+                    .tactile(Haptics.warn)
                 }
 
                 // 版本信息：原「关于」页只显示版本号，已并入这里（少一次跳转）
@@ -1583,7 +1588,7 @@ struct DeveloperMenuView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
             .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
@@ -1685,7 +1690,7 @@ struct PassiveStartDetailView: View {
                             Label("取消标定", systemImage: "xmark.circle")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).tactile()
                     } else {
                         Button {
                             guard model.ble.isWriteReady else {
@@ -1697,7 +1702,7 @@ struct PassiveStartDetailView: View {
                             Label("开始标定", systemImage: "location.circle")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.glassProminent).tactile(Haptics.commit)
                         // 不按连接状态调暗：点它会给出明确原因（calibHint），
                         // 比把按钮画灰让人以为坏了要好。
                     }
@@ -1708,7 +1713,7 @@ struct PassiveStartDetailView: View {
                         Label("重新判定", systemImage: "arrow.clockwise")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.glassProminent).tactile(Haptics.commit)
                 }
                 .padding(Glass.pageMargin)
             }
@@ -1717,7 +1722,7 @@ struct PassiveStartDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
             .alert("暂时无法执行", isPresented: Binding(
@@ -1747,7 +1752,7 @@ struct PassiveStartDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .contentCard()
     }
 }
 
@@ -1793,7 +1798,7 @@ struct VehicleDetailView: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).tactile()
                         .alert("车辆爱称", isPresented: $showRename) {
                             TextField("比如「小白」", text: $draftNickname)
                                 .textInputAutocapitalization(.never)
@@ -1850,11 +1855,12 @@ struct VehicleDetailView: View {
                                   systemImage: "arrow.down.circle")
                                 .font(.caption)
                         }
+                        .tactile()
                         // ⚠️ 不加 `.disabled`：`pendingAction` 在极少数路径下
                         //    （未收到 0x0F 就断开）可能残留，disabled 会让按钮
                         //    永久变灰、再也点不动。重复点只是重发一次幂等查询。
                     }
-                    .glassCard(radius: Glass.controlRadius)
+                    .contentCard(radius: Glass.controlRadius)
 
                     // ★★★ 车辆状态（照原 App parseBroadcastData: 广播解密）
                     if let st = model.measured.status {
@@ -1869,7 +1875,7 @@ struct VehicleDetailView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
-                        .glassCard(radius: Glass.controlRadius)
+                        .contentCard(radius: Glass.controlRadius)
                     }
 
                     if cidpuText == "未获取" {
@@ -1886,7 +1892,7 @@ struct VehicleDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
             .alert("提示", isPresented: Binding(get: { hint != nil },
@@ -1979,9 +1985,9 @@ struct ACTemperatureSheet: View {
 
                 HStack(spacing: 10) {
                     Button("取消") { dismiss() }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).tactile()
                     Button("开启空调") { onConfirm() }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.glassProminent).tactile(Haptics.commit)
                 }
                 .padding(.top, 4)
             }

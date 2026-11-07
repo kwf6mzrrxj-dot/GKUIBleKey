@@ -55,6 +55,7 @@
 		8A6E83B6AC6716315DD103C9 /* QuickControlIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DAEB3FB5FA56CA15B09AC3 /* QuickControlIntent.swift */; };
 		8B42A80A93F7C01EFE18FDFC /* car_small.png in Resources */ = {isa = PBXBuildFile; fileRef = E6B273DC3208E17B03DEE527 /* car_small.png */; };
 		95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */; };
+		983D2F3BE4A578F47420676A /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858B971E18F9A00CF90B2FCB /* Haptics.swift */; };
 		99A0F2D1CBB2A4C581A9E2B8 /* CarModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8346132E51B853D5356F4736 /* CarModelView.swift */; };
 		9BA7F7AD848BA2613D261ED2 /* QuickControlIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DAEB3FB5FA56CA15B09AC3 /* QuickControlIntent.swift */; };
 		9D7203CF6D17C46BF723AD86 /* BackgroundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87BD018D65B4F0BADDC1585 /* BackgroundMonitor.swift */; };
@@ -182,6 +183,7 @@
 		8346132E51B853D5356F4736 /* CarModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModelView.swift; sourceTree = "<group>"; };
 		83523A66F55DA97A6BDBD0AE /* VehicleTopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleTopView.swift; sourceTree = "<group>"; };
 		854E9E44B3CAFB0997AB6A04 /* ActionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHistoryView.swift; sourceTree = "<group>"; };
+		858B971E18F9A00CF90B2FCB /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		85B3FC23F67DB8FE124E01C6 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
 		8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPayload.swift; sourceTree = "<group>"; };
 		8FAAAB22FC3ED9D9EC5F483D /* BLECentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLECentral.swift; sourceTree = "<group>"; };
@@ -312,6 +314,7 @@
 				0941732E77DBFBB1654D68EC /* DesignSystem.swift */,
 				D46D24DB5ADB38B8F4151165 /* DiagnosticsView.swift */,
 				A0E2AE0E67D8605CCFF992F0 /* FloatingWindowController.swift */,
+				858B971E18F9A00CF90B2FCB /* Haptics.swift */,
 				14F63F74C0B4D687A4E3DAE6 /* HoldToConfirmButton.swift */,
 				A1109D002CEF979B899EDF7F /* KeyInspectorView.swift */,
 				6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */,
@@ -634,6 +637,7 @@
 				D3E12A34050B940EBD770BDA /* GKCloudKeychain.swift in Sources */,
 				D56F27EB14574F366B0D305F /* GKCloudSignature.swift in Sources */,
 				B51DD7E8BBD5F00E604D06F2 /* GKUIBleKeyApp.swift in Sources */,
+				983D2F3BE4A578F47420676A /* Haptics.swift in Sources */,
 				EE571A3EBEAF79CA539FD8FF /* HoldToConfirmButton.swift in Sources */,
 				34F21992A602D01CBE1C817E /* InBlueAuth.swift in Sources */,
 				8149865CA70D6B4324ACE569 /* InBluePairing.swift in Sources */,

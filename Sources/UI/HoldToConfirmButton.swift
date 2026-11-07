@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// **长按确认按钮** —— 用于"误触代价明显高于点击成本"的动作。
 ///
@@ -29,10 +28,15 @@ struct HoldToConfirmButton<Label: View>: View {
     @ViewBuilder var label: Label
 
     @State private var pressing = false
+    /// 长按到位的次数。用来触发「重动作」触感 ——
+    /// `sensoryFeedback` 只认值变化，所以需要一个计数器而不是命令式调用。
+    @State private var completions = 0
 
     var body: some View {
         ZStack {
-            // 只借外观，不参与事件
+            // 只借外观，不参与事件。
+            // ⚠️ 这里**不能**加 `.tactile()` —— `allowsHitTesting(false)` 让它收不到手势，
+            //    加了也是永远不触发的死代码。
             Button(action: {}) { label }
                 .buttonStyle(.glass)
                 .allowsHitTesting(false)
@@ -46,17 +50,22 @@ struct HoldToConfirmButton<Label: View>: View {
                                     maximumDistance: 40,
                                     pressing: { isPressing in
                     pressing = isPressing
-                    if isPressing {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
                 }, perform: {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    completions &+= 1
                     action()
                 })
         }
         .scaleEffect(pressing ? 0.97 : 1)
         .brightness(pressing ? 0.03 : 0)
         .animation(.easeOut(duration: 0.12), value: pressing)
+        // 按下：轻触，确认"按住有效"
+        .sensoryFeedback(trigger: pressing) { _, isPressing in
+            isPressing ? Haptics.tap : nil
+        }
+        // 到位：重击。用 rigid 而不是 `.success` ——
+        // 这一刻只是"命令发出去了"，还不知道车端执行结果，
+        // 用 success 会在失败时给出相反的当体感结论。
+        .sensoryFeedback(trigger: completions) { _, _ in Haptics.warn }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("长按 \(String(format: "%.1f", holdSeconds)) 秒执行")

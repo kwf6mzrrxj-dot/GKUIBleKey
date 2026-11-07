@@ -93,6 +93,8 @@ struct CloudSettingsView: View {
                         }
                     }
                     .disabled(busy || phone.isEmpty || vin.isEmpty)
+                    // 提交型操作：比普通点击重一档
+                    .tactile(Haptics.commit)
 
                     if model.cloudConfigured {
                         Button {
@@ -109,6 +111,7 @@ struct CloudSettingsView: View {
                             Text("清除云端配置")
                         }
                         .disabled(busy)
+                        .tactile(Haptics.warn)
                     }
                 }
             }
@@ -119,7 +122,7 @@ struct CloudSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") { dismiss() }.tactile()
                 }
             }
             .task { await loadExisting() }

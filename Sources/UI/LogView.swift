@@ -64,13 +64,14 @@ struct LogView: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel("导出磁盘日志")
+                    .tactile()
                 }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(copied ? "已复制" : "复制全部") { copyAll() }
+                    Button(copied ? "已复制" : "复制全部") { copyAll() }.tactile()
                         .disabled(displayCount == 0)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
             .sheet(item: $exportFile) { f in
@@ -319,7 +320,7 @@ struct LogExportSheet: View {
                     Label("分享 / 存储到「文件」", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glassProminent).tactile(Haptics.commit)
                 .padding(.top, 4)
 
                 Text("这份文件包含磁盘上的全部日志（含已轮转的历史文件），"
@@ -335,7 +336,7 @@ struct LogExportSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
         }

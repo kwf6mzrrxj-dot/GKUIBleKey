@@ -37,7 +37,7 @@ struct DiagnosticsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
         }
@@ -129,7 +129,7 @@ struct DiagnosticsView: View {
                     Label("立即发送预认证（0x0C）", systemImage: "key.radiowaves.forward")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glass).tactile()
 
                 Divider()
 
@@ -158,7 +158,7 @@ struct DiagnosticsView: View {
                           systemImage: model.idleHoldActive ? "stop.circle" : "link")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glass).tactile()
             }
         }
     }
@@ -203,12 +203,12 @@ struct DiagnosticsView: View {
                 Divider()
                 HStack(spacing: 10) {
                     Button("重新扫描") { model.startScan() }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).tactile()
                     Button("请求位置权限") { model.ble.requestLocationPermission() }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).tactile()
                         .tint(model.ble.hasLocationAuth ? .green : .orange)
                     Button("重建蓝牙") { model.ble.resetCentral() }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).tactile()
                         .tint(.orange)
                 }
                 .font(.caption)
@@ -227,7 +227,7 @@ struct DiagnosticsView: View {
                     Label("运行自检（标准测试向量）", systemImage: "checkmark.shield")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glassProminent).tactile(Haptics.commit)
 
                 if !selfTestResults.isEmpty {
                     let passed = selfTestResults.filter { $0.passed }.count
@@ -348,7 +348,7 @@ struct DiagnosticsView: View {
                         Label("清空", systemImage: "trash")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glass).tactile()
 
                     Button {
                         showLogHistory = true
@@ -356,7 +356,7 @@ struct DiagnosticsView: View {
                         Label("历史", systemImage: "clock.arrow.circlepath")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glass).tactile()
                 }
                 Text("「清空」只清界面与内存，磁盘历史保留；点「历史」可以看之前写入的文件。")
                     .font(.caption2)
@@ -425,6 +425,6 @@ struct DiagnosticsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .contentCard()
     }
 }

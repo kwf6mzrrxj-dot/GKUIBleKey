@@ -2,25 +2,38 @@ import SwiftUI
 
 /// **液态玻璃设计规范（Liquid Glass）**
 ///
-/// 汇总到一处的原因：改之前同一种"卡片"在项目里有 4 种写法 ——
-/// `glassEffect(.regular)`（密钥页）、`.ultraThinMaterial` 无描边、
-/// `.ultraThinMaterial` + 自绘描边（主界面）、纯 `systemBackground`（日志/诊断页）；
-/// 圆角也在 20/16/14/12/10/22 之间乱跳。看起来像四个人各做一半。
+/// ## 三种材质，各管一层（2026-11-07 重新分层）
 ///
-/// ## 为什么统一到 `glassEffect` 而不是 `.ultraThinMaterial`
+/// iOS 26/27 的 Liquid Glass 有一条容易被忽略的前提：
+/// **玻璃是"控件层"的材质，不是内容容器的材质。**
 ///
-/// `.ultraThinMaterial` 只是模糊，没有折射、没有边缘高光、没有厚度；
-/// 想让它"像玻璃"就得自己补描边和阴影，于是每个地方补的参数都不一样 ——
-/// 这正是风格不一致的根源。
+/// | 层 | 用什么 | 例子 |
+/// |---|---|---|
+/// | L0 背景 | 渐变 + 氛围光 | `GlassScreenBackground` |
+/// | L1 内容 | **半透明表面**（`contentCard`），不是玻璃 | 状态卡、设置分组、密钥卡 |
+/// | L2 控件 | **玻璃**（`.buttonStyle(.glass)`、`glassPill`） | 主/次按钮、顶栏胶囊、通道角标 |
+/// | L3 浮层 | 玻璃 + `.floating` 投影 | 操作横幅、日志浮窗（例外，见下） |
 ///
-/// `glassEffect` 是 iOS 26 起系统提供的 Liquid Glass 材质，
-/// 与 `.buttonStyle(.glass)`、控制中心、Dock 用的是**同一套**渲染，
-/// 高光方向、折射强度、深浅色适配都由系统统一。
-/// 内容面板一律走它，才能和系统控件看起来是一体的。
+/// ### 为什么内容卡片不能用玻璃
 ///
-/// **唯一例外**：实时日志浮窗（`LiveLogFloatingView`）用
-/// `.ultraThinMaterial` + 深色压层。它盖的是**内容**而不是空底，
-/// 需要与下面的文字强分离；玻璃的透光性在这里反而是缺点。
+/// 上一版把**所有面板**都改成了 `glassEffect(.regular)`，共 17 处。
+/// 那是错的方向，三个具体后果：
+///
+/// 1. **玻璃失去意义**。玻璃之所以像玻璃，是因为背后有内容可透。
+///    17 张卡片摞在渐变底上，每张背后都是另一张卡片 —— 全部退化成模糊白板，
+///    与 `.ultraThinMaterial` 看不出区别，却贵得多（每张都要离屏合成）。
+/// 2. **层次反而消失**。当所有层都是同一种材质时，深浅只由模糊决定，
+///    卡片与卡片、卡片与背景之间没有明确的层级关系。
+/// 3. **glass on glass**。卡片里的按钮本身就是 `.buttonStyle(.glass)`，
+///    两层折射互相干扰，转角处出现噪点。
+///
+/// 现在内容卡片改成**半透明色面 + 0.5pt 描边 + 接触阴影**：
+/// 它仍然透出底下的渐变（所以不像白色贴纸），但不再做模糊与折射。
+/// 玻璃只留给真正的控件 —— 那时候它浮在**内容**上，才有东西可透。
+///
+/// ### 唯一的材质例外
+/// 实时日志浮窗（`LiveLogFloatingView`）用 `.ultraThinMaterial` + 深色压层。
+/// 它盖的是**内容**而不是空底，需要与下面的文字强分离；玻璃的透光性在这里反而是缺点。
 /// 这是有意的，不要"统一"掉。
 enum Glass {
 
@@ -130,6 +143,31 @@ enum Glass {
     static func zebra(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
     }
+
+    // MARK: - 内容表面（L1）
+
+    /// 内容卡片的底色。**不是玻璃材质** —— 理由见本节开头。
+    ///
+    /// 半透明而不是不透明：卡片要能透出底下渐变的色温，否则在氛围光上
+    /// 会变成一块"贴上去的白纸"。但**不做模糊** —— 模糊是玻璃的职责，
+    /// 内容层只需要"比背景亮一档"这个关系。
+    ///
+    /// 浅色 72% / 深色 7%：这两个数字不是随手取的 ——
+    /// 浅色底（0.82~0.94 亮度）上，72% 白能把卡片提到约 0.97，
+    /// 与背景形成刚好看得出来的一档；深色底（0.06~0.11）上，
+    /// 7% 白提到约 0.13，再高就会显得"发灰的塑料板"。
+    static func surface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72)
+    }
+
+    /// 内容卡片的描边。
+    ///
+    /// 0.5pt（设备像素级）刚好能定义边缘，又不会在圆角处形成一圈实线。
+    /// 浅色用黑（白描边在浅底上等于隐形，这是之前 `white.opacity(0.55)`
+    /// 那套写法在浅色模式下完全失效的原因）；深色用白（黑描边同样看不见）。
+    static func hairline(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+    }
 }
 
 // MARK: - 投影
@@ -220,50 +258,111 @@ struct GlassScreenBackground: View {
     }
 }
 
+// MARK: - 内容卡片（L1）
+
+/// 内容卡片的实现。**不是玻璃**，理由见 `Glass` 开头的三材质分层。
+///
+/// 三段组成：半透明色面（透出背景色温）+ 0.5pt 描边（定义边缘）+ 接触阴影（离开底面）。
+/// 这三样加起来的效果，比 `glassEffect(.regular)` 在纯内容场景更"稳" ——
+/// 因为玻璃的折射只在背后有对比内容时才好看，而卡片背后通常是另一张卡片。
+private struct ContentCardModifier: ViewModifier {
+    let radius: CGFloat
+    let elevated: Bool
+
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let face = content
+            .background(shape.fill(Glass.surface(scheme)))
+            .overlay(shape.strokeBorder(Glass.hairline(scheme), lineWidth: 0.5))
+
+        // 列表里成批出现的卡片要传 `elevated: false` —— 一屏十几张都带投影时，
+        // 相邻两张的投影会在中间叠成一条灰带，反而比不加更脏。
+        Group {
+            if elevated {
+                face.glassElevation(.card)
+            } else {
+                face
+            }
+        }
+    }
+}
+
 // MARK: - 玻璃容器
 
 extension View {
 
-    /// 统一玻璃卡片（系统 Liquid Glass 材质 + L1 接触阴影）。
+    /// **L1 内容卡片**：半透明表面 + 描边 + 接触阴影。
+    ///
+    /// 名字里没有 glass 是故意的 —— 它不是玻璃。
+    /// 2026-11-07 之前这里叫 `glassCard` 且真的用了 `glassEffect`，
+    /// 17 处调用让整个 App 变成"玻璃摞玻璃"，反而没有层次。
     ///
     /// - Parameters:
     ///   - radius: 默认 `Glass.cardRadius`（20）；内嵌小卡传 `Glass.controlRadius`
-    ///   - elevated: 是否加 `.card` 级投影。默认加；
-    ///     **列表里成批出现的卡片要传 `false`** —— 一屏十几张都带投影时，
-    ///     相邻两张的投影会在中间叠成一条灰带，反而比不加更脏，而且每张都要离屏合成。
-    func glassCard(radius: CGFloat = Glass.cardRadius,
-                   elevated: Bool = true) -> some View {
-        let base = glassEffect(.regular, in: .rect(cornerRadius: radius))
-        return Group {
-            if elevated {
-                base.glassElevation(.card)
-            } else {
-                base
-            }
-        }
+    ///   - elevated: 是否加 `.card` 级投影。列表里成批出现的卡片传 `false`。
+    func contentCard(radius: CGFloat = Glass.cardRadius,
+                     elevated: Bool = true) -> some View {
+        modifier(ContentCardModifier(radius: radius, elevated: elevated))
     }
 
-    /// 胶囊（顶栏状态、通道徽标）—— 与卡片同一材质，形状不同
+    /// **L2 玻璃胶囊**（顶栏状态、通道徽标）。
+    ///
+    /// 保留玻璃：它浮在**滚动内容**之上，背后一直有新内容经过 ——
+    /// 这正是玻璃该用的场景，透光与折射都能被看见。
     func glassPill() -> some View {
         glassEffect(.regular, in: .capsule)
     }
 
-    /// 圆形小徽标（通道角标）。
+    /// **L2 圆形小徽标**（通道角标）。
     ///
-    /// 原来这里是 `.ultraThinMaterial` + `Circle().strokeBorder(.white.opacity(0.12))`：
-    /// 材质语言与卡片不同（模糊 vs 玻璃），描边在浅色底上又看不见 ——
-    /// 16pt 的小圆上等于既没有厚度也没有边。
-    func glassBadge() -> some View {
-        glassEffect(.regular, in: .circle)
+    /// ⚠️ 它叠在**玻璃按钮**上，所以**不能用玻璃** —— 那是 glass on glass，
+    /// 两层折射互相干扰，16pt 的小圆上表现为边缘噪点。
+    /// 改成半透明色面 + 细描边：仍然能看清，但不再和底下的按钮抢材质。
+    func surfaceBadge() -> some View {
+        modifier(SurfaceBadgeModifier())
     }
 
-    /// 小标签（"需网络"这类角标）
-    func glassChip() -> some View {
-        glassEffect(.regular, in: .rect(cornerRadius: Glass.chipRadius))
+    /// 小标签（"需网络"这类角标）。同上，叠在玻璃上，用表面不用玻璃。
+    func surfaceChip() -> some View {
+        modifier(SurfaceBadgeModifier(radius: Glass.chipRadius))
     }
 
     /// 套一层投影（`.card` 或 `.floating`）。已是玻璃的视图用这个补层次。
     func glassElevation(_ level: Glass.Elevation) -> some View {
         modifier(GlassShadowModifier(level: level))
+    }
+}
+
+/// 叠在玻璃之上的小徽标：半透明面 + 细描边。
+///
+/// 「比底下那层再亮一档」就够了 —— 小尺寸图形不需要折射，
+/// 需要的是**轮廓清晰**。玻璃在这里只会让它糊成一团。
+private struct SurfaceBadgeModifier: ViewModifier {
+    var radius: CGFloat? = nil      // nil = 圆形
+
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let fill = scheme == .dark
+            ? Color.white.opacity(0.14)
+            : Color.white.opacity(0.85)
+        let line = scheme == .dark
+            ? Color.white.opacity(0.16)
+            : Color.black.opacity(0.08)
+
+        Group {
+            if let radius {
+                content
+                    .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill))
+                    .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(line, lineWidth: 0.5))
+            } else {
+                content
+                    .background(Circle().fill(fill))
+                    .overlay(Circle().strokeBorder(line, lineWidth: 0.5))
+            }
+        }
     }
 }

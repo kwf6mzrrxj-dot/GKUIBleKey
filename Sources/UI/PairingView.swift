@@ -47,7 +47,7 @@ struct PairingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
         }
@@ -194,10 +194,11 @@ struct PairingView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .tactile()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .glassCard(radius: Glass.controlRadius)
+            .contentCard(radius: Glass.controlRadius)
             .padding(.horizontal, 16)
             .contentShape(Rectangle())
             .onTapGesture {

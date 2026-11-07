@@ -34,7 +34,7 @@ struct VehicleLocationCard: View {
             mapPreview
             infoRow
         }
-        .glassCard()
+        .contentCard()
         .contentShape(Rectangle())
         .onTapGesture { showFullMap = true }
         .task(id: coordinate.reportedAt) { await resolveAddress() }
@@ -194,7 +194,7 @@ private struct VehicleLocationDetail: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
             }
         }
@@ -226,10 +226,10 @@ private struct VehicleLocationDetail: View {
                 Label("导航到这里", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.glassProminent).tactile(Haptics.commit)
         }
         .padding(Glass.cardPadding)
-        .glassCard()
+        .contentCard()
         .padding(.horizontal, Glass.pageMargin)
         .padding(.bottom, 12)
     }

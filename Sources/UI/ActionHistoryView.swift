@@ -39,7 +39,7 @@ struct ActionHistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") { dismiss() }.tactile()
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button(copied ? "已复制" : "复制全部") { copyAll() }
@@ -52,6 +52,8 @@ struct ActionHistoryView: View {
                         Image(systemName: "trash")
                     }
                     .disabled(history.records.isEmpty)
+                    // 危险入口：清空不可撤销，给一记更实的手感
+                    .tactile(Haptics.warn)
                 }
             }
             .alert("清空操作历史？", isPresented: $confirmClear) {
@@ -81,7 +83,7 @@ struct ActionHistoryView: View {
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 12)
-            .glassCard()
+            .contentCard()
         }
     }
 
