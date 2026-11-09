@@ -238,9 +238,96 @@ enum StatusFieldCatalog {
         }
     }
 
-    /// 白名单之外的字段 —— 放折叠区兜底，保证「拿到的都能看到」
-    static func leftovers(from fields: [StatusField]) -> [StatusField] {
+    // MARK: - 语义归类（2026-11-07）
+    //
+    // 原来只有一刀切：白名单里的平铺，其余全塞进「其他原始字段」折叠区。
+    // 那是**按代码结构**分组，不是按内容 —— 于是胎压预警、防盗布防这些
+    // 最该一眼看到的东西，和白名单里那些看一眼就够的字段待遇完全相反。
+    //
+    // 现在按语义归到上面那六组里，折叠只留给真正的次要信息。
+
+    /// 白名单之外字段的归属分组。`nil` = 归不进任何一组。
+    ///
+    /// ⚠️ 判定顺序就是优先级，不要随手调整：
+    /// `climateStatus.winPosDriver` 同时含 `win` 和 `climate`，
+    /// 它应该进「门窗」（车窗和车门是同一类东西），而不是「空调」。
+    static func bucket(for field: StatusField) -> String? {
+        let p = field.path.lowercased()
+
+        if p.contains("tyre") || p.contains("tire") { return "胎压" }
+        if p.contains("win") || p.contains("sunroof") || p.contains("door")
+            || p.contains("trunk") || p.contains("hood") { return "门窗" }
+        // `airclean` 而不是 `air`：`airbag`（气囊）里也有 air，
+        // 用短词会把安全气囊归到空调。
+        if p.contains("climate") || p.contains("seat") || p.contains("heat")
+            || p.contains("airclean") { return "空调" }
+        if p.contains("safety") || p.contains("brake") || p.contains("alarm")
+            || p.contains("security") || p.contains("radar") || p.contains("airbag")
+            || p.contains("belt") { return "安全" }
+        if p.contains("maintenance") || p.contains("service")
+            || p.contains("battery") || p.contains("odometer") { return "保养与电气" }
+        if p.contains("running") || p.contains("fuel") || p.contains("engine")
+            || p.contains("speed") || p.contains("consumption")
+            || p.contains("distance") { return "行驶" }
+        // `basicVehicleStatus.position.*` 故意不归类：
+        // 位置已经由「车辆位置」地图卡完整表达，原始经纬度在这里既重复
+        // 又是**微度**（112896568 这种），摆进正文只会让人以为车出问题了。
+        return nil
+    }
+
+    /// 某个分组下「白名单之外、但语义属于这里」的字段。
+    static func extras(for title: String, from fields: [StatusField]) -> [StatusField] {
         let known = Set(sections.flatMap { $0.specs.map(\.path) })
-        return fields.filter { !known.contains($0.id) }
+        return fields.filter { f in
+            !known.contains(f.id) && !isFoldable(f) && bucket(for: f) == title
+        }
+    }
+
+    /// 是否属于「次要、可以折叠」的信息。
+    ///
+    /// 判定分两层，都很必要：
+    ///
+    /// **① 结构层** —— 出厂参数、认不出的 key、归不进任何语义组的
+    ///
+    /// **② 值层** —— 这一层是看了真机截图才补的：有些字段名字翻出来了，
+    /// 但**值本身没法给人看**。典型三种：
+    /// - 原始布尔位（`true` / `false`）：没有中文语境时等于没说
+    /// - 有效性标志（`*Valid` / `*Validity` / `*Flag`）：工程用，不是状态
+    /// - 微度坐标（`latitude` = 112896568）：地图卡已经表达了，原值只会吓人
+    ///
+    /// 把这三类留在正文里，`行驶` 一栏会从 6 项涨到 16 项，其中一半是 `true`。
+    static func isFoldable(_ field: StatusField) -> Bool {
+        if field.group == "configuration" { return true }
+
+        let meaning = FieldGlossary.meaning(for: field)
+        guard meaning.translated else { return true }
+        guard bucket(for: field) != nil else { return true }
+
+        let leaf = field.path.split(separator: ".").last.map(String.init)?.lowercased()
+            ?? field.path.lowercased()
+        if leaf.contains("valid") || leaf.contains("validity")
+            || leaf.contains("flag") || leaf.contains("enable") { return true }
+        if leaf.contains("latitude") || leaf.contains("longitude") { return true }
+
+        let v = field.value.trimmingCharacters(in: .whitespaces).lowercased()
+        if v == "true" || v == "false" { return true }
+        // 长串基本是编码、时间戳或权限位图，不是可读的量
+        if field.value.count > 24 { return true }
+
+        // 中文名只翻出一个属性词（"状态"/"开度"），没有说清是谁的 ——
+        // 这种行放进正文只会让人问"什么东西的状态"。`ventilateStatus` 就是这样。
+        if !meaning.resolved {
+            let generic: Set<String> = ["状态", "开度", "时间", "余量", "距离",
+                                        "次数", "类型", "编码", "位置"]
+            if generic.contains(meaning.title) { return true }
+        }
+
+        return false
+    }
+
+    /// 折叠区的内容：次要但依然要能查到的字段。
+    static func foldables(from fields: [StatusField]) -> [StatusField] {
+        let known = Set(sections.flatMap { $0.specs.map(\.path) })
+        return fields.filter { !known.contains($0.id) && isFoldable($0) }
     }
 }

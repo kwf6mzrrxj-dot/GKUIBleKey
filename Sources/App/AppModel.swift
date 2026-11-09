@@ -222,8 +222,16 @@ public final class AppModel: ObservableObject {
         guard let gap = measured.broadcastGapEMA, gap > 0 else {
             return Self.broadcastSilenceWindow
         }
-        return max(Self.broadcastSilenceWindow, gap * 2.5)
+        // 上限 15 秒（2026-11-09）：只按 `gap × 2.5` 算，车停久一点
+        // EMA 涨到十几秒，窗口就变成 30 秒以上 —— 人从车位走进电梯全程
+        // 都还显示"在线"。15 秒是"从车边走到电梯"的量级上限，
+        // 超过这个还没收到信号，基本可以确定不是丢包而是真的走远了。
+        return min(max(Self.broadcastSilenceWindow, gap * 2.5),
+                   Self.broadcastSilenceCeiling)
     }
+
+    /// 断联窗口的上限。见 `broadcastSilenceWindowNow`。
+    public static let broadcastSilenceCeiling: TimeInterval = 15
 
     /// **蓝牙此刻是否还活着** —— 界面读这个，不要读 `isVehicleOnline`。
     ///
@@ -246,14 +254,38 @@ public final class AppModel: ObservableObject {
     private var bluetoothLinkAliveRaw: Bool {
         guard hasLocalKey || pairingArmed else { return false }
         switch ble.linkState {
-        case .ready, .connecting, .discovering:
+        case .ready:
             return true
+
+        case .connecting, .discovering:
+            // ★ 不能无条件算"在线"（2026-11-09 真机反馈）。
+            //
+            // 车走远时 `connect()` 会挂十几秒才超时，而这段时间 linkState
+            // 一直是 `.connecting` —— 原来的写法让顶栏在这十几秒里都写着
+            // 「蓝牙 · 已连接」，人都进电梯了屏幕还说连着。
+            //
+            // 连接期间确实收不到广播（BLE 连上就停扫描），所以给一个宽限：
+            // 正常鉴权 1–3 秒，8 秒足够覆盖；超过就按"没收到车端信号"处理。
+            if let at = lastBluetoothStatusAt,
+               Date().timeIntervalSince(at) < Self.connectingGraceSeconds {
+                return true
+            }
+            // 从没收到过广播时（首次连接）也算在线 —— 那是正常握手阶段
+            return lastBluetoothStatusAt == nil
+
         case .idle, .scanning, .disconnected, .failed:
             break
         }
         guard let at = lastBluetoothStatusAt else { return false }
         return Date().timeIntervalSince(at) < broadcastSilenceWindowNow
     }
+
+    /// `.connecting` / `.discovering` 的宽限窗口。
+    ///
+    /// 只为覆盖"连上后正在鉴权"的那几秒 —— 正常 1–3 秒，
+    /// 给到 8 秒是因为 iOS 27 上重连偶尔要 4 秒以上。
+    /// 再长就会把"车走远但 connect 卡住"也算成在线。
+    public static let connectingGraceSeconds: TimeInterval = 8
 
     /// 界面读它 —— 读一下 `onlineTick` 让 SwiftUI 跟着 tick 重算。
     public var bluetoothLinkAlive: Bool {
@@ -902,10 +934,32 @@ public final class AppModel: ObservableObject {
                     // 断联瞬间刷一次锁屏卡片，别让卡片继续显示「在线」
                     self.lastKnownOnline = false
                     self.refreshLiveActivity()
+
+                    // ★ 信号消失 = 人走远了 → 自动闭锁（2026-11-09 真机反馈补）。
+                    //
+                    // 之前这里只发本地提醒，**从来没让 `ProximityUnlockController`
+                    // 知道"信号没了"**：它只在收到新 RSSI 时被调用，人走进电梯
+                    // 信号突然断掉，它就永远停在 `.inside`，闭锁一次都不会触发。
+                    //
+                    // 这一支通常发生在蓝牙已经断开之后，所以 `perform` 会自己
+                    // 走云端通道（`routeToCloudIfNeeded`）—— 这正是"人在电梯里
+                    // 也能把车锁上"的实现方式。
+                    let autoLocked = self.proximityUnlock.signalLost() == .lock
+                    if autoLocked {
+                        self.measured.recordNote("蓝牙信号消失（人走远）→ 自动补一次闭锁")
+                        self.perform(.lock)
+                    }
+
                     // ★ 本地提醒：这一刻正是"人刚离开车"的时刻。
                     //   只在最后状态是「未锁 / 门未关 / 后备箱未关」时才发，
                     //   正常锁好离开不会打扰（配额与判据见 VehicleNotifier）。
-                    VehicleNotifier.shared.handleLinkLost(snapshot: self.activeStatus.snapshot)
+                    //
+                    //   已经触发自动闭锁时**不再提醒** —— 提醒文案是"车还没锁"，
+                    //   而 App 刚替用户锁了，再说一遍只会让人以为锁失败。
+                    if !autoLocked {
+                        VehicleNotifier.shared.handleLinkLost(
+                            snapshot: self.activeStatus.snapshot)
+                    }
                 }
             }
         }
@@ -1612,8 +1666,10 @@ public final class AppModel: ObservableObject {
         // 现在只留相对时间（"3 分钟前" 比 "19:28" 更好读），这里只说来源。
         let text = active.source.label
 
-        let name = UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey)
-            ?? VehicleProfile.defaultNickname
+        // 车名同样走 `displayName`：没改过昵称的机器在锁屏上应该写「博越 PRO」，
+        // 而不是「爱车」—— 后者在同一块屏幕上出现过几十次，从不携带新信息。
+        let name = VehicleProfile.displayName(
+            custom: UserDefaults.standard.string(forKey: VehicleProfile.nicknameKey))
 
         let ok = liveActivity.startOrUpdate(
             vehicleName: name,
@@ -1996,20 +2052,31 @@ public final class AppModel: ObservableObject {
     /// - Note: 复用当前链路；若链路未就绪，会走 `pendingPreAuth` 挂起并在
     ///   `.ready` 后补发，不会丢。
     public func sendPreAuthNow() {
+        // ★ 每一步都要有可见反馈（2026-11-07 真机反馈"点了没反应"）。
+        //
+        // 原因：`statusLine` 只在**状态页**渲染，而点火按钮在**车控页**。
+        // 所以这条路径上写的所有 `statusLine` 用户一个字都看不到 ——
+        // 点击之后界面纹丝不动，看起来就是"按钮坏了"。
+        // 车控页唯一能显示即时反馈的是顶部横幅（`controlBanner`），
+        // 所以这里每个分支都补一条。
         guard hasLocalKey else {
             statusLine = "尚未配对，无法预认证"
+            showControlBanner("尚未配对，无法预授权")
             return
         }
         guard preAuth.isEnabled else {
             statusLine = "预认证保活未开启：先到「我的 → 设置 → 高级（依赖标定）→ 预认证保活」打开"
+            showControlBanner("预授权未开启，去「我的 → 设置」打开")
             return
         }
         guard !listenOnly else {
             statusLine = "只读监听模式：不会发送任何指令"
+            showControlBanner("只读模式，不会发送指令")
             return
         }
         guard !isLockedOut else {
             statusLine = "已锁定：\(lockoutRemaining)s 后可重试"
+            showControlBanner("已锁定，\(lockoutRemaining) 秒后可重试")
             return
         }
         // ★★★ 开启「点火窗口」（2026-10-30 真车反馈驱动，2026-10-31 重校数值）。
@@ -2043,6 +2110,7 @@ public final class AppModel: ObservableObject {
                 "手动补发预认证（用户请求）→ 点火窗口开启，心跳每 6.5 秒一轮"
                 + "（解锁授权还剩 \(unlockWindowRemaining) 秒）")
             statusLine = "点火窗口已开启（5 分钟内每 6.5 秒保活一次）…"
+            showControlBanner("点火窗口已开启 · 每 6.5 秒保活")
             beginMeasuredAuth(asPreAuthentication: true)
         } else if engineIsRunning {
             // ★ 安全闸：**引擎在转**时绝不补发解锁（行驶中开门是危险动作）。
@@ -2050,11 +2118,15 @@ public final class AppModel: ObservableObject {
             //   那正是用户按完第一下启动按钮、等着车认钥匙的时刻（v8.5 修正）。
             measured.recordNote("引擎正在运行 → 不发解锁，只发预认证心跳")
             statusLine = "车辆已在行驶/怠速，只做保活（不重复解锁）"
+            showControlBanner("车辆运行中 · 只做保活，不重复解锁")
             beginMeasuredAuth(asPreAuthentication: true)
         } else {
             measured.recordNote(
                 "上次解锁已超过 2 分钟（或无解锁记录）→ 先补一次解锁刷新「可启动」授权")
             statusLine = "点火窗口已开启；正在刷新解锁授权…"
+            // 这一分支要重连 + 完整鉴权，1–4 秒才出结果 ——
+            // 没有这条横幅的话，用户点完这段时间里界面完全是静止的。
+            showControlBanner("点火窗口已开启 · 正在刷新解锁授权…")
             beginMeasuredAuth(action: .unlock)
         }
     }

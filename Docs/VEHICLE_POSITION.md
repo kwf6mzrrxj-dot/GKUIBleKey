@@ -105,3 +105,85 @@ Apple 地图 / 高德在中国的底图是 GCJ-02。
 2. **不会自动刷新**。位置跟着车况走，车况靠下拉刷新或定时拉取。
 3. **反地理编码依赖网络**，失败时只显示"位置已记录"，坐标仍然有效。
 4. **没有逆转换**。如果将来要支持拖动选点，需要补 GCJ-02 → WGS-84。
+
+## 六、地址命名：高德优先，MapKit 兜底（2026-11-07）
+
+### 为什么不能用 MapKit 一家
+
+MapKit 的反地理编码只回到**道路级**：「上海市浦东新区严家港路」。
+而原 App（`XiaoKa.app`）链的是**高德定位 SDK**，回调结构就写在二进制里：
+
+```
+AMapLocationReGeocode:{formattedAddress:%@; country:%@; province:%@;
+  city:%@; district:%@; street:%@; number:%@; POIName:%@; AOIName:%@;}
+```
+
+`AOIName`（AOI 面）是「XX小区」的来源，`number` 是门牌。
+MapKit 没有 AOI 概念 —— 所以"小区 + 楼栋"这件事 MapKit 做不到。
+
+### 实现
+
+`Sources/Net/AMapGeocoder.swift` 调高德 Web 服务：
+
+```
+GET https://restapi.amap.com/v3/geocode/regeo
+    ?key=…&location=经度,纬度&extensions=all&radius=200
+```
+
+三个容易错的点：
+
+1. **`location` 是「经度,纬度」**，和几乎所有其他坐标写法相反。
+   写反了高德会返回 `status=1` 但 `regeocode` 为空 —— 不报错，只是没数据。
+2. **传 GCJ-02**（`VehicleCoordinate.mapCoordinate`），不要传 `coordsys=gps`。
+   高德这个接口默认按 GCJ-02 解释，和给 MapKit 的是同一套坐标；
+   让它自己转等于对同一个点转两次，又偏 400 米。
+3. **`extensions=all`** 才有 `aois` / `pois` / `building`，`base` 只给 `formatted_address`。
+
+### 实测返回（2026-11-07，车辆实际位置）
+
+```json
+formatted_address: "上海市浦东新区高桥镇浦凌佳苑7号楼"
+aois: ["浦凌佳苑"]
+building.name: []                 ← 空
+streetNumber: { number: "328号", street: "康悦路", distance: "171.156" }
+```
+
+四条字段各有坑，处理方式：
+
+| 字段 | 问题 | 处理 |
+|---|---|---|
+| `formatted_address` | 含完整行政区，做标题太长 | 做副标题 |
+| `aois[0].name` | 「浦凌佳苑」缺楼栋 | 做标题主体 |
+| `building.name` | 住宅区实测是空数组 | 不用 |
+| `streetNumber.number` | **171 米外**隔壁路的门牌 | **不用**，拼上去就是假地址 |
+
+**楼栋从 `formatted_address` 里切**：命中小区时它会直接带上楼栋
+（`…浦凌佳苑7号楼`），取「AOI 名之后那一段」拼回 AOI，
+得到「浦凌佳苑7号楼」—— 和高德 App 的写法一致。
+
+### key 的存放
+
+本仓库是**公开**的，key 写进源码等于公开（个人额度 5000 次/天，被刷完当天就用不了）。
+所以按项目里 `builtin-keys.txt` 的同一套做法：
+
+| 顺序 | 来源 | 说明 |
+|---|---|---|
+| 1 | `UserDefaults["amap.webKey"]` | 换 key 不用重新打包 |
+| 2 | Bundle 内 `amap-key.txt` | 本地文件，**已在 `.gitignore`** |
+| 3 | 无 | 返回 nil → 回退 MapKit |
+
+模板见 `Resources/amap-key.example.txt`。key 类型必须是**「Web服务」**，
+用 iOS / Android 平台的 key 会返回 `USERKEY_PLAT_NOMATCH`（infocode 10009）。
+
+### 失败一律回退
+
+高德是网络服务，key 失效、断网、额度用尽都会失败。
+`resolveAddress()` 在这种情况下退回 MapKit 的道路级结果 ——
+**卡片不会白屏**，只是精度降一级。
+
+### 缓存
+
+按坐标 4 位小数（≈11 米）缓存：同一个车位重复打开必命中，
+车开出十几米才失效 —— 那个尺度上地址本来也该变了。
+缓存的两个理由：车控页和状态页各有一张卡，同一坐标会发两次请求；
+切页 / 卡片重建还会再来。

@@ -10,7 +10,9 @@
 		00B16A2446FB8895BCD387EF /* PreAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */; };
 		0267CC09202780172D756503 /* CoordinateTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014FA079D3E30D7DD12EB413 /* CoordinateTransform.swift */; };
 		138D3DB63CC21C4215C92A48 /* VehicleTopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83523A66F55DA97A6BDBD0AE /* VehicleTopView.swift */; };
+		14E0452774A3849BE212880B /* amap-key.txt in Resources */ = {isa = PBXBuildFile; fileRef = 68B1ADEC622C987DC8923663 /* amap-key.txt */; };
 		18770C73EC4A92693E5DDF29 /* LogFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */; };
+		2050D72736CA5F9F86198639 /* AMapGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DEC1148AAEB12D99AF39E69 /* AMapGeocoder.swift */; };
 		21BE8ED1D8B3239BEA4C51B4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF19D2E689EE7C245F20164 /* RootView.swift */; };
 		221CF8215A2337F5C1017466 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
 		22B28FC5B80BD3709CF24B16 /* AppModel+Proximity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B32FE582A24D9C62C0D15A2 /* AppModel+Proximity.swift */; };
@@ -33,6 +35,7 @@
 		5493112A3E670E03EEAD0234 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0941732E77DBFBB1654D68EC /* DesignSystem.swift */; };
 		5A5F177B77B566D517418361 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB48A76E3D1E9B9E03E4745 /* AppModel.swift */; };
 		5F0A5F1AC58AEB2B4838835C /* ControlChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */; };
+		6039462EC3E79810159BE6AF /* UserLocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DBEE6D57AF19E50FAC4FD57 /* UserLocationProvider.swift */; };
 		61F64D6AF1A72673AEBDC9C6 /* ActionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 854E9E44B3CAFB0997AB6A04 /* ActionHistoryView.swift */; };
 		6588B7CDAC543918F7F131C3 /* VehicleStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */; };
 		664280E8D798110C66F79342 /* ProximityUnlockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED9D6AA73F4B6A1EDF06051 /* ProximityUnlockController.swift */; };
@@ -62,6 +65,7 @@
 		A301FECD98ABD2B53CEA6031 /* PassiveStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */; };
 		A3F36F56C06E968C19B0FB3B /* MeasuredSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E79D6FE0E75FA93D19A8BF /* MeasuredSession.swift */; };
 		A5F65319880450C3A065F11E /* ProtocolConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */; };
+		A6816CAF4B0118F3DC0AB625 /* FieldGlossary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A7EFA61EC4A8FDD1437B6F /* FieldGlossary.swift */; };
 		A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A43CB3BC1E9E15D50FB3BA /* ValeoAdvMatch.swift */; };
 		A76418A343D317A9C80613D7 /* SyncPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D8D4093CE73A2A29F2F4B27 /* SyncPayload.swift */; };
 		AD347E9B8990F0A3D8B8714B /* car_off.png in Resources */ = {isa = PBXBuildFile; fileRef = 48C56C0A7C2175F4E75072A7 /* car_off.png */; };
@@ -72,6 +76,7 @@
 		C0824CFF6D8E636F45428A90 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062758546AC7B33C61337BD0 /* LogView.swift */; };
 		C406EE162B4C5C3D86EF544E /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE4B7AED8424488DFF8B585 /* AppInfo.swift */; };
 		C6531B6C2BF84C2033EB4A4E /* PhoneWatchSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3423F9E406EBB2595FB634 /* PhoneWatchSync.swift */; };
+		CF402CD414ABE93A90B0F288 /* amap-key.example.txt in Resources */ = {isa = PBXBuildFile; fileRef = 24E93AAFE8B858DD13E45113 /* amap-key.example.txt */; };
 		CF46FC3118E648CAE04C85EA /* VehicleLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912BA4D6C8AF335789E387EC /* VehicleLiveActivityWidget.swift */; };
 		D3E12A34050B940EBD770BDA /* GKCloudKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */; };
 		D4C4584A93CB3DC1A42B9DA2 /* ControlChannel+IBCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86A65EBFA801AEDFCBC9C34 /* ControlChannel+IBCommand.swift */; };
@@ -88,6 +93,8 @@
 		F266C9ECDD1AE74205D097EE /* VehicleNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */; };
 		F52BD577C132651C5BD8C2A9 /* GKUIBleKeyWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */; };
 		F5A75BB70CB8EDC71DF86C62 /* VehicleActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC69C2417967E1F590E2D32D /* VehicleActivityAttributes.swift */; };
+		F7CCA605CDE5065924D5CC8E /* AMapGeocoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DEC1148AAEB12D99AF39E69 /* AMapGeocoder.swift */; };
+		FC5F4423BA728B50C7AB9069 /* FieldGlossary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A7EFA61EC4A8FDD1437B6F /* FieldGlossary.swift */; };
 		FCBF2D549F75EF00D0BD1005 /* GKCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */; };
 		FDD541EF654A7046060ECD47 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367D57CD773A3B52A02FAB9C /* WatchRootView.swift */; };
 		FE0D1A0375AB0E67EA07DEBC /* GKCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */; };
@@ -125,12 +132,14 @@
 		0678D9E157D4C28D82E1FE22 /* PassiveStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveStart.swift; sourceTree = "<group>"; };
 		0941732E77DBFBB1654D68EC /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		0C83B50D64A49F607B3AA541 /* GKUIBleKeyWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWidgetBundle.swift; sourceTree = "<group>"; };
+		0DEC1148AAEB12D99AF39E69 /* AMapGeocoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapGeocoder.swift; sourceTree = "<group>"; };
 		14F63F74C0B4D687A4E3DAE6 /* HoldToConfirmButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldToConfirmButton.swift; sourceTree = "<group>"; };
 		198611EA7B984E1F38C437D7 /* WatchCloudController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCloudController.swift; sourceTree = "<group>"; };
 		1A5AAD5A4299F95C9AF26D64 /* PreAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreAuthenticationController.swift; sourceTree = "<group>"; };
 		1BF8FD5CEECE997707EA7EDE /* ProtocolConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolConstants.swift; sourceTree = "<group>"; };
 		1DE4B7AED8424488DFF8B585 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		21D5975B130988A252047D36 /* LogHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogHistoryView.swift; sourceTree = "<group>"; };
+		24E93AAFE8B858DD13E45113 /* amap-key.example.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "amap-key.example.txt"; sourceTree = "<group>"; };
 		2A2772B1D00DE8DE51611F81 /* VehicleControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleControlWidget.swift; sourceTree = "<group>"; };
 		2ABBBAE03CC55F037BB9DED1 /* car_top.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_top.png; sourceTree = "<group>"; };
 		2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlChannel.swift; sourceTree = "<group>"; };
@@ -140,6 +149,7 @@
 		367D57CD773A3B52A02FAB9C /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		3B7DD2F49BA2E65D4F36FDA0 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		3D8BE0B520071098A9DDF36A /* VehicleStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleStatus.swift; sourceTree = "<group>"; };
+		3DBEE6D57AF19E50FAC4FD57 /* UserLocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserLocationProvider.swift; sourceTree = "<group>"; };
 		48C56C0A7C2175F4E75072A7 /* car_off.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = car_off.png; sourceTree = "<group>"; };
 		4E16BD1CC2D851840C842A5A /* InBlueAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InBlueAuth.swift; sourceTree = "<group>"; };
 		4EBA39B887DCCBB746BE5CB4 /* VehicleLocationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleLocationCard.swift; sourceTree = "<group>"; };
@@ -147,6 +157,7 @@
 		5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPrefs.swift; sourceTree = "<group>"; };
 		5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogFeed.swift; sourceTree = "<group>"; };
 		65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKCloudKeychain.swift; sourceTree = "<group>"; };
+		68B1ADEC622C987DC8923663 /* amap-key.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "amap-key.txt"; sourceTree = "<group>"; };
 		6B32FE582A24D9C62C0D15A2 /* AppModel+Proximity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Proximity.swift"; sourceTree = "<group>"; };
 		6C1839B8ED78D5F413FA1FDB /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
 		6CF199B26910DED36F8ABAAA /* LiveLogFloatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLogFloatingView.swift; sourceTree = "<group>"; };
@@ -199,6 +210,7 @@
 		E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleNotifier.swift; sourceTree = "<group>"; };
 		F0B6E3AFC6AEA1C683465A06 /* GKUIBleKeyWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = GKUIBleKeyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F70991C99B1F1A82B5F3A348 /* GKUIBleKeyWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GKUIBleKeyWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F8A7EFA61EC4A8FDD1437B6F /* FieldGlossary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldGlossary.swift; sourceTree = "<group>"; };
 		FAFA8D7FCC031EBCC2B9D45D /* GKUIBleKeyWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GKUIBleKeyWatchApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -221,6 +233,7 @@
 				014FA079D3E30D7DD12EB413 /* CoordinateTransform.swift */,
 				DC8C6EBB0E8535DD0570907C /* FileLogger.swift */,
 				5F8B5D66658CABA25A5C7B3E /* LogFeed.swift */,
+				3DBEE6D57AF19E50FAC4FD57 /* UserLocationProvider.swift */,
 				E8CAF25E2DE0A55A66AD207E /* VehicleNotifier.swift */,
 				C72C39E1002B486405A22086 /* VehicleProfile.swift */,
 			);
@@ -335,6 +348,8 @@
 			isa = PBXGroup;
 			children = (
 				DC7D866986CAD52C6B9036DF /* CarModel */,
+				24E93AAFE8B858DD13E45113 /* amap-key.example.txt */,
+				68B1ADEC622C987DC8923663 /* amap-key.txt */,
 				E1F963AFCE05A948320AA911 /* builtin-keys.example.txt */,
 				03B476E9C21E7763239DBD3E /* builtin-keys.txt */,
 			);
@@ -355,10 +370,12 @@
 		6DA890D55302C26F75969529 /* Net */ = {
 			isa = PBXGroup;
 			children = (
+				0DEC1148AAEB12D99AF39E69 /* AMapGeocoder.swift */,
 				D30CAFC65BD02A291DEEB052 /* AppModel+Cloud.swift */,
 				5D769D6ED52917B8F4C13BD0 /* CloudPrefs.swift */,
 				2D57FD1DF3A391DEEB5AD638 /* ControlChannel.swift */,
 				B86A65EBFA801AEDFCBC9C34 /* ControlChannel+IBCommand.swift */,
+				F8A7EFA61EC4A8FDD1437B6F /* FieldGlossary.swift */,
 				BD2221C40565A24E9D2AF204 /* GKCloudClient.swift */,
 				65C01BD135B447B75D1FADEF /* GKCloudKeychain.swift */,
 				972FB41B97EB7DBD661ED9D1 /* GKCloudSignature.swift */,
@@ -540,6 +557,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF402CD414ABE93A90B0F288 /* amap-key.example.txt in Resources */,
+				14E0452774A3849BE212880B /* amap-key.txt in Resources */,
 				3E825C6A82106A403771B901 /* builtin-keys.example.txt in Resources */,
 				4DEE5D8FFEDFC8411E75569E /* builtin-keys.txt in Resources */,
 				85BCF61CB4A0929EAE6DEFD3 /* car_detail.png in Resources */,
@@ -571,8 +590,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2050D72736CA5F9F86198639 /* AMapGeocoder.swift in Sources */,
 				3AA494A7C55397E2A8C11B7C /* CloudPrefs.swift in Sources */,
 				5F0A5F1AC58AEB2B4838835C /* ControlChannel.swift in Sources */,
+				FC5F4423BA728B50C7AB9069 /* FieldGlossary.swift in Sources */,
 				341A6E588E143A781919EEF1 /* FileLogger.swift in Sources */,
 				FE0D1A0375AB0E67EA07DEBC /* GKCloudClient.swift in Sources */,
 				3B0F8FED4D72AC7FCE0DCEBB /* GKCloudKeychain.swift in Sources */,
@@ -588,6 +609,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7CCA605CDE5065924D5CC8E /* AMapGeocoder.swift in Sources */,
 				87AA65B7CC07438CF309274D /* ActionHistory.swift in Sources */,
 				61F64D6AF1A72673AEBDC9C6 /* ActionHistoryView.swift in Sources */,
 				35D3E43873B511C343757D6B /* AppDelegate.swift in Sources */,
@@ -609,6 +631,7 @@
 				5493112A3E670E03EEAD0234 /* DesignSystem.swift in Sources */,
 				95CE2CF0D86B4077940F1E39 /* DiagnosticsView.swift in Sources */,
 				27B778A18920B2011666C6BC /* ErrorCodeTable.swift in Sources */,
+				A6816CAF4B0118F3DC0AB625 /* FieldGlossary.swift in Sources */,
 				DFEC9917B0404A78CCEF9005 /* FileLogger.swift in Sources */,
 				DE400A2125BB6E3524B22A9F /* FloatingWindowController.swift in Sources */,
 				89BFACECBCD596A57C478752 /* FrameCodec.swift in Sources */,
@@ -640,6 +663,7 @@
 				6798BD14C932E43943639F5A /* SelfTest.swift in Sources */,
 				7E9F445B5684908DAB54EFC7 /* StatusFieldCatalog.swift in Sources */,
 				D92B724CED00910BDB98EEFF /* SyncPayload.swift in Sources */,
+				6039462EC3E79810159BE6AF /* UserLocationProvider.swift in Sources */,
 				A70B68482F5BC17AA5936A0C /* ValeoAdvMatch.swift in Sources */,
 				221CF8215A2337F5C1017466 /* VehicleActivityAttributes.swift in Sources */,
 				F1E1460330DE6516D8F362D7 /* VehicleIntents.swift in Sources */,

@@ -12,12 +12,12 @@
 |---|---|
 | **控车** | 解锁 / 闭锁 / 后备箱 / 升降窗 / 微开 / 寻车 / 空调 / 启动·熄火 |
 | **点火** | 提前发一次 `0x0C` 预授权，解决「上车按了没反应、试几次才打着」 |
-| **靠近解锁** | 双天线 RSSI 判定，进入车边 2 秒自动解锁、走远自动闭锁（双阈值 + 迟滞带） |
+| **靠近解锁** | 双天线 RSSI 判定，进入车边 2 秒自动解锁、走远自动闭锁（双阈值 + 迟滞带）；**信号突然消失（进电梯 / 断联）也会补一次闭锁**，这时蓝牙已断，命令走云端 |
 | **防误触** | 后备箱 / 开窗 / 微开 / 寻车需长按 0.6 秒，可在设置关闭 |
 | **无感进入** | 靠近车辆拉门把手解锁（车端 PEPS 负责，App 只负责使能） |
 | **点火位置验证** | 双天线 RSSI 标定 90 次采样，判断手机是否在车内 |
-| **状态显示** | 车辆锁止 / 车门 / 后备箱 / 电源状态（广播解密，无需连接） |
-| **车辆位置** | 云端车况带的 GPS 坐标，WGS-84 → GCJ-02 后画在地图上，标出「X 分钟前」与可信度 |
+| **状态显示** | 锁止 / 车门 / 后备箱 / 电源（广播解密，无需连接）；云端七十多个字段按语义分六组中文化，认不出的明确标「未译」而不是编一个名字 |
+| **车辆位置** | 云端 GPS（WGS-84 → GCJ-02），高德逆地理到**小区 + 楼栋**（MapKit 只到道路级，失败自动回退）；地图同时画自己与车的相对位置、直线距离；一键跳高德 / 百度 / 腾讯导航 |
 | **主动提醒** | 蓝牙断开（= 人离开车）时若未锁或门窗未关，发本地通知，每天上限 3 条 |
 | **操作历史** | 本地保留最近 100 条动作，按天分组，可复制导出 |
 | **系统集成** | Siri / 快捷指令 / 控制中心 / 操作按钮 / **桌面小组件**（App Intents，后台执行不打开 App） |
@@ -83,7 +83,12 @@ cd GKUIBleKey
 cp Resources/builtin-keys.example.txt Resources/builtin-keys.txt
 #    填入自己车辆的 8 个字段
 
-# 2. 生成工程并构建
+# 2. 配置高德 Web 服务 key（可选；不配则位置只到道路级）
+cp Resources/amap-key.example.txt Resources/amap-key.txt
+#    填入「Web服务」类型的 key（iOS/Android 平台的 key 用不了，
+#    会返回 USERKEY_PLAT_NOMATCH）
+
+# 3. 生成工程并构建
 xcodegen generate
 xcodebuild -project GKUIBleKey.xcodeproj -scheme GKUIBleKey \
            -destination 'generic/platform=iOS' build
@@ -99,7 +104,7 @@ Sources/
 ├─ App/           AppModel（单例，App Intents 共用）、入口、阈值与标定扩展
 ├─ BLE/           BLECentral（扫描/连接/订阅/分包）、GATT、广播匹配
 ├─ Protocol/      InBlue 帧编解码、鉴权、配对、状态解析、被动进入、靠近解锁判定
-├─ Net/           云端通道（GKUI 账号、签名、命令下发）
+├─ Net/           云端通道（GKUI 账号、签名、命令下发）、字段语义词典、高德逆地理
 ├─ Keychain/      密钥存储、内置凭据加载
 ├─ Intents/       App Intents（Siri / 快捷指令 / 操作按钮）
 ├─ Support/       日志、日志流、后台保活、车辆资料、通知、操作历史
@@ -121,6 +126,8 @@ tools/            同步脚本、类型检查
 - 投影两级（`.card` / `.floating`），深色下几乎不用投影（黑压近黑不产生分离，只留脏边）
 - 语义色只用于图标、描边、底色 —— **正文一律 primary**（系统绿/橙对浅底只有 2:1，不能承载文字）
 - 触感三档：`Haptics.tap` / `.commit` / `.warn`，每个按钮都有
+- **材质分配**：玻璃只给**可点的控件**，只读的标签与徽标一律半透明面 ——
+  一旦"能点的会发光"成立，用户扫一眼就知道哪里能按。两个有意例外见 `UI_STYLE_GUIDE` 第十节
 
 完整规则见 `Docs/UI_STYLE_GUIDE.md`。
 
@@ -132,7 +139,8 @@ tools/            同步脚本、类型检查
 - `Docs/CHANGELOG.md` —— 逐版本变更（含踩过的坑）
 - `Docs/BIZ_AUDIT_v2.md` —— 与官方 App 的业务实现对照
 - `Docs/REVIEW_CHECKLIST.md` —— **改代码前必看**：从 30 个真实 bug 反推的审查清单
-- `Docs/CODE_REVIEW_2026-11-07_ROUND5.md` —— 最近一轮全项目审查
+- `Docs/CODE_REVIEW_2026-11-07_ROUND6.md` —— 最近一轮全项目审查（定位泄漏、地址不刷新、词表崩溃）
+- `Docs/CODE_REVIEW_2026-11-07_ROUND5.md` —— 上一轮全项目审查
 - `Docs/PERFORMANCE_REVIEW_2026-11-07.md` —— 性能与调度审查（2 Hz 数据流的三个开销）
 
 ## 关于密钥

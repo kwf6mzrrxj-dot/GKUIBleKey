@@ -287,6 +287,44 @@ public final class ProximityUnlockController: ObservableObject {
         return nil
     }
 
+    /// 广播静默 —— **人走远了**（或车休眠了）。
+    ///
+    /// ## 为什么必须有这个入口（2026-11-09 真机反馈「进电梯了没锁车」）
+    ///
+    /// `update(combinedRSSI:)` 只在**收到新 RSSI 时**被调用。
+    /// 人走进电梯、信号突然消失时，根本没有"最后一帧"可用 ——
+    /// controller 会一直停在 `.inside`，自动闭锁永远触发不了。
+    /// `purgeStaleRSSI()` 清掉过期 RSSI 也只是让它"没有新输入"，不是"输入为零"。
+    ///
+    /// 信号消失等价于「RSSI 掉到听不见」，所以走的是闭锁那一支；
+    /// 但**不动 `lastCombinedRSSI`** —— 界面上不该突然出现一个 -127 dBm 的读数。
+    ///
+    /// - Note: 调用方拿到 `.lock` 后要自己决定走哪条通道发命令。
+    ///   这条路径通常发生在**蓝牙已经断了**之后，所以多半只能走云端。
+    public func signalLost(now: Date = Date()) -> Action? {
+        guard isEnabled, calibration != nil else { return nil }
+
+        insideSince = nil
+        dwellProgress = 0
+
+        guard phase == .inside else {
+            // 本来就在远处（或从未靠近）→ 只把阶段归位，不产生动作
+            if phase != .far { phase = .far }
+            return nil
+        }
+
+        // 刚刚锁过就别再锁 —— 和 `update` 里那一支用同一个冷却
+        if let last = lastLockAt, now.timeIntervalSince(last) < Self.lockCooldown {
+            return nil
+        }
+
+        phase = .far
+        lastAction = .lock
+        lastActionAt = now
+        lastLockAt = now
+        return .lock
+    }
+
     /// 只在变化 ≥ 0.05 秒时写 `dwellProgress`（它是 `@Published`）。
     ///
     /// 攒满 2 秒期间会回调 5 次左右，每次都写就是 5 次全 App 重绘；

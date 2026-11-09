@@ -21,7 +21,16 @@ struct RootView: View {
     /// 网络通道配置（2026-11-04）
     @State private var showCloud = false
     /// 底部标签栏当前页（0 控制 / 1 状态 / 2 我的）
-    @State private var tab = 0
+    ///
+    /// 默认 0。DEBUG 下可以用启动参数 `-startTab 1` 直达某一页 ——
+    /// 状态页的字段表要验证排版时，省得每次手动去点。
+    @State private var tab: Int = {
+        #if DEBUG
+        return UserDefaults.standard.integer(forKey: "startTab")
+        #else
+        return 0
+        #endif
+    }()
     /// 「我的」页要展示的账号信息（异步从云端凭据读）
     @State private var account: GKCloudCredentials?
     /// 点击「当前不可执行」的按钮时，用它弹出明确原因。
@@ -56,12 +65,22 @@ struct RootView: View {
 
     @State private var showActionHistory = false
 
+    /// 「其余字段」折叠区是否展开。
+    ///
+    /// 常态收起（三十多条会把页面拉长一倍）。DEBUG 下 `-expandLeftover 1`
+    /// 可以直接展开，用来验证翻译后的排版。
+    #if DEBUG
+    @State private var leftoverExpanded = UserDefaults.standard.bool(forKey: "expandLeftover")
+    #else
+    @State private var leftoverExpanded = false
+    #endif
+
     /// 车辆爱称（详情页可改，持久化在 UserDefaults）
     ///
     /// 本 App 只服务这一台车，所以不做「按 cidpu 分键」的多车抽象 ——
     /// 一个全局键就够，换车时重新配对会覆盖同一台车的密钥，爱称手动改即可。
     @AppStorage(VehicleProfile.nicknameKey) private var vehicleNickname = VehicleProfile.defaultNickname
-    private let vehicleModelName = "博越 PRO"
+    private let vehicleModelName = VehicleProfile.defaultModelName
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -92,6 +111,16 @@ struct RootView: View {
                     .tag(2)
                     .tabItem { Label("我的", systemImage: "person.crop.circle") }
             }
+            // 标签切换的触感（2026-11-07 用户要求）。
+            //
+            // 用 `Haptics.select`（`SensoryFeedback.selection`）而不是 `Haptics.tap`：
+            // 换页是"选中项变了"，不是"执行了一个动作"，系统对这两种交互的
+            // 手感有明确区分 —— selection 更轻、更短，连续点几个标签也不会烦。
+            //
+            // 注意不能每个 tab 的 `.tabItem` 里各挂一个手势：`.tabItem` 只接受
+            // 纯 label，任何修饰符都会被丢弃。所以只能挂在 `TabView` 上，
+            // 用 selection 的变化做触发源。
+            .sensoryFeedback(trigger: tab) { _, _ in Haptics.select }
 
             // ★ 控件反馈横幅（2026-11-02）：控制中心点下去后，至少让人看见"收到了"。
             if let banner = model.controlBanner {
@@ -174,13 +203,36 @@ struct RootView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     vehicleHeader
-                    carArt
-                        .padding(.bottom, 2)
 
-                    energyStrip
-                    // 这里不再放 statusChips —— CarModelView 内部已经画了
-                    // 四门 / 天窗 / 车窗 / 引擎，再叠一排就是同一份数据看两遍。
-                    // 车门/后备箱/上电/ACC 这一组挪到「状态」页做详情。
+                    // ★ 车图 + 状态浮标 + 能源读数，全在一张舞台里（2026-11-07）
+                    //
+                    // 原来是「车图 / 通道胶囊 / 四门一行 / 天窗车窗引擎一行 / 能源三格」
+                    // 五段纵向堆叠，说明部分比车还高。现在状态全部收进车图四周，
+                    // 能源悬浮在车图下沿，整块高度从约 320 降到约 205。
+                    carArt
+                        .padding(.top, 6)
+                        // 10 不是 14：能源带自身有 5pt 内边距，视觉上已经隔开一段，
+                        // 再用 sectionSpacing 会让车图区和下面两张卡变成三段等距，
+                        // 反而看不出"车图 + 能源"是一组。
+                        .padding(.bottom, 10)
+
+                    // ★ 车辆位置（2026-11-07 用户要求挪到车控页）
+                    //
+                    // 位置放在「车图」与「控制按钮」之间，是这一页的语义分界：
+                    // 上面回答"车是什么状态、在哪"，下面回答"要它做什么"。
+                    //
+                    // 用紧凑版（横排小地图 + 两行字，约 76 高），不用状态页那张
+                    // 完整卡 —— 完整卡会把「启动引擎」挤到第二屏，而它是这一页
+                    // 最重的动作。点一下仍然进全屏地图 + 导航。
+                    if let coord = model.activeStatus.snapshot?.coordinate {
+                        VehicleLocationCard(
+                            coordinate: coord,
+                            title: VehicleProfile.displayName(custom: vehicleNickname),
+                            style: .compact
+                        )
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, Glass.sectionSpacing)
+                    }
 
                     // 点火 / 启动引擎已经并进控制区网格（与其余按钮同构），
                     // 这里不再单独占一行卡片。
@@ -289,6 +341,19 @@ struct RootView: View {
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
         }
+    }
+
+    /// 状态页排版调试：隐藏顶部的俯视图与地图，让字段区直接出现在首屏。
+    ///
+    /// 真机和模拟器都没法"滚屏截图"，而字段区恰好在下半页 ——
+    /// 没有这个开关，改一次字段排版就得靠用户帮忙滚一下。
+    /// Release 下恒为 false。
+    private var hideStatusTop: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "hideStatusTop")
+        #else
+        return false
+        #endif
     }
 
     // MARK: - 背景
@@ -415,15 +480,24 @@ struct RootView: View {
 
     private var vehicleHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(vehicleNickname)
+            // ★ 没改过昵称时不显示「爱车」（2026-11-07 用户要求）
+            //
+            // 那两个字是**占位词**，不是信息：只服务一台车的人不需要被告知
+            // "这是你的车"。现在没自定义昵称就直接把车型当标题，
+            // 改过昵称才显示"昵称 + 车型标签"两级结构。
+            Text(VehicleProfile.displayName(custom: vehicleNickname))
                 .font(Glass.Typo.page)
                 .foregroundStyle(.primary)
-            Text(vehicleModelName)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .surfaceChip()
+                .lineLimit(1)
+
+            if VehicleProfile.hasCustomName(vehicleNickname) {
+                Text(vehicleModelName)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .surfaceChip()
+            }
             Spacer()
         }
         .padding(.bottom, 4)
@@ -705,85 +779,58 @@ struct RootView: View {
     }
 
     private var carArt: some View {
-        // ★ 不再套 `.frame(height: 196)`（2026-11-04）。
+        // ★ 车图高度由这里显式传入，视图内部不再写死（2026-11-04 的教训：
+        //   内外两套高度必然对不上，溢出部分会被下面的按钮压住）。
         //
-        // 车图 + 通道胶囊 + 两行门/窗芯片的总高约 300，硬裁到 196 后
-        // 多出来的部分画在框外 —— 下面「准备点火」卡和按钮正好压在上面。
-        // 现在把车图高度显式传进去，整块由内容自己撑开。
+        // 178 是「车图本体 + 上下两条浮标轨」的合计高度：
+        // 车图按 1125×675 等比缩放到 338 宽时约 203 高，被 178 框住后
+        // 实际渲染 297×178，左右各留约 20pt 给浮标呼吸。
         CarModelView(
-            snapshot: model.activeStatus.snapshot,
+            snapshot: displaySnapshot,
             stage: carStage,
-            channel: model.preferredChannel,
-            carHeight: 168
+            carHeight: 178,
+            energy: energyReadout
         )
         .frame(maxWidth: .infinity)
+        // 6pt 是给车图左右留的呼吸位（车图是 3/4 视角，边缘本身就是斜的）。
+        // 能源读数带在这个 padding 内侧，会比标题多缩进 6pt —— 可接受：
+        // 再往外顶会和车图轮眉贴上，反而显脏。
         .padding(.horizontal, 6)
     }
 
-    // MARK: - 能源条（油量 / 续航 / 电瓶）
+    /// 车图区实际渲染的状态。
+    ///
+    /// 正常就是 `activeStatus.snapshot`；DEBUG 下带 `-mockVehicle 1` 启动时
+    /// 换成样张，用来在模拟器里检查"所有字段都有值"时的排版
+    /// （理由见 `UIMockVehicle`）。
+    private var displaySnapshot: VehicleSnapshot? {
+        #if DEBUG
+        if UIMockVehicle.isEnabled { return UIMockVehicle.snapshot }
+        #endif
+        return model.activeStatus.snapshot
+    }
+
+    // MARK: - 能源读数
 
     /// 三项**都来自云端**：蓝牙广播协议里没有油量和电压，所以只配了云端账号才有。
     ///
-    /// 取不到的格子不显示，三项都取不到时整条不出现 —— 不留三张写「—」的空壳。
-    /// 位置放在车图之下、按钮之上：这是"开车前想知道"的信息，
-    /// 但都不需要操作，所以给它一排小格而不是按钮区。
-    @ViewBuilder
-    private var energyStrip: some View {
-        let fuel = StatusFieldCatalog.number(StatusFieldCatalog.fuelLevelPath,
-                                            from: model.cloudFields)
-        let range = StatusFieldCatalog.number(StatusFieldCatalog.rangePath,
-                                             from: model.cloudFields)
-        let volts = StatusFieldCatalog.number(StatusFieldCatalog.batteryVoltagePath,
-                                             from: model.cloudFields)
-
-        if fuel != nil || range != nil || volts != nil {
-            HStack(spacing: 8) {
-                if let fuel {
-                    // 只显示百分比：接口只给百分比，不给油箱容积。
-                    // 早前用 58 L 折算过升数并标了「估算」，但那是猜的容量，
-                    // 算出来的数字看着像实测值 —— 没有确切数据就不显示。
-                    energyCell(icon: "fuelpump.fill", label: "油量",
-                               value: String(format: "%.0f%%", fuel),
-                               tint: fuel < 15 ? Glass.Tone.warning : .primary)
-                }
-                if let range {
-                    energyCell(icon: "map.fill", label: "续航", value: "\(Int(range.rounded())) km")
-                }
-                if let volts {
-                    energyCell(icon: "car.battery", label: "电瓶",
-                               value: String(format: "%.1f V", volts),
-                               // 熄火静置低于 12 V 就快打不着了，这格值得变色
-                               tint: volts < 12.0 ? Glass.Tone.danger : .primary)
-                }
-            }
-            .padding(.top, 12)
-        }
+    /// 取不到的项不显示，三项都取不到时整条不出现 —— 不留一条写满「—」的空壳。
+    private var energyReadout: EnergyReadout {
+        #if DEBUG
+        if UIMockVehicle.isEnabled { return UIMockVehicle.energy }
+        #endif
+        return EnergyReadout(
+            // 只显示百分比：接口只给百分比，不给油箱容积。
+            // 早前用 58 L 折算过升数并标了「估算」，但那是猜的容量，
+            // 算出来的数字看着像实测值 —— 没有确切数据就不显示。
+            fuelPercent: StatusFieldCatalog.number(StatusFieldCatalog.fuelLevelPath,
+                                                   from: model.cloudFields),
+            rangeKM: StatusFieldCatalog.number(StatusFieldCatalog.rangePath,
+                                               from: model.cloudFields),
+            batteryVolts: StatusFieldCatalog.number(StatusFieldCatalog.batteryVoltagePath,
+                                                    from: model.cloudFields)
+        )
     }
-
-    /// 只读的一格
-    private func energyCell(icon: String, label: String, value: String,
-                            tint: Color = .primary) -> some View {
-        VStack(spacing: 3) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-
-            Text(value)
-                .font(.system(size: 15, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, minHeight: 50)
-        .contentCard(radius: Glass.controlRadius, elevated: false)
-    }
-
 
     // MARK: - 控车区
 
@@ -1094,23 +1141,26 @@ struct RootView: View {
             //
             // 判定在 `AppModel.activeStatus`：蓝牙**新鲜**（收到过且 60 秒内还在线）
             // 就用蓝牙，否则用云端。俯视图底部会把来源和时间标出来。
-            VehicleTopView(snapshot: active.snapshot,
-                           // 上电 / ACC 只有蓝牙有。蓝牙不活跃时必须传 nil ——
-                           // `measured.status` 车走了也不清空，会把最后一次
-                           // 蓝牙看到的上电状态一直挂在页面上。
-                           status: model.bluetoothStatusIsLive ? model.measured.status : nil,
-                           onOpenKey: {
-                               if model.hasLocalKey { showKeys = true } else { showPairing = true }
-                           },
-                           onOpenCloud: { showCloud = true })
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentCard()
+            if !hideStatusTop {
+                VehicleTopView(snapshot: active.snapshot,
+                               // 上电 / ACC 只有蓝牙有。蓝牙不活跃时必须传 nil ——
+                               // `measured.status` 车走了也不清空，会把最后一次
+                               // 蓝牙看到的上电状态一直挂在页面上。
+                               status: model.bluetoothStatusIsLive ? model.measured.status : nil,
+                               onOpenKey: {
+                                   if model.hasLocalKey { showKeys = true } else { showPairing = true }
+                               },
+                               onOpenCloud: { showCloud = true })
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentCard()
 
-            // 车辆位置：只有云端车况带坐标，纯蓝牙时整卡不出现。
-            // 放在俯视图之后 —— 一个回答"车什么状态"，一个回答"车在哪"。
-            if let coord = active.snapshot?.coordinate {
-                VehicleLocationCard(coordinate: coord, title: vehicleNickname)
+                // 车辆位置：只有云端车况带坐标，纯蓝牙时整卡不出现。
+                // 放在俯视图之后 —— 一个回答"车什么状态"，一个回答"车在哪"。
+                if let coord = active.snapshot?.coordinate {
+                    VehicleLocationCard(coordinate: coord,
+                                        title: VehicleProfile.displayName(custom: vehicleNickname))
+                }
             }
 
             // 靠近解锁：只在功能开启且已标定时出现。
@@ -1170,44 +1220,99 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.15), value: model.statusLine)
     }
 
-    /// 精选字段：白名单里有定义的、且云端确实返回了的
+    /// 精选字段 —— **按语义分组，全部直接展示**。
+    ///
+    /// ★ 2026-11-07 重做分组方式。
+    ///
+    /// 之前只有一刀切：白名单里的平铺，其余全塞进「其他原始字段」折叠区。
+    /// 那是按**代码结构**分组，不是按内容 —— 结果胎压预警、防盗布防这些
+    /// 最该一眼看到的字段被折起来了，而"平均车速"这种看一眼就够的反而常驻。
+    ///
+    /// 现在白名单之外的字段按语义归到同一组里（`StatusFieldCatalog.bucket`）：
+    /// 例如 `drivingSafetyStatus.safetyBeltStatusDriver` 会跟在「安全」组里，
+    /// 而不是躲在折叠区。折叠只留给真正次要的东西（出厂配置、认不出的 key）。
     private var curatedFieldsSection: some View {
         VStack(spacing: Glass.innerSpacing) {
             ForEach(StatusFieldCatalog.sections, id: \.title) { section in
-                let rows = section.specs.compactMap { spec -> (StatusFieldSpec, String)? in
-                    guard let v = StatusFieldCatalog.resolve(spec, from: model.cloudFields)
-                    else { return nil }
-                    return (spec, v)
-                }
+                let rows = fieldRows(for: section)
                 if !rows.isEmpty {
                     fieldSectionCard(title: section.title, rows: rows)
                 }
             }
 
-            leftoverFieldSection
+            foldableSection
         }
     }
 
-    private func fieldSectionCard(title: String,
-                                  rows: [(StatusFieldSpec, String)]) -> some View {
+    /// 一个语义分组里所有要显示的行：白名单精译过的在前，同族的在后。
+    private func fieldRows(for section: (title: String, specs: [StatusFieldSpec])) -> [FieldRow] {
+        var rows: [FieldRow] = section.specs.compactMap { spec -> FieldRow? in
+            guard let v = StatusFieldCatalog.resolve(spec, from: model.cloudFields) else { return nil }
+            return FieldRow(id: spec.path,
+                            title: spec.title,
+                            note: spec.note,
+                            value: v,
+                            tone: valueTone(spec, v),
+                            resolved: true)
+            // 白名单的 `resolve` 已经做过格式化（单位、布尔转中文），
+            // 所以这里 kind 保持默认 .text，不要再转一次。
+        }
+
+        rows += StatusFieldCatalog.extras(for: section.title, from: model.cloudFields).map { f in
+            let m = FieldGlossary.meaning(for: f)
+            return FieldRow(id: f.id,
+                            title: m.title,
+                            note: m.note,
+                            value: f.value,
+                            // 没有语义色规则可用：Extra 字段的取值域未知，
+                            // 按"不知道就中性"处理，不用颜色暗示好坏。
+                            tone: .primary,
+                            resolved: m.resolved,
+                            kind: m.kind)
+        }
+        return rows
+    }
+
+    /// 一行可展示的字段。
+    private struct FieldRow: Identifiable {
+        let id: String
+        let title: String
+        let note: String
+        let value: String
+        let tone: Color
+        /// 中文名是否完整（false 时标「未译」）
+        let resolved: Bool
+        /// 值的语义形态 —— 决定要不要把 1 / 1792403199 翻成人话
+        var kind: FieldGlossary.Meaning.Kind = .text
+    }
+
+    private func fieldSectionCard(title: String, rows: [FieldRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title, count: rows.count)
 
-            ForEach(Array(rows.enumerated()), id: \.element.0.id) { idx, pair in
+            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(pair.0.title)
+                        Text(row.title)
                             .font(Glass.Typo.body)
                             .foregroundStyle(.primary)
+                        if !row.resolved {
+                            Text("未译")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(Glass.Tone.warning)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 0.5)
+                                .background(Glass.Tone.warning.opacity(0.14), in: Capsule())
+                        }
                         Spacer(minLength: 6)
-                        Text(pair.1)
+                        Text(displayValue(row.value, row.kind))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(valueTone(pair.0, pair.1))
+                            .foregroundStyle(row.tone)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                     }
                     // 每项都说明它是什么 —— 少了这句，用户只能靠猜
-                    Text(pair.0.note)
+                    Text(row.note)
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1221,35 +1326,43 @@ struct RootView: View {
         .contentCard(radius: Glass.controlRadius, elevated: false)
     }
 
-    /// 白名单之外的字段，默认收起 —— 真要看原始数据时再展开
-    private var leftoverFieldSection: some View {
-        let rest = StatusFieldCatalog.leftovers(from: model.cloudFields)
+    /// **可折叠的次要字段** —— 这是整个状态页里唯一默认收起的一块。
+    ///
+    /// ## 为什么会折叠的只剩这些
+    /// 上一版把「不在白名单里」等同于「次要」，于是三十多条全被折了起来。
+    /// 但白名单是按"值不值得精译"定的，不是按"该不该展示"定的 ——
+    /// 胎压预警、防盗布防恰恰是最该一眼看到的。
+    ///
+    /// 现在语义明确的分组都直接展开（见 `curatedFieldsSection`），
+    /// 留在这里的只有两类：
+    /// 1. **出厂配置**（`configuration.*`）—— 与日常用车无关，只在核对配置时看
+    /// 2. **认不出的字段** —— 中文名都拼不出来的 key，放正文里只是噪音
+    ///
+    /// 两类都保留完整内容（中文名、值、用途、原始 key），一条都没丢。
+    private var foldableSection: some View {
+        let rest = StatusFieldCatalog.foldables(from: model.cloudFields)
         return Group {
             if !rest.isEmpty {
-                DisclosureGroup {
+                DisclosureGroup(isExpanded: $leftoverExpanded) {
                     VStack(spacing: 0) {
-                        ForEach(Array(rest.enumerated()), id: \.element.id) { idx, f in
-                            HStack(alignment: .top, spacing: 10) {
-                                Text(shortPath(f.path))
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(f.value)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.primary)
-                                    .multilineTextAlignment(.trailing)
-                                    .lineLimit(2)
+                        ForEach(groupedLeftovers(rest), id: \.name) { group in
+                            Text(group.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14)
+                                .padding(.top, 8)
+                                .padding(.bottom, 3)
+
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { idx, f in
+                                leftoverRow(f, zebra: !idx.isMultiple(of: 2))
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 5)
-                            .background(idx.isMultiple(of: 2) ? Color.clear
-                                                               : Glass.zebra(colorScheme))
                         }
                     }
                     .padding(.vertical, 4)
                 } label: {
                     HStack(spacing: 6) {
-                        Text("其他原始字段")
+                        Text("原始与配置字段")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.secondary)
                         Text("\(rest.count)")
@@ -1258,12 +1371,71 @@ struct RootView: View {
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .glassPill()
+                        Spacer(minLength: 0)
+                        Text("系统位 · 出厂参数")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .contentCard(radius: Glass.controlRadius, elevated: false)
             }
+        }
+    }
+
+    /// 折叠区里的一行：中文名 / 原始 key / 用途。
+    private func leftoverRow(_ f: StatusField, zebra: Bool) -> some View {
+        let meaning = FieldGlossary.meaning(for: f)
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(meaning.title)
+                    .font(Glass.Typo.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !meaning.resolved {
+                    Text("未译")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Glass.Tone.warning)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 0.5)
+                        .background(Glass.Tone.warning.opacity(0.14), in: Capsule())
+                }
+                Spacer(minLength: 6)
+                Text(displayValue(f.value, meaning.kind))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Text(meaning.note)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            // 原始 key 放最后一行：排障时要拿它去对接口文档，
+            // 但对日常阅读它是噪音，所以压到最低权重。
+            Text(f.path)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.quaternary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(zebra ? Glass.zebra(colorScheme) : Color.clear)
+    }
+
+    /// 按 `group`（摊平时保留了第一层 key）分组，顺序按字段表里首次出现的顺序。
+    private func groupedLeftovers(_ rest: [StatusField])
+        -> [(name: String, title: String, items: [StatusField])] {
+        var order: [String] = []
+        var map: [String: [StatusField]] = [:]
+        for f in rest {
+            if map[f.group] == nil { order.append(f.group) }
+            map[f.group, default: []].append(f)
+        }
+        return order.map { key in
+            (name: key, title: FieldGlossary.groupTitle(key), items: map[key] ?? [])
         }
     }
 
@@ -1286,6 +1458,43 @@ struct RootView: View {
     }
 
     /// 异常值上色：胎压报警、未锁、门窗开这些要跳出来
+    /// 把**原始值**翻成人话。
+    ///
+    /// 和「把字段名翻成中文」同等重要：`副驾车门锁状态 = 1` 与
+    /// `副驾车门锁状态 = 已锁` 是两种完全不同的可读性。
+    /// 转换规则来自 `FieldGlossary.Meaning.Kind`，不在这里猜字段名。
+    private func displayValue(_ raw: String, _ kind: FieldGlossary.Meaning.Kind) -> String {
+        let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
+
+        switch kind {
+        case .flag(let on, let off):
+            if ["1", "true", "yes", "on"].contains(v) { return on }
+            if ["0", "false", "no", "off"].contains(v) { return off }
+            // 枚举字符串（如 engine_on）原样返回 —— 硬套会造出假信息
+            return raw
+
+        case .timestamp:
+            guard let n = Double(v), n > 0 else { return raw }
+            // 13 位是毫秒。用 3×10¹⁰ 作分界：10 位秒级到 2286 年才到这个量级。
+            let seconds = n > 3e10 ? n / 1000 : n
+            let date = Date(timeIntervalSince1970: seconds)
+            // 车端时钟经常是错的（1970、2100 之类），离谱的时间不如显示原值
+            let age = date.timeIntervalSinceNow
+            guard age < 3 * 366 * 24 * 3600, age > -10 * 366 * 24 * 3600 else { return raw }
+            return Self.stampFormatter.string(from: date)
+
+        case .number, .text:
+            return raw
+        }
+    }
+
+    private static let stampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
     private func valueTone(_ spec: StatusFieldSpec, _ value: String) -> Color {
         let alarming = ["报警", "未锁", "开", "告警", "未布防"]
         if alarming.contains(value) { return .orange }
@@ -1295,12 +1504,6 @@ struct RootView: View {
         }
     }
 
-    /// 路径太长会挤掉值，只保留最后两段
-    private func shortPath(_ path: String) -> String {
-        let parts = path.split(separator: ".")
-        guard parts.count > 2 else { return path }
-        return parts.suffix(2).joined(separator: ".")
-    }
     private func alertCard(icon: String, color: Color, title: String, detail: String) -> some View {
         Button {
             if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -1410,7 +1613,14 @@ struct RootView: View {
         // `ClosedRange(lowerBound:upperBound:)` 会直接 fatalError ——
         // 不是"显示错"，是崩在渲染里。概率极低但那是必现的一帧。
         let now = Date()
-        if let end = model.unlockWindowEndsAt, end > now {
+        // 优先显示**点火窗口**（用户点的就是它，5 分钟），
+        // 没有点火窗口时才退回解锁授权窗口（2 分钟）。
+        //
+        // 原来只读 `unlockWindowEndsAt` —— 而 `startIgnitionWindow()` 设的是
+        // `ignitionWindowEndsAt`，两者不是一回事。结果是：点了点火之后，
+        // 只要解锁授权还没刷新完，这一行就一直是「预授权」不变，
+        // 用户完全看不出刚才那一下有没有生效。
+        if let end = model.ignitionWindowEndsAt ?? model.unlockWindowEndsAt, end > now {
             HStack(spacing: 2) {
                 Text("剩")
                 Text(timerInterval: now...end, countsDown: true)

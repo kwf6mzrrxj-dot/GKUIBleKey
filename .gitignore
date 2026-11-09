@@ -3,6 +3,8 @@
 
 # Xcode / DerivedData
 DerivedData/
+# 模拟器用的派生数据（本轮新增，和 DerivedData/ 一样不该入库）
+DerivedData-sim/
 build/
 # ★ 手表端构建用的派生数据目录（2026-10-30 审查发现它被误入库）
 #   用通配符覆盖所有 build-watch* 变体 —— 之前只写了 build-watch/，
@@ -14,6 +16,11 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# ★ 高德 Web 服务 key（2026-11-07）
+#   本仓库是公开的，key 一旦入库就等于公开 —— 会被别人刷额度。
+#   模板见 Resources/amap-key.example.txt，实际值放 amap-key.txt。
+Resources/amap-key.txt
 
 # 签名与本地敏感信息
 *.mobileprovision

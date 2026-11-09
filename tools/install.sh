@@ -41,25 +41,32 @@ dim()  { printf "\033[2m%s\033[0m\n" "$*"; }
 # ── 1. 设备 ────────────────────────────────────────────────────────────
 
 dim "▸ 检查设备 $DEVICE"
-STATE=$(xcrun devicectl list devices 2>/dev/null | awk -v id="$DEVICE" '$0 ~ id {print $3" "$4}')
-if [ -z "$STATE" ]; then
+# ★ 不要用 `awk '{print $3" "$4}'` 取列（2026-11-07 修）。
+#
+# `devicectl list devices` 的 Hostname 列经常是**空**的，此时整行少一列，
+# $3/$4 就落到 "(UDID) connected" 上 —— 里面不含 available，
+# 于是手机明明连着也被判成"不可用"。改成在整行里抓状态词，与列数无关。
+DEVLINE=$(xcrun devicectl list devices 2>/dev/null | grep -F "$DEVICE" | head -1)
+if [ -z "$DEVLINE" ]; then
   red "✗ 找不到这台设备。手机是否插过这台 Mac 并信任过？"
   exit 1
 fi
-# 注意用 -w 整词匹配：unavailable 里也含 available，普通 grep 会误判
-if ! echo "$STATE" | grep -qw "available"; then
-  red "✗ 设备当前不可用（${STATE}）"
-  dim "  常见原因：手机锁屏 / 没插 USB / 不在同一 WiFi。"
-  dim "  ● 锁屏也会报 CoreDeviceError 4016，先解锁再看。"
-  if [ "$BUILD_ONLY" -eq 0 ]; then
-    dim "  只想先出包，可以加 --build-only。"
-    exit 1
-  fi
-  ylw "  → 继续构建，不安装。"
-  BUILD_ONLY=1
-else
-  grn "✓ 设备可用"
-fi
+STATE=$(echo "$DEVLINE" | grep -oE 'available \(paired\)|unavailable|available|connected|disconnected|shutdown|booted' | head -1)
+STATE="${STATE:-未知}"
+case "$STATE" in
+  available*|connected) grn "✓ 设备可用（${STATE}）" ;;
+  *)
+    red "✗ 设备当前不可用（${STATE}）"
+    dim "  常见原因：手机锁屏 / 没插 USB / 不在同一 WiFi。"
+    dim "  ● 锁屏也会报 CoreDeviceError 4016，先解锁再看。"
+    if [ "$BUILD_ONLY" -eq 0 ]; then
+      dim "  只想先出包，可以加 --build-only。"
+      exit 1
+    fi
+    ylw "  → 继续构建，不安装。"
+    BUILD_ONLY=1
+    ;;
+esac
 
 # ── 2. 签名 ────────────────────────────────────────────────────────────
 

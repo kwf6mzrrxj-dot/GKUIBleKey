@@ -15,8 +15,33 @@ public enum VehicleProfile {
     /// UserDefaults 键（用 `@AppStorage` 读写，SwiftUI 会自动刷新）
     public static let nicknameKey = "vehicle.nickname"
 
-    /// 默认爱称 —— 未设置时显示
+    /// 默认爱称 —— 未设置时的**存储值**。
+    ///
+    /// ⚠️ 它不等于"界面上要显示的字"。展示请一律走 `displayName(custom:)`：
+    /// 「爱车」是占位词，不是信息，界面上不该出现（见那个方法的说明）。
     public static let defaultNickname = "爱车"
+
+    /// 车型名。没自定义昵称时它就是标题。
+    public static let defaultModelName = "博越 PRO"
+
+    /// 界面上该显示的车名。
+    ///
+    /// 改过昵称 → 昵称；没改过 → 车型名。
+    ///
+    /// 为什么不让「爱车」出现在界面上：它是一句同义反复 ——
+    /// 这台手机只连这一台车，用户不需要被提示"这是你的车"。
+    /// 顶栏那一行是屏幕里最贵的位置，应该给真实信息（车型，或者用户起的名字）。
+    public static func displayName(custom: String?) -> String {
+        let trimmed = (custom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != defaultNickname else { return defaultModelName }
+        return trimmed
+    }
+
+    /// 用户是否真的改过昵称。等于默认值（或空串）都算"没改"。
+    public static func hasCustomName(_ custom: String?) -> Bool {
+        let trimmed = (custom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed != defaultNickname
+    }
 
     /// 爱称最大长度。
     /// 主界面用小字显示（`.subheadline`），超过这个长度在 4.7 寸屏上会换行挤掉车图。

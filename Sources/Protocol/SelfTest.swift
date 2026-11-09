@@ -37,6 +37,7 @@ public enum SelfTest {
             testPassiveStartJudge(),
             testPassiveStartLeaveDebounce(),
             testErrorCodeTable(),
+            testFieldGlossary(),
             testProximityUnlockHysteresis(),
             testCoordinateTransform(),
             testMicroDegreeDecode(),
@@ -630,6 +631,45 @@ public enum SelfTest {
     // MARK: - ★ 错误码表
 
     /// 验证错误码表已装载，且 `04` 结果码只对 `0x00` 给"成功"。
+    /// 字段词表：① 没有重复 token ② 典型字段能拼出预期中文名。
+    ///
+    /// 为什么值得单独测：`FieldGlossary` 是纯字符串规则，
+    /// 改一行词条可能让几十个字段的译名一起变 —— 而这些字段分散在
+    /// 状态页各分组里，靠肉眼逐个核对不现实。
+    static func testFieldGlossary() -> Result {
+        let duplicates = FieldGlossary.duplicateTokens
+        guard duplicates.isEmpty else {
+            return Result(name: "字段词表 · 无重复", passed: false,
+                          detail: "重复词条：\(duplicates.joined(separator: ", "))")
+        }
+
+        // 三类典型结构各取一条：位置+对象+属性、纯对象、修饰+对象+对象
+        let cases: [(path: String, expected: String)] = [
+            ("additionalVehicleStatus.drivingSafetyStatus.tyrePreWarningDriverRear",
+             "左后轮胎预警"),
+            ("basicVehicleStatus.vehicleSpeed", "车速"),
+            ("additionalVehicleStatus.runningStatus.aveFuelConsumption", "平均燃油消耗"),
+            ("additionalVehicleStatus.drivingSafetyStatus.engineHoodOpenStatus",
+             "引擎盖开关状态")
+        ]
+
+        var failures: [String] = []
+        for c in cases {
+            let field = StatusField(id: c.path, group: "additionalVehicleStatus",
+                                    path: c.path, value: "1")
+            let title = FieldGlossary.meaning(for: field).title
+            if title != c.expected {
+                failures.append("\(c.path.split(separator: ".").last ?? "") → \(title)（期望 \(c.expected)）")
+            }
+        }
+
+        return Result(name: "字段词表 · 译名",
+                      passed: failures.isEmpty,
+                      detail: failures.isEmpty
+                          ? "4 个典型字段译名正确"
+                          : failures.joined(separator: "；"))
+    }
+
     static func testErrorCodeTable() -> Result {
         let sdk = ErrorCodeTable.message(for: 40001)          // 控车指令重发次数已满
         let biz = ErrorCodeTable.message(for: 2015)           // 钥匙在车内

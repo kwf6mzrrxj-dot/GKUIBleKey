@@ -142,7 +142,10 @@ struct PairingView: View {
                     .transition(.opacity)
             } else {
                 // 配对进行中 → 车灯闪烁
-                CarModelView(snapshot: nil, stage: .pairing)
+                // 显式传高度：`CarModelView` 的默认值是 178（车控页用），
+                // 配对页是"整屏一张车图"，需要 220 —— 不传的话车图会小一圈，
+                // 而且外层 `.frame(maxHeight: 240)` 救不回来（内层已经定死高度）。
+                CarModelView(snapshot: nil, stage: .pairing, carHeight: 220)
                     .frame(maxHeight: 240)
             }
             Spacer(minLength: 0)
